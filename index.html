@@ -1,0 +1,1494 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>ELARABY Supplier Portal</title>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script>
+function logoutUser(){
+ auth.signOut();
+ hideAll();
+ login.classList.remove("hide");
+ loginPhone.value="";
+ loginPass.value="";
+ currentRole="supplier";
+ dataLoaded = false; 
+}
+
+window.addEventListener("popstate", function(event) {
+    if(document.getElementById("popupBox").style.display === "flex") {
+        closePopup();
+    } else if(document.getElementById("adminPanel").style.display === "block") {
+        closeAdmin();
+    }
+});
+</script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+<style>
+body {font-family:tahoma;background:#f3f6fb;margin:0;padding:15px}
+.container {max-width:1000px;margin:auto}
+.auth-card {max-width:420px;margin:0 auto;} 
+
+.card {background:#fff;padding:12px;border-radius:15px;margin:8px 0;box-shadow:0 2px 8px rgba(0,0,0,0.06)}
+input,button {width:100%;padding:12px;margin:6px 0;border-radius:8px;box-sizing:border-box; font-family:tahoma;}
+input {border:1px solid #ccc}
+button {background:#075bb5;color:#fff;border:0;cursor:pointer; font-weight:bold;}
+.hide {display:none}
+
+.login-header {text-align:center; margin-bottom:15px;}
+.gate-icon {font-size: 70px; line-height: 1.1; margin-bottom: 5px; text-shadow: 2px 5px 15px rgba(0,0,0,0.2);}
+.app-title {font-size: 18px; font-weight: bold; color: #075bb5;}
+
+.header {background:#075bb5;color:#fff;padding:12px 15px;border-radius:15px;line-height:1.4; position: relative; display: flex; justify-content: space-between; align-items: flex-start;}
+
+.header-actions-left {display: flex; flex-direction: column; gap: 8px; align-items: flex-end; width: 35%;}
+.top-icons-row {display: flex; gap: 8px; flex-direction: row-reverse;}
+
+.icon-btn {width: 38px; height: 38px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 5px rgba(0,0,0,0.15); font-size: 18px; transition: transform 0.2s; position: relative; color:#075bb5;}
+.icon-btn:hover {transform: scale(1.08);}
+
+.exit-container {display:flex; flex-direction:column; align-items:center; cursor:pointer; color:#fff;}
+.exit-icon-circle {width:38px; height:38px; border-radius:50%; background:#d9534f; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 5px rgba(0,0,0,0.2); font-size:22px;}
+.exit-text {font-size:10px; font-weight:bold; margin-top:2px; letter-spacing:1px;}
+
+.msg-btn {color: #f0ad4e;}
+.msg-badge {position: absolute; top: -3px; right: -3px; background: #dc3545; color: white; border-radius: 50%; padding: 2px 5px; font-size: 10px; font-weight: bold; display: none; box-shadow: 0 1px 3px rgba(0,0,0,0.3);}
+
+.provider-info-right {flex: 1; padding-left: 5px;}
+.portal-title {font-size: 14px; font-weight: bold; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+.provider-details {font-size: 12px; opacity: 0.9;}
+
+.grid {display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top:10px;} 
+.stat {aspect-ratio: auto; min-height: 80px; padding: 10px; display:flex; flex-direction:column; justify-content:center; align-items:center; cursor:pointer; transition:transform 0.2s;}
+.stat:hover {transform: translateY(-2px);}
+.stat div:first-child {font-size:15px; margin-bottom:4px; font-weight:bold;}
+.num {font-size:28px;color:#075bb5;font-weight:bold;margin-top:2px;}
+
+#globalFilter {padding:14px; margin-top:15px; text-align:center; background:#fff; border-radius:18px; box-shadow:0 3px 10px rgba(0,0,0,0.08);}
+#globalFilter h3 {font-size:16px; margin:0 0 12px 0; color:#333;}
+.filter-row {display:flex; gap:10px; margin-bottom:10px;}
+.filter-row input {flex:1; height:45px; padding:10px; margin:0; font-size:14px; border-radius:10px; border:1px solid #ddd;}
+.filter-actions {display:flex; gap:10px;}
+.filter-actions button {flex:1; height:45px; margin:0; font-size:14px; border-radius:10px;}
+.btn-clear {background:#dc3545 !important; color:#fff;}
+
+.popup-box {display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:#f3f6fb; z-index:9999; padding:10px; box-sizing:border-box; overflow-y:auto;}
+#popupBox {background:#fff; display:flex; flex-direction:column; border-radius:12px;}
+#popupResult {flex:1; overflow-y:auto; padding:5px;}
+
+#customAlert {display:none; position:fixed; top:30%; left:5%; right:5%; max-width:350px; margin:auto; background:#fff; z-index:99999; border-radius:15px; padding:20px; box-shadow:0 10px 30px rgba(0,0,0,0.5); text-align:center;}
+#customAlertOverlay {display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.6); z-index:99998;}
+
+#loadingOverlay {display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(255,255,255,0.9); z-index:999999; justify-content:center; align-items:center; flex-direction:column;}
+.spinner {border: 4px solid #f3f3f3; border-top: 4px solid #075bb5; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite;}
+@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+.file-list { margin-top: 10px; text-align: right; }
+.file-item { background: #f8f9fb; padding: 8px; border-radius: 6px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #eee; font-size: 13px;}
+.file-item .file-info { display: flex; flex-direction: column; }
+.file-item .file-date { font-size: 10px; color: #777; margin-top: 2px; }
+.delete-btn { background: #dc3545; color: white; border: none; border-radius: 4px; padding: 4px 8px; cursor: pointer; width: auto; margin: 0; font-size:12px;}
+
+.detail-card { background: #fdfdfd; padding: 12px; border-radius: 10px; margin: 8px 0; border: 1px solid #e0e0e0; box-shadow: 0 1px 3px rgba(0,0,0,0.03); position: relative;}
+.detail-card summary { font-size: 14px; font-weight: bold; color: #075bb5; cursor: pointer; outline: none; list-style: none; display: flex; align-items: center; }
+.detail-card summary::-webkit-details-marker { display: none; }
+.detail-card summary::after { content: "▼"; margin-right: auto; font-size: 11px; color: #999; transition: transform 0.3s; padding-right:8px; }
+.detail-card[open] summary::after { transform: rotate(180deg); color: #075bb5; }
+.detail-body { margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee; font-size: 13px; line-height: 1.6; color: #444; }
+.detail-body div.info-row { border-bottom: 1px dashed #f0f0f0; padding-bottom: 4px; margin-bottom: 4px; }
+.detail-body div.info-row:last-child { border-bottom: none; }
+
+.serial-badge {color: white; padding: 1px 6px; border-radius: 6px; font-size: 11px; margin-left: 6px; font-weight: bold;}
+.serial-success {background: #198754;}
+.serial-fail {background: #dc3545;}
+.serial-default {background: #6c757d;}
+
+.footer-info {text-align:center; margin-top:15px; margin-bottom:5px; font-size:12px; color:#666; line-height:1.5; border-top:1px dashed #ddd; padding-top:10px;}
+.checkbox-label {display:flex; align-items:center; gap:8px; font-size:12px; color:#333; margin-top:4px; cursor:pointer;}
+.checkbox-label input {width:auto; margin:0;}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+
+<body>
+<div id="loadingOverlay">
+    <div class="spinner"></div>
+    <h3 style="color:#075bb5; font-size:14px; margin-top:10px;">جاري تحميل البيانات...</h3>
+</div>
+
+<div class="container">
+
+<div id="customAlertOverlay"></div>
+<div id="customAlert">
+  <h3 id="alertMsg" style="color:#075bb5; margin-bottom:15px; font-size: 14px; line-height: 1.4;"></h3>
+  <button id="alertBtn" style="background:#28a745; width:40%; padding:8px; margin:auto; display:block;">موافق</button>
+</div>
+
+<!-- صفحة تسجيل الدخول -->
+<div id="login" class="auth-card">
+    <div class="card">
+        <div class="login-header">
+            <div class="gate-icon">🚍</div>
+            <div class="app-title">ELARABY Supplier Portal</div>
+        </div>
+        <input id="loginPhone" type="text" placeholder="الإيميل أو رقم الهاتف المحمول">
+        <div style="position:relative">
+            <input id="loginPass" type="password" placeholder="كلمة المرور">
+            <span style="position:absolute;left:15px;top:18px;cursor:pointer" onclick="toggle('loginPass')">👁</span>
+        </div>
+        <button id="loginBtnTrigger" onclick="loginUser()">دخول</button>
+        <a href="#" onclick="handleForgotPassword()" style="display:block;text-align:center;color:#075bb5;margin:8px; font-size:13px;">نسيت كلمة المرور؟</a>
+        <button onclick="showRegister()" style="background:#6c757d;">إنشاء حساب جديد</button>
+    </div>
+
+    <div class="footer-info">
+        <b>اعداد وتنفيذ ا/محمد فوزى</b><br>
+        تخطيط اسطول السيارات<br>
+        الميل: <a href="mailto:mnasse01@elarabygroup.com" style="color:#075bb5; text-decoration:none;">mnasse01@elarabygroup.com</a>
+    </div>
+</div>
+
+<div id="register" class="card hide auth-card">
+    <div class="login-header">
+        <div class="app-title">إنشاء حساب مورد</div>
+    </div>
+    <input id="officeName" placeholder="اسم المكتب">
+    <input id="ownerName" placeholder="اسم المورد">
+    <input id="sapNumber" placeholder="رقم ساب المورد">
+    <input id="regPhone" type="text" placeholder="رقم الهاتف المحمول (أساسي للدخول)">
+    
+    <input id="regEmail" type="email" placeholder="البريد الإلكتروني (اختياري)">
+    <label class="checkbox-label">
+        <input type="checkbox" id="emailHelpCheck" checked>
+        <span>إدخال إيميل صحيح يساعدك في استرجاع كلمة المرور ذاتياً عند نسيانها</span>
+    </label>
+    
+    <div style="position:relative; margin-top:6px;">
+        <input id="regPass" type="password" placeholder="كلمة المرور">
+        <span style="position:absolute;left:15px;top:18px;cursor:pointer" onclick="toggle('regPass')">👁</span>
+    </div>
+    <button onclick="registerUser()">تسجيل الحساب</button>
+    <button onclick="showLogin()" style="background:#777; margin-top:8px;">العودة لتسجيل الدخول</button>
+</div>
+
+<div id="dash" class="hide">
+
+<div class="header" id="mainHeader">
+    <div class="provider-info-right">
+        <div class="portal-title">ELARABY Supplier Portal</div>
+        <div class="provider-details">
+            <span id="showOwner"></span><br>
+            <span id="showOffice"></span><br>
+            <span id="showRole" style="font-size:10px;"></span>
+        </div>
+    </div>
+
+    <div class="header-actions-left">
+        <div class="top-icons-row">
+            <div class="exit-container" onclick="logoutUser()" title="تسجيل الخروج">
+                <div class="exit-icon-circle">⍈</div>
+                <div class="exit-text">Exit</div>
+            </div>
+            
+            <div class="icon-btn msg-btn" onclick="openMessagesPanel()" title="الرسائل" id="msgIconContainer" style="margin-top:2px;">
+                ✉️<span id="msgBadge" class="msg-badge">0</span>
+            </div>
+            
+            <div class="icon-btn" onclick="refreshData()" title="تحديث البيانات" style="margin-top:2px; color:#17a2b8;">
+                🔄
+            </div>
+        </div>
+        <button id="adminBtn" class="hide" onclick="openAdmin()" style="background:#fff; color:#075bb5; padding:4px 10px; font-size:11px; border-radius:6px; box-shadow:0 2px 4px rgba(0,0,0,0.1); margin:0; width:100%;">⚙️ إدارة البيانات</button>
+    </div>
+</div>
+
+<div class="grid">
+<div class="card stat" onclick="openPanel('السيارات')">
+<div>🚛 السيارات</div>
+<div class="num">0</div>
+</div>
+
+<div class="card stat" onclick="openPanel('الأداء')">
+<div>📊 الأداء</div>
+<div class="num">0%</div>
+</div>
+
+<div class="card stat" onclick="openPanel('رحلات ناجحة')">
+<div>🟢 رحلات ناجحة</div>
+<div class="num">0</div>
+</div>
+
+<div class="card stat" onclick="openPanel('رحلات فاشلة')">
+<div>🔴 رحلات فاشلة</div>
+<div class="num">0</div>
+</div>
+</div>
+
+<div id="globalFilter">
+    <h3>فترة البحث والإحصائيات</h3>
+    <div class="filter-row">
+      <input type="date" id="globalFromDate">
+      <input type="date" id="globalToDate">
+    </div>
+    <div class="filter-actions">
+      <button onclick="applyGlobalFilter()">عرض الفترة</button>
+      <button class="btn-clear" onclick="clearFilter()">إلغاء الفلترة</button>
+    </div>
+</div>
+
+</div>
+
+<script>
+const firebaseConfig={
+apiKey:"AIzaSyDXZZWaoyFVKUl1y-YV7C8Fm8NwhLQTC3E",
+authDomain:"elaraby-supplier-portal.firebaseapp.com",
+projectId:"elaraby-supplier-portal",
+storageBucket:"elaraby-supplier-portal.firebasestorage.app",
+messagingSenderId:"750424180328",
+appId:"1:750424180328:web:44511a696ba43923249ddd"
+};
+
+firebase.initializeApp(firebaseConfig);
+const auth=firebase.auth();
+const db=firebase.firestore();
+let currentRole="supplier";
+
+let globalVehicles = [];
+let globalTrips = [];
+let globalMessages = [];
+let globalReadMessages = [];
+let globalSupplierDataMap = new Map();
+let currentUserName = ""; 
+let dataLoaded = false;
+
+// التحديث الإجباري عند السحب أو الضغط على الزر
+async function refreshData() {
+    dataLoaded = false;
+    await loadSupplierData();
+    if (activePanel && document.getElementById("popupBox").style.display === "flex") {
+        showData();
+    }
+}
+
+// السحب لأسفل لتحديث الصفحة
+let touchstartY = 0;
+document.addEventListener('touchstart', e => {
+    if (window.scrollY === 0) touchstartY = e.changedTouches[0].screenY;
+}, {passive: true});
+
+document.addEventListener('touchend', e => {
+    if (window.scrollY === 0) {
+        let touchendY = e.changedTouches[0].screenY;
+        if (touchendY > touchstartY + 120 && dash.classList.contains("hide") === false) {
+            refreshData();
+        }
+    }
+});
+
+function phoneToAuthEmail(phone) {
+    let clean = String(phone || "").trim().replace(/[^0-9]/g, "");
+    return clean + "@elaraby.local";
+}
+
+function hideAll(){
+login.classList.add("hide");
+register.classList.add("hide");
+dash.classList.add("hide");
+}
+
+function showRegister(){
+hideAll();
+register.classList.remove("hide");
+}
+
+function showLogin(){
+hideAll();
+login.classList.remove("hide");
+}
+
+function toggle(id){
+let x=document.getElementById(id);
+x.type=x.type==="password"?"text":"password";
+}
+
+function showAlert(message, callback) {
+    document.getElementById("alertMsg").innerText = message;
+    document.getElementById("customAlertOverlay").style.display = "block";
+    document.getElementById("customAlert").style.display = "block";
+    
+    document.getElementById("alertBtn").onclick = function() {
+        document.getElementById("customAlertOverlay").style.display = "none";
+        document.getElementById("customAlert").style.display = "none";
+        if (callback && typeof callback === "function") {
+            callback();
+        }
+    };
+}
+
+async function wipeAllData() {
+    if(!confirm("⚠️ تحذير خطير: هل أنت متأكد من مسح كافة بيانات السيارات والرحلات والملفات المرفوعة نهائياً؟ هذا الإجراء سيقوم بتصفير قاعدة البيانات ولا يمكن التراجع عنه!")) return;
+    
+    let pwd = prompt("لتأكيد المسح الشامل، اكتب كلمة 'مسح':");
+    if (pwd !== "مسح") {
+        showAlert("تم إلغاء عملية المسح.");
+        return;
+    }
+    
+    document.getElementById("adminResult").innerHTML = "⏳ جاري المسح الشامل... الرجاء الانتظار وعدم إغلاق الصفحة.";
+    
+    try {
+        const collectionsToWipe = ["vehicles", "trips", "uploadedFiles"];
+        
+        for (let col of collectionsToWipe) {
+            const snap = await db.collection(col).get();
+            let batches = [];
+            let currentBatch = db.batch();
+            let count = 0;
+            
+            snap.docs.forEach((doc) => {
+                if (col === "uploadedFiles" && doc.id === "GLOBAL_MESSAGES") return; 
+                
+                currentBatch.delete(doc.ref);
+                count++;
+                
+                if (count === 450) {
+                    batches.push(currentBatch);
+                    currentBatch = db.batch();
+                    count = 0;
+                }
+            });
+            
+            if (count > 0) batches.push(currentBatch);
+            
+            for (let batch of batches) {
+                await batch.commit();
+            }
+        }
+        
+        globalVehicles = [];
+        globalTrips = [];
+        dataLoaded = false;
+        loadUploadedFiles();
+        
+        document.getElementById("adminResult").innerHTML = "✅ تم مسح جميع البيانات بنجاح. النظام الآن فارغ وجاهز لرفع الملفات الجديدة.";
+        showAlert("تم تصفير النظام بالكامل. يمكنك الآن رفع الملفات الجديدة بأمان.");
+        
+    } catch(e) {
+        document.getElementById("adminResult").innerHTML = "❌ خطأ أثناء المسح: " + e.message;
+    }
+}
+
+async function handleForgotPassword() {
+    let phoneInput = prompt("أدخل رقم هاتفك المسجل لاسترجاع كلمة المرور:");
+    if (!phoneInput) return;
+    
+    let cleanPhone = phoneInput.trim().replace(/[^0-9]/g, "");
+    if (!cleanPhone) {
+        showAlert("يرجى إدخال رقم هاتف صحيح.");
+        return;
+    }
+
+    try {
+        await db.collection("uploadedFiles").doc("PASSWORD_RESET_REQUESTS").set({
+            requests: firebase.firestore.FieldValue.arrayUnion({
+                phone: cleanPhone,
+                date: new Date().toISOString()
+            })
+        }, { merge: true });
+    } catch(err) {
+    }
+
+    showAlert("تم استلام طلبك. يرجى التواصل مع مسؤول الأسطول وتزويده برقم هاتفك (" + cleanPhone + ") لإعطائك كلمة المرور الجديدة مباشرة.");
+}
+
+async function registerUser(){
+let office = officeName.value.trim();
+let owner = ownerName.value.trim();
+let sap = sapNumber.value.trim();
+let phone = regPhone.value.trim().replace(/[^0-9]/g, "");
+let email = regEmail.value.trim().toLowerCase();
+let pass = regPass.value;
+
+if(!phone || !pass || !sap) {
+    showAlert("الرجاء إدخال رقم الهاتف، رقم ساب، وكلمة المرور.");
+    return;
+}
+
+if (phone.length < 10) {
+    showAlert("يرجى إدخال رقم هاتف محمول صحيح.");
+    return;
+}
+
+let authEmail = phoneToAuthEmail(phone);
+
+try{
+let user = await auth.createUserWithEmailAndPassword(authEmail, pass);
+await db.collection("suppliers").doc(user.user.uid).set({
+    officeName: office,
+    ownerName: owner,
+    sapNumber: sap,
+    phone: phone,
+    recoveryEmail: email, 
+    authEmail: authEmail,
+    readMessages: [],
+    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+});
+
+showAlert("تم إنشاء الحساب بنجاح! يمكنك الآن تسجيل الدخول برقم هاتفك.", function(){
+    showLogin();
+});
+
+}catch(e){
+if(e.code==="auth/email-already-in-use") showAlert("عفواً، رقم الهاتف هذا مسجل به حساب بالفعل.");
+else showAlert("حدث خطأ: " + e.message);
+}
+}
+
+async function loginUser(){
+let btn = document.getElementById("loginBtnTrigger");
+btn.innerText = "جاري التحميل...";
+btn.disabled = true;
+
+let phone = loginPhone.value.trim();
+let authEmail = phone.includes("@") ? phone.toLowerCase() : phoneToAuthEmail(phone);
+
+try{
+let user = await auth.signInWithEmailAndPassword(authEmail, loginPass.value);
+
+let roleDoc = await db.collection("users").doc(user.user.uid).get();
+if(roleDoc.exists && roleDoc.data().role === "admin"){
+ currentRole="admin";
+}else{
+ currentRole="supplier";
+}
+
+try{
+let userCol = currentRole === "admin" ? "users" : "suppliers";
+let data = await db.collection(userCol).doc(user.user.uid).get();
+if(data.exists){
+    if(currentRole === "supplier"){
+        document.getElementById("showOwner").innerHTML="المورد: "+ (data.data().ownerName || "غير مسجل");
+        document.getElementById("showOffice").innerHTML="المكتب: "+ (data.data().officeName || "غير مسجل");
+    } else {
+        currentUserName = data.data().ownerName || "الإدارة";
+        document.getElementById("showOwner").innerHTML="أدمن: "+currentUserName;
+        document.getElementById("showOffice").innerHTML="المكتب: الإدارة";
+    }
+}else{
+document.getElementById("showOwner").innerHTML="بيانات الحساب غير مكتملة";
+document.getElementById("showOffice").innerHTML="";
+}
+}catch(err){
+document.getElementById("showOwner").innerHTML="تم الدخول";
+document.getElementById("showOffice").innerHTML="";
+}
+
+if(currentRole==="admin"){
+ document.getElementById("adminBtn").classList.remove("hide");
+ document.getElementById("showRole").innerHTML="الصلاحية: Admin";
+}else{
+ document.getElementById("adminBtn").classList.add("hide");
+ document.getElementById("showRole").innerHTML="الصلاحية: Supplier";
+}
+
+hideAll();
+dash.classList.remove("hide");
+loadSupplierData();
+
+btn.innerText = "دخول";
+btn.disabled = false;
+
+}catch(e){
+btn.innerText = "دخول";
+btn.disabled = false;
+if(e.code==="auth/user-not-found" || e.code==="auth/wrong-password" || e.code==="auth/invalid-credential"){
+ showAlert("حدث خطأ: تأكد من صحة الحساب وكلمة المرور.");
+}else{
+ showAlert("حدث خطأ: " + e.message);
+}
+}
+}
+
+function openAdmin(){
+ document.getElementById("adminPanel").style.display="block";
+ history.pushState(null, null, "#admin");
+ loadUploadedFiles(); 
+}
+
+function closeAdmin(){
+ document.getElementById("adminPanel").style.display="none";
+ if(!dataLoaded) {
+     loadSupplierData();
+ }
+}
+
+vehiclesFile.onchange=function(){
+ if(this.files.length){
+  document.getElementById("adminResult").innerHTML="تم اختيار ملف السيارات: "+this.files[0].name;
+ }
+};
+
+tripsFile.onchange=function(){
+ if(this.files.length){
+  document.getElementById("adminResult").innerHTML="تم اختيار ملف الرحلات: "+this.files[0].name;
+ }
+};
+</script>
+
+<div id="adminPanel" class="popup-box">
+<div class="card container">
+<h3 style="color:#075bb5; font-size:16px;">⚙️ لوحة إدارة البيانات</h3>
+
+<div style="background:#fdfdfd; padding:12px; border-radius:10px; border:1px solid #cce5ff; margin-bottom:15px;">
+    <h4 style="margin:0 0 8px 0; font-size:14px; color:#004085;">🔑 إدارة حسابات وكلمات سر الموردين</h4>
+    <div style="display:flex; gap:6px; margin-bottom:8px;">
+        <input type="text" id="adminSupplierSearchInput" placeholder="ابحث برقم الهاتف، ساب، الاسم..." style="margin:0; padding:8px; font-size:12px; flex:1;">
+        <button onclick="searchSupplierForPasswordReset()" style="margin:0; width:auto; padding:8px 12px; font-size:12px;">بحث</button>
+    </div>
+    <div id="supplierSearchResult" style="font-size:12px; color:#333;"></div>
+</div>
+
+<p style="font-weight:bold; margin-bottom:5px; font-size:13px;">رفع ملف السيارات</p>
+<input type="file" id="vehiclesFile" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
+<button onclick="safeUploadTest('vehiclesFile','ملف السيارات')">📤 رفع بيانات السيارات</button>
+
+<hr style="margin: 12px 0; border:0; border-top:1px solid #ddd;">
+
+<p style="font-weight:bold; margin-bottom:5px; font-size:13px;">رفع ملف الرحلات</p>
+<p style="font-size: 11px; color: #dc3545; margin-top: 0; font-weight: bold;">⚠️ تنبيه: يجب رفع ملف السيارات أولاً لضمان مطابقة بيانات الموردين للرحلات.</p>
+<input type="file" id="tripsFile" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
+<button onclick="safeUploadTest('tripsFile','ملف الرحلات')">📤 رفع بيانات الرحلات</button>
+<div id="adminResult" style="margin-top: 10px; font-weight: bold; font-size:12px; color: #075bb5; background:#e9f5ff; padding:8px; border-radius:5px; text-align:center;">لا توجد عمليات جارية</div>
+
+<hr style="margin: 15px 0; border:0; border-top:1px solid #ddd;">
+
+<h4 style="margin-bottom: 8px; font-size:14px; color: #333;">✉️ إرسال رسالة عامة للموردين</h4>
+<textarea id="adminMsgInput" placeholder="اكتب رسالة جديدة لتظهر لجميع الموردين..." style="width:100%; height:60px; padding:10px; border-radius:8px; border:1px solid #ddd; font-family:tahoma; font-size:12px; margin-bottom:8px; box-sizing:border-box;"></textarea>
+<button onclick="sendAdminMessage()" style="background:#f0ad4e; color:#fff; font-weight:bold;">🚀 إرسال الرسالة</button>
+
+<hr style="margin: 15px 0; border:0; border-top:1px solid #ddd;">
+
+<h4 style="margin-bottom: 8px; font-size:14px; color: #333;">📊 تقارير الموردين</h4>
+<button onclick="exportNotesReport()" style="background:#28a745; margin-bottom:15px; font-weight:bold;">📥 تحميل تقرير الملاحظات (Excel)</button>
+
+<h4 style="margin-bottom: 5px; font-size:14px; color: #333;">📂 الملفات المرفوعة سابقاً</h4>
+<div id="uploadedFilesList" class="file-list">
+  <p style="font-size: 11px; color: #888;">جاري تحميل الملفات...</p>
+</div>
+
+<hr style="margin: 15px 0; border:0; border-top:1px solid #ddd;">
+<h4 style="margin-bottom: 8px; font-size:14px; color: #dc3545;">⚠️ تهيئة النظام (مسح شامل)</h4>
+<p style="font-size: 11px; color: #666; margin-top: 0;">استخدم هذا الزر لمسح الداتا القديمة العالقة قبل رفع الملفات الجديدة لضمان عمل الفلتر.</p>
+<button onclick="wipeAllData()" style="background:#dc3545; color:#fff; font-weight:bold;">🗑️ مسح جميع السيارات والرحلات بالكامل</button>
+
+<button onclick="closeAdmin()" style="background:#777;margin-top:20px;">إغلاق لوحة الإدارة</button>
+</div>
+</div>
+
+<div id="popupBox" class="popup-box" style="display:none; flex-direction:column;">
+<h3 id="popupTitle" style="font-size:16px; padding:10px; margin-top:0; margin-bottom:10px; border-radius:8px; color:#333; text-align:center; background:#fff; box-shadow:0 2px 4px rgba(0,0,0,0.05); border:1px solid #eee;"></h3>
+<input type="text" id="searchInput" placeholder="🔍 ابحث هنا..." onkeyup="filterPopupResults()" style="display:none; padding:10px; margin-bottom:10px; width:100%; border-radius:8px; border:2px solid #075bb5; font-family:tahoma; font-size:13px; box-sizing:border-box;">
+
+<div id="popupResult" style="flex:1; overflow-y:auto; padding-right:5px; margin-bottom:10px;"></div>
+<button onclick="closePopup()" style="background:#6c757d; font-size:14px; padding:12px; margin-top:auto;">رجوع 🔙</button>
+</div>
+
+<script>
+function closePopup(){
+ document.getElementById("popupBox").style.display="none";
+}
+
+function filterPopupResults() {
+    let input = document.getElementById("searchInput").value.toLowerCase();
+    let items = document.getElementById("popupResult").children[0].children;
+    
+    for (let i = 0; i < items.length; i++) {
+        if(items[i].tagName === 'P') continue; 
+        let textValue = items[i].textContent || items[i].innerText;
+        if (textValue.toLowerCase().indexOf(input) > -1) {
+            items[i].style.display = "";
+        } else {
+            items[i].style.display = "none";
+        }
+    }
+}
+
+function generateFileId() {
+    return 'file_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+}
+
+async function searchSupplierForPasswordReset() {
+    let q = document.getElementById("adminSupplierSearchInput").value.trim().toLowerCase();
+    let resultContainer = document.getElementById("supplierSearchResult");
+    if (!q) {
+        resultContainer.innerHTML = "<span style='color:red;'>يرجى إدخال قيمة للبحث.</span>";
+        return;
+    }
+    
+    resultContainer.innerHTML = "جاري البحث...";
+    
+    try {
+        const snap = await db.collection("suppliers").get();
+        let matched = [];
+        snap.forEach(doc => {
+            let d = doc.data();
+            d.uid = doc.id;
+            let name = (d.ownerName || "").toLowerCase();
+            let office = (d.officeName || "").toLowerCase();
+            let sap = String(d.sapNumber || "").toLowerCase();
+            let phone = String(d.phone || "").toLowerCase();
+            let email = String(d.recoveryEmail || "").toLowerCase();
+            
+            if (name.includes(q) || office.includes(q) || sap.includes(q) || phone.includes(q) || email.includes(q)) {
+                matched.push(d);
+            }
+        });
+        
+        if (matched.length === 0) {
+            resultContainer.innerHTML = "<span style='color:red;'>لم يتم العثور على مورد مطابق.</span>";
+            return;
+        }
+        
+        let html = "";
+        matched.forEach(s => {
+            html += `
+            <div style="background:#fff; border:1px solid #ddd; padding:8px; border-radius:6px; margin-top:6px;">
+                <b>المورد:</b> ${s.ownerName} | <b>المكتب:</b> ${s.officeName}<br>
+                <b>الهاتف:</b> ${s.phone || "غير مسجل"} | <b>ساب:</b> ${s.sapNumber}<br>
+                <b>الإيميل البديل:</b> ${s.recoveryEmail || "لا يوجد"}<br>
+                <div style="display:flex; gap:6px; margin-top:6px;">
+                    <input type="text" id="passInput_${s.uid}" placeholder="اكتب كلمة المرور الجديدة هنا..." style="margin:0; padding:6px; font-size:12px; flex:1;">
+                    <button onclick="adminResetSupplierPassword('${s.uid}')" style="margin:0; width:auto; padding:6px 12px; font-size:12px; background:#28a745;">تحديث السر</button>
+                </div>
+            </div>`;
+        });
+        resultContainer.innerHTML = html;
+        
+    } catch(e) {
+        resultContainer.innerHTML = "<span style='color:red;'>خطأ: " + e.message + "</span>";
+    }
+}
+
+async function adminResetSupplierPassword(uid) {
+    let newPass = document.getElementById("passInput_" + uid).value.trim();
+    if (!newPass || newPass.length < 6) {
+        showAlert("يرجى إدخال كلمة مرور جديدة لا تقل عن 6 خانات.");
+        return;
+    }
+    
+    try {
+        await db.collection("suppliers").doc(uid).set({
+            assignedPassword: newPass,
+            passwordUpdatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+        
+        showAlert("تم تسجيل وتحديث كلمة المرور الجديدة للمورد بنجاح بنص: " + newPass);
+    } catch(e) {
+        showAlert("حدث خطأ أثناء التحديث: " + e.message);
+    }
+}
+
+async function sendAdminMessage() {
+    let msgInput = document.getElementById("adminMsgInput").value.trim();
+    if(!msgInput) {
+        showAlert("الرجاء كتابة الرسالة أولاً.");
+        return;
+    }
+    try {
+        let newMsg = {
+            id: generateFileId(),
+            text: msgInput,
+            date: new Date().toISOString()
+        };
+        await db.collection("uploadedFiles").doc("GLOBAL_MESSAGES").set({
+            messages: firebase.firestore.FieldValue.arrayUnion(newMsg)
+        }, {merge: true});
+        
+        document.getElementById("adminMsgInput").value = "";
+        showAlert("✅ تم إرسال الرسالة لجميع الموردين بنجاح.");
+    } catch(e) {
+        showAlert("❌ خطأ: " + e.message);
+    }
+}
+
+function updateMessagesBadge() {
+    let unread = globalMessages.filter(m => !globalReadMessages.includes(m.id)).length;
+    let badge = document.getElementById("msgBadge");
+    let iconContainer = document.getElementById("msgIconContainer");
+    
+    if(unread > 0) {
+        badge.style.display = "block";
+        badge.innerText = unread;
+        iconContainer.innerHTML = '✉️<span id="msgBadge" class="msg-badge" style="display:block;">'+unread+'</span>';
+    } else {
+        badge.style.display = "none";
+        iconContainer.innerHTML = '📖<span id="msgBadge" class="msg-badge" style="display:none;">0</span>';
+    }
+}
+
+function openMessagesPanel() {
+    activePanel = "الرسائل";
+    document.getElementById("popupBox").style.display = "flex";
+    history.pushState(null, null, "#messages");
+    
+    let titleElement = document.getElementById("popupTitle");
+    titleElement.innerHTML = "🔔 الإشعارات والرسائل";
+    
+    document.getElementById("searchInput").style.display = "none";
+    
+    let html = "<div style='padding:5px;'>";
+    if(globalMessages.length === 0) {
+        html += "<p style='text-align:center; font-size:13px;'>لا توجد رسائل حالياً.</p>";
+    } else {
+        globalMessages.forEach(m => {
+            let isRead = globalReadMessages.includes(m.id);
+            let bg = isRead ? "#f8f9fb" : "#fff3cd";
+            let weight = isRead ? "normal" : "bold";
+            let border = isRead ? "1px solid #eee" : "2px solid #ffc107";
+            
+            let dateStr = new Date(m.date).toLocaleDateString('ar-EG') + " - " + new Date(m.date).toLocaleTimeString('ar-EG', {hour:'numeric', minute:'numeric'});
+            
+            html += `
+            <div id="msg_${m.id}" style="background:${bg}; padding:15px; border-radius:10px; margin-bottom:12px; border:${border}; cursor:pointer; transition:0.3s;" onclick="markMessageRead('${m.id}')">
+                <div style="font-size:12px; color:#555; margin-bottom:8px; font-weight:bold;">📅 ${dateStr} ${isRead ? '✓ مقروءة' : '🔴 جديدة'}</div>
+                <div style="font-weight:${weight}; color:#333; line-height:1.5; font-size:14px;">${m.text}</div>
+            </div>`;
+        });
+    }
+    html += "</div>";
+    document.getElementById("popupResult").innerHTML = html;
+}
+
+async function markMessageRead(msgId) {
+    if(!globalReadMessages.includes(msgId)) {
+        globalReadMessages.push(msgId);
+        
+        let msgDiv = document.getElementById("msg_" + msgId);
+        if(msgDiv) {
+            msgDiv.style.background = "#f8f9fb";
+            msgDiv.style.fontWeight = "normal";
+            msgDiv.style.border = "1px solid #eee";
+            msgDiv.children[0].innerHTML = msgDiv.children[0].innerHTML.replace('🔴 جديدة', '✓ مقروءة');
+        }
+        updateMessagesBadge();
+        
+        try {
+            let userCol = currentRole === "admin" ? "users" : "suppliers";
+            let userRef = db.collection(userCol).doc(firebase.auth().currentUser.uid);
+            await userRef.set({ readMessages: globalReadMessages }, { merge: true });
+        } catch(e) { console.log(e); }
+    }
+}
+
+async function safeUploadTest(inputId, label){
+ const f=document.getElementById(inputId).files[0];
+ if(!f){
+  document.getElementById("adminResult").innerHTML="لم يتم اختيار ملف";
+  return;
+ }
+ 
+ const collection = inputId === "vehiclesFile" ? "vehicles" : "trips";
+
+ // التحقق من وجود بيانات السيارات قبل رفع ملف الرحلات
+ if (collection === "trips") {
+     document.getElementById("adminResult").innerHTML = "⏳ جاري التحقق من وجود بيانات السيارات...";
+     const vehCheck = await db.collection("uploadedFiles").where("collectionTarget", "==", "vehicles").limit(1).get();
+     if(vehCheck.empty) {
+         showAlert("عفواً! لا يمكن رفع ملف الرحلات قبل رفع ملف السيارات. يرجى رفع ملف السيارات أولاً لربط أسماء الموردين تلقائياً.");
+         document.getElementById("adminResult").innerHTML = "❌ تم إلغاء الرفع: يجب رفع ملف السيارات أولاً.";
+         document.getElementById(inputId).value = "";
+         return;
+     }
+ }
+
+ document.getElementById("adminResult").innerHTML = "⏳ جاري قراءة الملف... يرجى الانتظار.";
+
+ try{
+  const rows=await new Promise((resolve,reject)=>{
+   const reader=new FileReader();
+   reader.onload=e=>{
+    const wb=XLSX.read(e.target.result,{type:"array"});
+    const ws=wb.Sheets[wb.SheetNames[0]];
+    resolve(XLSX.utils.sheet_to_json(ws,{defval:""}));
+   };
+   reader.onerror=reject;
+   reader.readAsArrayBuffer(f);
+  });
+
+  const fileId = generateFileId(); 
+  const fileName = f.name;
+
+  if(rows.length===0){
+    document.getElementById("adminResult").innerHTML="الملف فارغ، لا توجد بيانات للرفع.";
+    return;
+  }
+
+  // برمجة المطابقة التلقائية (VLOOKUP) لملف الرحلات
+  let nameToSapMap = new Map();
+  if (collection === "trips") {
+      document.getElementById("adminResult").innerHTML = "⏳ جاري مطابقة أسماء الموردين تلقائياً... يرجى الانتظار.";
+      const vehSnap = await db.collection("vehicles").get();
+      vehSnap.forEach(doc => {
+          let v = doc.data();
+          if (v["اسم المورد"] && v["رقم المورد"]) {
+              nameToSapMap.set(String(v["اسم المورد"]).trim(), String(v["رقم المورد"]).trim());
+          }
+      });
+  }
+
+  let totalRecords = rows.length;
+  let batchCount = Math.ceil(totalRecords / 450);
+  
+  for (let i = 0; i < batchCount; i++) {
+      let batch = db.batch();
+      let start = i * 450;
+      let end = start + 450;
+      let currentBatchRows = rows.slice(start, end);
+      
+      currentBatchRows.forEach(row => {
+          let ref = db.collection(collection).doc();
+          
+          let cleanRow = {};
+          let tempSupplierName = "";
+
+          for (let k in row) {
+              let cleanKey = k.toString().replace(/_x000D_/g, "").trim();
+              if(cleanKey.includes("رقم المورد")) cleanKey = "رقم المورد";
+              if(cleanKey.includes("اسم المورد")) cleanKey = "اسم المورد";
+              
+              let val = row[k];
+              if(cleanKey === "رقم المورد") val = normalizeValue(val);
+              if(cleanKey === "اسم المورد") tempSupplierName = String(val).trim();
+              
+              cleanRow[cleanKey] = val;
+          }
+
+          // تطبيق المطابقة: إذا كان الملف للرحلات ولا يوجد رقم المورد، يتم جلبه بواسطة الاسم
+          if (collection === "trips" && !cleanRow["رقم المورد"] && tempSupplierName) {
+              let foundSap = nameToSapMap.get(tempSupplierName);
+              if (foundSap) {
+                  cleanRow["رقم المورد"] = foundSap;
+              }
+          }
+          
+          batch.set(ref, {
+              ...cleanRow,
+              fileId: fileId,
+              fileName: fileName,
+              uploadedAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+      });
+      
+      if (i === batchCount - 1) {
+          let fileRecordRef = db.collection("uploadedFiles").doc(fileId);
+          batch.set(fileRecordRef, {
+              fileId: fileId,
+              fileName: fileName,
+              type: label, 
+              collectionTarget: collection,
+              recordCount: totalRecords,
+              uploadedBy: currentUserName, 
+              uploadedAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+      }
+      
+      await batch.commit();
+      document.getElementById("adminResult").innerHTML = `⏳ جاري الرفع... (دفعة ${i+1} من ${batchCount})`;
+  }
+
+  dataLoaded = false; 
+  document.getElementById("adminResult").innerHTML = `✅ ${label} (${fileName}) تم رفعه بنجاح - إجمالي السجلات: ${totalRecords}`;
+  
+  loadUploadedFiles();
+  document.getElementById(inputId).value = "";
+
+ }catch(e){
+  document.getElementById("adminResult").innerHTML="❌ خطأ: "+e.message;
+ }
+}
+
+async function loadUploadedFiles() {
+    const listContainer = document.getElementById("uploadedFilesList");
+    try {
+        const snap = await db.collection("uploadedFiles").orderBy("uploadedAt", "desc").get();
+        if(snap.empty) {
+            listContainer.innerHTML = "<p style='font-size: 13px; color: #777;'>لا توجد ملفات مرفوعة حالياً.</p>";
+            return;
+        }
+        
+        let html = "";
+        snap.forEach(doc => {
+            let data = doc.data();
+            if(doc.id === "GLOBAL_MESSAGES") return; 
+            
+            let dateStr = "جاري المعالجة...";
+            if(data.uploadedAt){
+                let d = data.uploadedAt.toDate();
+                dateStr = d.toLocaleDateString('ar-EG') + " " + d.toLocaleTimeString('ar-EG');
+            }
+            
+            let uploader = data.uploadedBy ? `<br><span style="color:#075bb5;">تم الرفع بواسطة: ${data.uploadedBy}</span>` : "";
+            
+            html += `
+            <div class="file-item" id="item_${data.fileId}">
+                <div class="file-info">
+                    <strong style="color:#075bb5;">${data.type}: ${data.fileName}</strong>
+                    <span class="file-date">📅 ${dateStr} | 📊 ${data.recordCount} سجل ${uploader}</span>
+                </div>
+                <button class="delete-btn" onclick="deleteUploadedFile('${data.fileId}', '${data.collectionTarget}')">🗑 حذف الملف</button>
+            </div>
+            `;
+        });
+        listContainer.innerHTML = html;
+        
+    } catch (e) {}
+}
+
+async function deleteUploadedFile(fileId, collectionTarget) {
+    if(!confirm("⚠️ تنبيه: هل أنت متأكد من حذف هذا الملف بالكامل من قاعدة البيانات بشكل نهائي؟")) return;
+    
+    document.getElementById("adminResult").innerHTML = "⏳ جاري حذف الملف ومحتوياته...";
+    
+    try {
+        const recordsSnap = await db.collection(collectionTarget).where("fileId", "==", fileId).get();
+        
+        let docsToDelete = recordsSnap.docs;
+        let batchCount = Math.ceil(docsToDelete.length / 450);
+        
+        for (let i = 0; i < batchCount; i++) {
+            let batch = db.batch();
+            let start = i * 450;
+            let end = start + 450;
+            let currentBatchDocs = docsToDelete.slice(start, end);
+            
+            currentBatchDocs.forEach(doc => {
+                batch.delete(doc.ref);
+            });
+            
+            if (i === batchCount - 1) {
+                let fileRecordRef = db.collection("uploadedFiles").doc(fileId);
+                batch.delete(fileRecordRef);
+            }
+            
+            await batch.commit();
+            document.getElementById("adminResult").innerHTML = `⏳ جاري الحذف... (دفعة ${i+1} من ${batchCount})`;
+        }
+        
+        if (docsToDelete.length === 0) {
+            let fileRecordRef = db.collection("uploadedFiles").doc(fileId);
+            await fileRecordRef.delete();
+        }
+        
+        document.getElementById("adminResult").innerHTML = "✅ تم حذف الملف بنجاح.";
+        dataLoaded = false; 
+        loadUploadedFiles(); 
+        
+    } catch (e) {
+        document.getElementById("adminResult").innerHTML = "❌ حدث خطأ أثناء الحذف: " + e.message;
+    }
+}
+
+async function exportNotesReport() {
+    let notesData = [];
+    
+    let supMap = new Map();
+    try {
+        const supSnap = await db.collection("suppliers").get();
+        supSnap.forEach(doc => {
+            let d = doc.data();
+            let k = normalizeValue(d.sapNumber);
+            if(k) supMap.set(k, d);
+        });
+    } catch(e) {
+        showAlert("خطأ في قراءة بيانات الموردين لإنشاء التقرير.");
+        return;
+    }
+    
+    globalTrips.forEach(t => {
+        if(t.note) {
+            let supId = normalizeValue(t["رقم المورد"]);
+            let supInfo = supMap.get(supId) || {};
+            
+            let rowData = {
+                "رقم ساب": supId,
+                "اسم المورد": supInfo.ownerName || "غير مسجل",
+                "المكتب": supInfo.officeName || "غير مسجل",
+                "الهاتف المسجل": supInfo.phone || "غير مسجل",
+                "الإيميل البديل": supInfo.recoveryEmail || "لا يوجد",
+            };
+            
+            for(let k in t) {
+                if(!["fileId", "fileName", "uploadedAt", "id", "note", "noteUpdatedAt", "sortDate"].includes(k)) {
+                    if(k.includes("تاريخ") || k.includes("وقت الوردية") || k.includes("التاريخ")) {
+                        rowData[k] = onlyDate(t[k]);
+                    } else {
+                        rowData[k] = t[k];
+                    }
+                }
+            }
+            
+            rowData["تعليق أو ملاحظات المورد"] = t.note;
+            notesData.push(rowData);
+        }
+    });
+    
+    if(notesData.length === 0) {
+        showAlert("لا توجد ملاحظات مسجلة حالياً من الموردين.");
+        return;
+    }
+    
+    const ws = XLSX.utils.json_to_sheet(notesData);
+    
+    const colWidths = [];
+    Object.keys(notesData[0]).forEach(key => {
+        colWidths.push({ wch: Math.max(key.length, 15) });
+    });
+    ws['!cols'] = colWidths;
+    
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Notes");
+    
+    let d = new Date();
+    let timeStamp = `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}_${d.getHours()}-${d.getMinutes()}`;
+    XLSX.writeFile(wb, `Supplier_Notes_Report_${timeStamp}.xlsx`);
+}
+
+function normalizeValue(v){
+ return String(v ?? "").replace(/\s+/g,"").trim();
+}
+
+async function loadSupplierData(){
+ try{
+   const user = firebase.auth().currentUser;
+   if(!user) return;
+   
+   let sap = "";
+   let userDocCol = (currentRole === "admin") ? "users" : "suppliers";
+   
+   const supplierDoc = await db.collection(userDocCol).doc(user.uid).get();
+   
+   if(supplierDoc.exists && currentRole !== "admin") {
+       sap = normalizeValue(supplierDoc.data().sapNumber);
+       document.getElementById("showOwner").innerHTML="المورد: " + (supplierDoc.data().ownerName || "غير مسجل");
+       document.getElementById("showOffice").innerHTML="المكتب: " + (supplierDoc.data().officeName || "غير مسجل");
+   } else if (currentRole === "admin") {
+       currentUserName = supplierDoc.data().ownerName || "الإدارة";
+       document.getElementById("showOwner").innerHTML="أدمن: " + currentUserName;
+       document.getElementById("showOffice").innerHTML="المكتب: الإدارة";
+   }
+
+   const nums=document.querySelectorAll(".stat .num");
+
+   if(!dataLoaded){
+       document.getElementById('loadingOverlay').style.display = 'flex'; 
+       if(nums.length>=4) nums.forEach(n => n.innerHTML = "...");
+       
+       let vehiclesQuery = db.collection("vehicles");
+       let tripsQuery = db.collection("trips");
+       
+       if(currentRole !== "admin" && sap) {
+           vehiclesQuery = vehiclesQuery.where("رقم المورد", "==", sap);
+           tripsQuery = tripsQuery.where("رقم المورد", "==", sap);
+       }
+       
+       const [vehiclesSnap, tripsSnap] = await Promise.all([
+           vehiclesQuery.get(),
+           tripsQuery.get()
+       ]);
+       
+       globalVehicles = [];
+       globalTrips = [];
+
+       vehiclesSnap.forEach(doc => {
+           let d = doc.data();
+           d.id = doc.id; 
+           globalVehicles.push(d);
+       });
+       tripsSnap.forEach(doc => {
+           let d = doc.data();
+           d.id = doc.id; 
+           globalTrips.push(d);
+       });
+       
+       if (currentRole === "admin") {
+           const supSnap = await db.collection("suppliers").get();
+           supSnap.forEach(doc => {
+               let d = doc.data();
+               let k = normalizeValue(d.sapNumber);
+               if(k) globalSupplierDataMap.set(k, d);
+           });
+       }
+       
+       dataLoaded = true;
+       document.getElementById('loadingOverlay').style.display = 'none'; 
+   }
+
+   const fromDate = document.getElementById("globalFromDate").value;
+   const toDate = document.getElementById("globalToDate").value;
+
+   let vehicles=[], success=0, failed=0, totalTrips=0;
+   let vehicleKeys = new Set();
+   let isAdmin = (currentRole === "admin"); 
+
+   globalVehicles.forEach(d=>{
+      if(isAdmin || normalizeValue(d["رقم المورد"])===sap){
+         let key = normalizeValue(d["رقم اللوحة"] || d["كود الحافلة"] || Math.random());
+         if(!vehicleKeys.has(key)){
+            vehicleKeys.add(key);
+            vehicles.push(d);
+         }
+      }
+   });
+
+   globalTrips.forEach(d=>{
+      if(isAdmin || normalizeValue(d["رقم المورد"])===sap){
+        let date = onlyDate(d["وقت الوردية"] || d["التاريخ"]);
+        
+        if((!fromDate || date >= fromDate) && (!toDate || date <= toDate)){
+            totalTrips++;
+            let status=String(d["حالة الرحلة"] || d["الحالة"] || "").trim();
+            if(status==="رحلة ناجحة") success++;
+            if(status==="رحلة فاشلة") failed++;
+        }
+      }
+   });
+
+   if(nums.length>=4){
+      nums[0].innerHTML=vehicles.length;
+      nums[1].innerHTML=(totalTrips ? Math.round((success/totalTrips)*100):0)+"%";
+      nums[2].innerHTML=success;
+      nums[3].innerHTML=failed;
+   }
+ }catch(e){ 
+    console.log("supplier link error",e); 
+    document.getElementById('loadingOverlay').style.display = 'none';
+ }
+}
+
+function clearFilter() {
+    document.getElementById("globalFromDate").value = "";
+    document.getElementById("globalToDate").value = "";
+    loadSupplierData();
+}
+
+function applyGlobalFilter(){
+ loadSupplierData().then(() => {
+    if(activePanel && document.getElementById("popupBox").style.display==="flex"){
+      showData();
+    }
+ });
+}
+
+firebase.auth().onAuthStateChanged(async function(user){
+ let overlay = document.getElementById("customAlertOverlay");
+ if(user && (!overlay || overlay.style.display !== "block")) {
+     try {
+         let roleDoc = await db.collection("users").doc(user.uid).get();
+         let userCol = "suppliers";
+         if(roleDoc.exists && roleDoc.data().role === "admin"){
+             currentRole = "admin";
+             userCol = "users";
+             document.getElementById("adminBtn").classList.remove("hide");
+             document.getElementById("showRole").innerHTML="الصلاحية: Admin";
+         } else {
+             currentRole = "supplier";
+             document.getElementById("adminBtn").classList.add("hide");
+             document.getElementById("showRole").innerHTML="الصلاحية: Supplier";
+         }
+         
+         let sup = await db.collection(userCol).doc(user.uid).get();
+         if(sup.exists){
+             globalReadMessages = sup.data().readMessages || [];
+             if(currentRole === "admin"){
+                 currentUserName = sup.data().ownerName || "الإدارة";
+                 document.getElementById("showOwner").innerHTML = "أدمن: " + currentUserName;
+                 document.getElementById("showOffice").innerHTML = "المكتب: الإدارة";
+             } else {
+                 document.getElementById("showOwner").innerHTML = "المورد: " + (sup.data().ownerName || "غير مسجل");
+                 document.getElementById("showOffice").innerHTML = "المكتب: " + (sup.data().officeName || "غير مسجل");
+             }
+         }
+         
+         db.collection("uploadedFiles").doc("GLOBAL_MESSAGES").onSnapshot(doc => {
+            if(doc.exists) {
+                globalMessages = doc.data().messages || [];
+                globalMessages.sort((a,b) => new Date(b.date) - new Date(a.date));
+                updateMessagesBadge();
+            }
+         });
+         
+     } catch(e) {}
+     
+     hideAll();
+     dash.classList.remove("hide");
+     loadSupplierData();
+ }
+});
+
+let activePanel="";
+
+function openPanel(name){
+ activePanel=name;
+ document.getElementById("popupBox").style.display="flex"; 
+ history.pushState(null, null, "#"+name);
+ 
+ let titleElement = document.getElementById("popupTitle");
+ 
+ if(name === 'رحلات ناجحة'){
+     titleElement.innerHTML = `🟢 ${name}`;
+ } else if(name === 'رحلات فاشلة'){
+     titleElement.innerHTML = `🔴 ${name}`;
+ } else {
+     titleElement.innerHTML = `🚛 ${name}`;
+ }
+
+ let searchBox = document.getElementById("searchInput");
+ searchBox.style.display = "block";
+ searchBox.value = "";
+
+ document.getElementById("popupResult").innerHTML="";
+ showData();
+}
+
+function onlyDate(v){
+ if(!v) return "";
+ let s=String(v).trim();
+ s = s.replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d));
+
+ if(!isNaN(s) && s > 10000 && s < 99999){
+    let d = new Date((s - 25569) * 86400 * 1000); 
+    if(!isNaN(d)) {
+       return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,'0') + "-" + String(d.getDate()).padStart(2,'0');
+    }
+ }
+
+ let datePart = s.split(" ")[0]; 
+ if(datePart.includes("/") || datePart.includes("-")){
+    let sep = datePart.includes("/") ? "/" : "-";
+    let p = datePart.split(sep);
+    if(p.length === 3){
+       if(p[2].length === 4){
+          return `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
+       }
+       else if(p[0].length === 4){
+          return `${p[0]}-${p[1].padStart(2,'0')}-${p[2].padStart(2,'0')}`;
+       }
+    }
+ }
+
+ let d = new Date(s);
+ if(!isNaN(d) && d.getFullYear() > 1900){
+    let y = d.getFullYear();
+    let m = String(d.getMonth() + 1).padStart(2,'0');
+    let day = String(d.getDate()).padStart(2,'0');
+    return `${y}-${m}-${day}`;
+ }
+ return s.substring(0,10);
+}
+
+function preventToggle(event) {
+    event.stopPropagation();
+    event.preventDefault();
+}
+
+async function saveNote(tripId, event) {
+    if(event) event.stopPropagation();
+    
+    let noteInput = document.getElementById("note_" + tripId);
+    if(!noteInput || !noteInput.value.trim()) {
+        showAlert("الرجاء كتابة الملحوظة أولاً.");
+        return;
+    }
+    
+    let noteText = noteInput.value.trim();
+    let btn = document.getElementById("btn_" + tripId);
+    let originalText = btn.innerText;
+    btn.innerText = "جاري الحفظ...";
+    btn.disabled = true;
+    
+    try {
+        await db.collection("trips").doc(tripId).update({
+            note: noteText,
+            noteUpdatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        let trip = globalTrips.find(t => t.id === tripId);
+        if(trip) trip.note = noteText;
+        
+        let container = document.getElementById("noteContainer_" + tripId);
+        container.innerHTML = `
+            <div style="padding:10px; background:#e8f5e9; border:1px solid #c8e6c9; border-radius:5px; margin-bottom:10px;">
+                <b style="color:#28a745;">تم الحفظ ✓</b><br>
+                <span style="color:#333;">${noteText}</span>
+            </div>
+            <div style="display:flex; gap:5px;" onclick="preventToggle(event)">
+                <input type="text" id="note_${tripId}" placeholder="تعديل الملحوظة السابقة..." style="flex:1; padding:8px; border:1px solid #ccc; border-radius:5px; font-family:tahoma; box-sizing:border-box;">
+                <button id="btn_${tripId}" onclick="saveNote('${tripId}', event)" style="width:auto; padding:8px 15px; background:#dc3545; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">تحديث</button>
+            </div>
+        `;
+        
+    } catch (e) {
+        showAlert("خطأ في الحفظ: " + e.message);
+        btn.innerText = originalText;
+        btn.disabled = false;
+    }
+}
+
+function getUniformedDataRows(x) {
+    let specificKeys = ["رقم اللوحة", "المركبة", "كود الحافلة", "كود", "ملصق الباص", "النوع", "نوع الحافلة", "وصف الحافلة", "وصف", "اسم الخط", "خط السير"];
+    let rowsHtml = "";
+    let processedKeys = new Set();
+    
+    specificKeys.forEach(k => {
+        if(x[k] !== undefined && x[k] !== "" && !processedKeys.has(k)) {
+            rowsHtml += `<div class="info-row"><b>${k}:</b> <span style="color:#075bb5;">${x[k]}</span></div>`;
+            processedKeys.add(k);
+        }
+    });
+
+    for(let k in x) {
+        if(["fileId", "fileName", "uploadedAt", "id", "note", "noteUpdatedAt", "sortDate", "حالة الرحلة", "الحالة"].includes(k)) continue;
+        if(x[k] !== undefined && x[k] !== "" && !processedKeys.has(k)) {
+            rowsHtml += `<div class="info-row"><b>${k}:</b> <span style="color:#075bb5;">${x[k]}</span></div>`;
+        }
+    }
+    return rowsHtml;
+}
+
+async function showData(){
+ const result=document.getElementById("popupResult");
+ result.innerHTML="<p style='text-align:center; font-size:13px;'>جاري تحميل البيانات وتجهيز التفاصيل...</p>";
+
+ const user=firebase.auth().currentUser;
+ if(!user){result.innerHTML="لا يوجد مستخدم";return;}
+
+ let sap = "";
+ const sup=await db.collection("suppliers").doc(user.uid).get();
+ if(sup.exists){
+     sap=normalizeValue(sup.data().sapNumber);
+ } else if (currentRole !== "admin") {
+     result.innerHTML="بيانات المورد غير موجودة";
+     return;
+ }
+ 
+ let isAdmin = (currentRole === "admin");
+ const from=document.getElementById("globalFromDate").value;
+ const to=document.getElementById("globalToDate").value;
+
+ let html="<div>";
+ let counter = 1; 
+
+ if(activePanel==="السيارات"){
+  let arr=[];
+  let seen=new Set();
+  
+  globalVehicles.forEach(x=>{
+   if(isAdmin || normalizeValue(x["رقم المورد"])===sap){
+    let k=normalizeValue(x["رقم اللوحة"]||x["كود الحافلة"]);
+    if(!seen.has(k)){seen.add(k);arr.push(x);}
+   }
+  });
+  
+  if(!arr.length) html+="<p style='text-align:center; font-size:13px;'>لا توجد سيارات</p>";
+  
+  arr.forEach(x=>{
+   let serialBadge = `<span class="serial-badge serial-default">${counter}</span>`;
+   let providerInfo = isAdmin ? ` <span style="background:#e9ecef; color:#333; padding:2px 8px; border-radius:10px; font-size:12px; margin-right:auto;">مورد: ${x["رقم المورد"] || ""}</span>` : "";
+   let codeStr = x["كود الحافلة"] || x["كود"] || "";
+   let mainInfo = `${serialBadge} 🚚 ${x["رقم اللوحة"]||""} ${codeStr ? '<span style="color:#777; font-size:13px;">| كود: '+codeStr+'</span>' : ''} ${providerInfo}`;
+   
+   let extraInfo = getUniformedDataRows(x);
+
+   html += `
+   <details class="detail-card">
+       <summary onclick="this.parentNode.open = !this.parentNode.open; return false;">${mainInfo}</summary>
+       <div class="detail-body" onclick="preventToggle(event)">${extraInfo}</div>
+   </details>`;
+   counter++;
+  });
+ }
+ else{
+  let arr=[];
+  globalTrips.forEach(x=>{
+   if(isAdmin || normalizeValue(x["رقم المورد"])===sap){
+    let date=onlyDate(x["وقت الوردية"] || x["التاريخ"]);
+    if((!from||date>=from)&&(!to||date<=to)){
+      let status=String(x["حالة الرحلة"]||x["الحالة"]||"").trim();
+      if(activePanel==="رحلات ناجحة" && status!=="رحلة ناجحة") return;
+      if(activePanel==="رحلات فاشلة" && status!=="رحلة فاشلة") return;
+      
+      let parsedDate = new Date(date);
+      if(isNaN(parsedDate)) parsedDate = new Date(0);
+      x.sortDate = parsedDate;
+      
+      arr.push(x);
+    }
+   }
+  });
+  
+  arr.sort((a, b) => b.sortDate - a.sortDate);
+  
+  if(!arr.length) html+="<p style='text-align:center; font-size:13px;'>لا توجد بيانات لهذه الفترة</p>";
+
+  arr.forEach(x=>{
+   let status = String(x["حالة الرحلة"]||x["الحالة"]||"").trim();
+   let isSuccess = status === "رحلة ناجحة";
+   let serialClass = isSuccess ? "serial-success" : (status === "رحلة فاشلة" ? "serial-fail" : "serial-default");
+   let serialBadge = `<span class="serial-badge ${serialClass}">${counter}</span>`;
+   
+   let providerInfo = isAdmin ? ` <span style="background:#e9ecef; color:#333; padding:2px 8px; border-radius:10px; font-size:12px; margin-right:auto;">مورد: ${x["رقم المورد"] || ""}</span>` : "";
+   
+   let statIcon = isSuccess ? "🟢" : (status === "رحلة فاشلة" ? "🔴" : "📅");
+   let dateStr = onlyDate(x["وقت الوردية"] || x["التاريخ"]);
+   let shiftStr = x["الوردية"]||x["وردية"]||x["وقت الوردية"]||"";
+   let noteIcon = (activePanel === "رحلات فاشلة") ? "📝 " : "";
+   
+   let mainInfo = `${serialBadge} 📅 ${dateStr} - ${noteIcon}${shiftStr} ${providerInfo}`;
+   
+   let extraInfo = getUniformedDataRows(x);
+   let noteSection = "";
+   
+   if (activePanel === "رحلات فاشلة") {
+       if (!isAdmin) {
+           let existingNote = x.note ? `<div style="padding:10px; background:#e8f5e9; border:1px solid #c8e6c9; border-radius:5px; margin-bottom:10px;"><b style="color:#28a745;">تم الحفظ ✓</b><br><span style="color:#333;">${x.note}</span></div>` : "";
+           
+           noteSection = `
+           <div id="noteContainer_${x.id}" style="margin-bottom:12px; border-bottom:1px dashed #eee; padding-bottom:12px; background:#fcfcfc;">
+               ${existingNote}
+               <div style="display:flex; gap:5px;" onclick="preventToggle(event)">
+                   <input type="text" id="note_${x.id}" placeholder="${x.note ? 'تعديل الملحوظة السابقة...' : 'اكتب مبرر أو ملحوظة هنا...'}" style="flex:1; padding:8px; border:1px solid #ccc; border-radius:5px; font-family:tahoma; box-sizing:border-box;">
+                   <button id="btn_${x.id}" onclick="saveNote('${x.id}', event)" style="width:auto; padding:8px 15px; background:#dc3545; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">${x.note ? 'تحديث' : 'إرسال'}</button>
+               </div>
+           </div>`;
+       } else if (x.note) {
+           noteSection = `
+           <div style="margin-bottom:12px; padding:10px; background:#fff3cd; border:1px solid #ffeeba; border-radius:8px;">
+               <b style="color:#856404; font-size:12px;">💬 ملحوظة المورد:</b>
+               <p style="margin:4px 0 0 0; color:#533f03; font-size:13px;">${x.note}</p>
+           </div>`;
+       }
+   }
+
+   html += `
+   <details class="detail-card">
+       <summary onclick="this.parentNode.open = !this.parentNode.open; return false;">${mainInfo}</summary>
+       <div class="detail-body" onclick="preventToggle(event)">
+           ${noteSection}
+           ${extraInfo}
+       </div>
+   </details>`;
+   counter++;
+  });
+ }
+
+ html+="</div>";
+ result.innerHTML=html;
+}
+</script>
+
+</body>
+</html>
