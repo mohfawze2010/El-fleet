@@ -265,7 +265,25 @@ let globalSupplierDataMap = new Map();
 let currentUserName = ""; 
 let dataLoaded = false;
 
-// التحديث الإجباري عند السحب أو الضغط على الزر
+// دالة توحيد وتنظيف الأسماء العربية لضمان التطابق
+function normalizeArabicName(name) {
+    if (!name) return "";
+    return String(name)
+        .replace(/[أإآ]/g, "ا")
+        .replace(/ة/g, "ه")
+        .replace(/ي/g, "ى")
+        .replace(/\s+/g, "") // إزالة كل المسافات لضمان دقة التطابق بنسبة 100%
+        .trim();
+}
+
+// التعديل الجديد: توحيد الأرقام الهندية والعربية لإلغاء أي خطأ في التطابق
+function normalizeValue(v){
+ let s = String(v ?? "").replace(/\s+/g,"").trim();
+ // تحويل الأرقام (٠-٩) إلى (0-9)
+ s = s.replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d));
+ return s;
+}
+
 async function refreshData() {
     dataLoaded = false;
     await loadSupplierData();
@@ -274,7 +292,6 @@ async function refreshData() {
     }
 }
 
-// السحب لأسفل لتحديث الصفحة
 let touchstartY = 0;
 document.addEventListener('touchstart', e => {
     if (window.scrollY === 0) touchstartY = e.changedTouches[0].screenY;
@@ -330,7 +347,7 @@ function showAlert(message, callback) {
 }
 
 async function wipeAllData() {
-    if(!confirm("⚠️ تحذير خطير: هل أنت متأكد من مسح كافة بيانات السيارات والرحلات والملفات المرفوعة نهائياً؟ هذا الإجراء سيقوم بتصفير قاعدة البيانات ولا يمكن التراجع عنه!")) return;
+    if(!confirm("⚠️ تحذير خطير: هل أنت متأكد من مسح كافة بيانات السيارات والرحلات والملفات المرفوعة نهائياً؟")) return;
     
     let pwd = prompt("لتأكيد المسح الشامل، اكتب كلمة 'مسح':");
     if (pwd !== "مسح") {
@@ -338,7 +355,7 @@ async function wipeAllData() {
         return;
     }
     
-    document.getElementById("adminResult").innerHTML = "⏳ جاري المسح الشامل... الرجاء الانتظار وعدم إغلاق الصفحة.";
+    document.getElementById("adminResult").innerHTML = "⏳ جاري المسح الشامل...";
     
     try {
         const collectionsToWipe = ["vehicles", "trips", "uploadedFiles"];
@@ -351,19 +368,15 @@ async function wipeAllData() {
             
             snap.docs.forEach((doc) => {
                 if (col === "uploadedFiles" && doc.id === "GLOBAL_MESSAGES") return; 
-                
                 currentBatch.delete(doc.ref);
                 count++;
-                
                 if (count === 450) {
                     batches.push(currentBatch);
                     currentBatch = db.batch();
                     count = 0;
                 }
             });
-            
             if (count > 0) batches.push(currentBatch);
-            
             for (let batch of batches) {
                 await batch.commit();
             }
@@ -374,8 +387,8 @@ async function wipeAllData() {
         dataLoaded = false;
         loadUploadedFiles();
         
-        document.getElementById("adminResult").innerHTML = "✅ تم مسح جميع البيانات بنجاح. النظام الآن فارغ وجاهز لرفع الملفات الجديدة.";
-        showAlert("تم تصفير النظام بالكامل. يمكنك الآن رفع الملفات الجديدة بأمان.");
+        document.getElementById("adminResult").innerHTML = "✅ تم مسح جميع البيانات بنجاح.";
+        showAlert("تم تصفير النظام بالكامل.");
         
     } catch(e) {
         document.getElementById("adminResult").innerHTML = "❌ خطأ أثناء المسح: " + e.message;
@@ -385,13 +398,11 @@ async function wipeAllData() {
 async function handleForgotPassword() {
     let phoneInput = prompt("أدخل رقم هاتفك المسجل لاسترجاع كلمة المرور:");
     if (!phoneInput) return;
-    
     let cleanPhone = phoneInput.trim().replace(/[^0-9]/g, "");
     if (!cleanPhone) {
         showAlert("يرجى إدخال رقم هاتف صحيح.");
         return;
     }
-
     try {
         await db.collection("uploadedFiles").doc("PASSWORD_RESET_REQUESTS").set({
             requests: firebase.firestore.FieldValue.arrayUnion({
@@ -399,10 +410,8 @@ async function handleForgotPassword() {
                 date: new Date().toISOString()
             })
         }, { merge: true });
-    } catch(err) {
-    }
-
-    showAlert("تم استلام طلبك. يرجى التواصل مع مسؤول الأسطول وتزويده برقم هاتفك (" + cleanPhone + ") لإعطائك كلمة المرور الجديدة مباشرة.");
+    } catch(err) {}
+    showAlert("تم استلام طلبك. يرجى التواصل مع مسؤول الأسطول وتزويده برقم هاتفك (" + cleanPhone + ").");
 }
 
 async function registerUser(){
@@ -417,12 +426,10 @@ if(!phone || !pass || !sap) {
     showAlert("الرجاء إدخال رقم الهاتف، رقم ساب، وكلمة المرور.");
     return;
 }
-
 if (phone.length < 10) {
     showAlert("يرجى إدخال رقم هاتف محمول صحيح.");
     return;
 }
-
 let authEmail = phoneToAuthEmail(phone);
 
 try{
@@ -430,18 +437,16 @@ let user = await auth.createUserWithEmailAndPassword(authEmail, pass);
 await db.collection("suppliers").doc(user.user.uid).set({
     officeName: office,
     ownerName: owner,
-    sapNumber: sap,
+    sapNumber: normalizeValue(sap), // حماية إضافية لتسجيل ساب بالأرقام الإنجليزية
     phone: phone,
     recoveryEmail: email, 
     authEmail: authEmail,
     readMessages: [],
     createdAt: firebase.firestore.FieldValue.serverTimestamp()
 });
-
-showAlert("تم إنشاء الحساب بنجاح! يمكنك الآن تسجيل الدخول برقم هاتفك.", function(){
+showAlert("تم إنشاء الحساب بنجاح! يمكنك الآن تسجيل الدخول.", function(){
     showLogin();
 });
-
 }catch(e){
 if(e.code==="auth/email-already-in-use") showAlert("عفواً، رقم الهاتف هذا مسجل به حساب بالفعل.");
 else showAlert("حدث خطأ: " + e.message);
@@ -582,7 +587,7 @@ tripsFile.onchange=function(){
 
 <hr style="margin: 15px 0; border:0; border-top:1px solid #ddd;">
 <h4 style="margin-bottom: 8px; font-size:14px; color: #dc3545;">⚠️ تهيئة النظام (مسح شامل)</h4>
-<p style="font-size: 11px; color: #666; margin-top: 0;">استخدم هذا الزر لمسح الداتا القديمة العالقة قبل رفع الملفات الجديدة لضمان عمل الفلتر.</p>
+<p style="font-size: 11px; color: #666; margin-top: 0;">استخدم هذا الزر لمسح الداتا القديمة العالقة قبل رفع الملفات الجديدة.</p>
 <button onclick="wipeAllData()" style="background:#dc3545; color:#fff; font-weight:bold;">🗑️ مسح جميع السيارات والرحلات بالكامل</button>
 
 <button onclick="closeAdmin()" style="background:#777;margin-top:20px;">إغلاق لوحة الإدارة</button>
@@ -605,7 +610,6 @@ function closePopup(){
 function filterPopupResults() {
     let input = document.getElementById("searchInput").value.toLowerCase();
     let items = document.getElementById("popupResult").children[0].children;
-    
     for (let i = 0; i < items.length; i++) {
         if(items[i].tagName === 'P') continue; 
         let textValue = items[i].textContent || items[i].innerText;
@@ -628,9 +632,7 @@ async function searchSupplierForPasswordReset() {
         resultContainer.innerHTML = "<span style='color:red;'>يرجى إدخال قيمة للبحث.</span>";
         return;
     }
-    
     resultContainer.innerHTML = "جاري البحث...";
-    
     try {
         const snap = await db.collection("suppliers").get();
         let matched = [];
@@ -642,17 +644,14 @@ async function searchSupplierForPasswordReset() {
             let sap = String(d.sapNumber || "").toLowerCase();
             let phone = String(d.phone || "").toLowerCase();
             let email = String(d.recoveryEmail || "").toLowerCase();
-            
             if (name.includes(q) || office.includes(q) || sap.includes(q) || phone.includes(q) || email.includes(q)) {
                 matched.push(d);
             }
         });
-        
         if (matched.length === 0) {
             resultContainer.innerHTML = "<span style='color:red;'>لم يتم العثور على مورد مطابق.</span>";
             return;
         }
-        
         let html = "";
         matched.forEach(s => {
             html += `
@@ -667,7 +666,6 @@ async function searchSupplierForPasswordReset() {
             </div>`;
         });
         resultContainer.innerHTML = html;
-        
     } catch(e) {
         resultContainer.innerHTML = "<span style='color:red;'>خطأ: " + e.message + "</span>";
     }
@@ -679,14 +677,12 @@ async function adminResetSupplierPassword(uid) {
         showAlert("يرجى إدخال كلمة مرور جديدة لا تقل عن 6 خانات.");
         return;
     }
-    
     try {
         await db.collection("suppliers").doc(uid).set({
             assignedPassword: newPass,
             passwordUpdatedAt: firebase.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
-        
-        showAlert("تم تسجيل وتحديث كلمة المرور الجديدة للمورد بنجاح بنص: " + newPass);
+        showAlert("تم تسجيل وتحديث كلمة المرور الجديدة للمورد بنجاح.");
     } catch(e) {
         showAlert("حدث خطأ أثناء التحديث: " + e.message);
     }
@@ -707,7 +703,6 @@ async function sendAdminMessage() {
         await db.collection("uploadedFiles").doc("GLOBAL_MESSAGES").set({
             messages: firebase.firestore.FieldValue.arrayUnion(newMsg)
         }, {merge: true});
-        
         document.getElementById("adminMsgInput").value = "";
         showAlert("✅ تم إرسال الرسالة لجميع الموردين بنجاح.");
     } catch(e) {
@@ -719,7 +714,6 @@ function updateMessagesBadge() {
     let unread = globalMessages.filter(m => !globalReadMessages.includes(m.id)).length;
     let badge = document.getElementById("msgBadge");
     let iconContainer = document.getElementById("msgIconContainer");
-    
     if(unread > 0) {
         badge.style.display = "block";
         badge.innerText = unread;
@@ -734,12 +728,9 @@ function openMessagesPanel() {
     activePanel = "الرسائل";
     document.getElementById("popupBox").style.display = "flex";
     history.pushState(null, null, "#messages");
-    
     let titleElement = document.getElementById("popupTitle");
     titleElement.innerHTML = "🔔 الإشعارات والرسائل";
-    
     document.getElementById("searchInput").style.display = "none";
-    
     let html = "<div style='padding:5px;'>";
     if(globalMessages.length === 0) {
         html += "<p style='text-align:center; font-size:13px;'>لا توجد رسائل حالياً.</p>";
@@ -749,9 +740,7 @@ function openMessagesPanel() {
             let bg = isRead ? "#f8f9fb" : "#fff3cd";
             let weight = isRead ? "normal" : "bold";
             let border = isRead ? "1px solid #eee" : "2px solid #ffc107";
-            
             let dateStr = new Date(m.date).toLocaleDateString('ar-EG') + " - " + new Date(m.date).toLocaleTimeString('ar-EG', {hour:'numeric', minute:'numeric'});
-            
             html += `
             <div id="msg_${m.id}" style="background:${bg}; padding:15px; border-radius:10px; margin-bottom:12px; border:${border}; cursor:pointer; transition:0.3s;" onclick="markMessageRead('${m.id}')">
                 <div style="font-size:12px; color:#555; margin-bottom:8px; font-weight:bold;">📅 ${dateStr} ${isRead ? '✓ مقروءة' : '🔴 جديدة'}</div>
@@ -766,7 +755,6 @@ function openMessagesPanel() {
 async function markMessageRead(msgId) {
     if(!globalReadMessages.includes(msgId)) {
         globalReadMessages.push(msgId);
-        
         let msgDiv = document.getElementById("msg_" + msgId);
         if(msgDiv) {
             msgDiv.style.background = "#f8f9fb";
@@ -775,7 +763,6 @@ async function markMessageRead(msgId) {
             msgDiv.children[0].innerHTML = msgDiv.children[0].innerHTML.replace('🔴 جديدة', '✓ مقروءة');
         }
         updateMessagesBadge();
-        
         try {
             let userCol = currentRole === "admin" ? "users" : "suppliers";
             let userRef = db.collection(userCol).doc(firebase.auth().currentUser.uid);
@@ -793,27 +780,42 @@ async function safeUploadTest(inputId, label){
  
  const collection = inputId === "vehiclesFile" ? "vehicles" : "trips";
 
- // التحقق من وجود بيانات السيارات قبل رفع ملف الرحلات
  if (collection === "trips") {
      document.getElementById("adminResult").innerHTML = "⏳ جاري التحقق من وجود بيانات السيارات...";
      const vehCheck = await db.collection("uploadedFiles").where("collectionTarget", "==", "vehicles").limit(1).get();
      if(vehCheck.empty) {
-         showAlert("عفواً! لا يمكن رفع ملف الرحلات قبل رفع ملف السيارات. يرجى رفع ملف السيارات أولاً لربط أسماء الموردين تلقائياً.");
+         showAlert("عفواً! لا يمكن رفع ملف الرحلات قبل رفع ملف السيارات. يرجى رفع ملف السيارات أولاً.");
          document.getElementById("adminResult").innerHTML = "❌ تم إلغاء الرفع: يجب رفع ملف السيارات أولاً.";
          document.getElementById(inputId).value = "";
          return;
      }
  }
 
- document.getElementById("adminResult").innerHTML = "⏳ جاري قراءة الملف... يرجى الانتظار.";
+ document.getElementById("adminResult").innerHTML = "⏳ جاري قراءة الملف وتخطي الصفوف الفارغة... يرجى الانتظار.";
 
  try{
   const rows=await new Promise((resolve,reject)=>{
    const reader=new FileReader();
    reader.onload=e=>{
-    const wb=XLSX.read(e.target.result,{type:"array"});
-    const ws=wb.Sheets[wb.SheetNames[0]];
-    resolve(XLSX.utils.sheet_to_json(ws,{defval:""}));
+    try {
+        const wb=XLSX.read(e.target.result,{type:"array"});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const rawJson = XLSX.utils.sheet_to_json(ws,{header: 1, defval:""});
+        
+        let headerRowIndex = 0;
+        for(let i = 0; i < rawJson.length; i++) {
+            let rowStr = JSON.stringify(rawJson[i]);
+            if(rowStr.includes("اسم المورد") || rowStr.includes("رقم اللوحة") || rowStr.includes("حالة الرحلة")) {
+                headerRowIndex = i;
+                break;
+            }
+        }
+        
+        const cleanWsData = XLSX.utils.sheet_to_json(ws, {range: headerRowIndex, defval:""});
+        resolve(cleanWsData);
+    } catch(err) {
+        reject(err);
+    }
    };
    reader.onerror=reject;
    reader.readAsArrayBuffer(f);
@@ -823,19 +825,19 @@ async function safeUploadTest(inputId, label){
   const fileName = f.name;
 
   if(rows.length===0){
-    document.getElementById("adminResult").innerHTML="الملف فارغ، لا توجد بيانات للرفع.";
+    document.getElementById("adminResult").innerHTML="الملف فارغ أو صيغة الأعمدة غير متطابقة.";
     return;
   }
 
-  // برمجة المطابقة التلقائية (VLOOKUP) لملف الرحلات
   let nameToSapMap = new Map();
   if (collection === "trips") {
-      document.getElementById("adminResult").innerHTML = "⏳ جاري مطابقة أسماء الموردين تلقائياً... يرجى الانتظار.";
+      document.getElementById("adminResult").innerHTML = "⏳ جاري مطابقة أسماء الموردين تلقائياً (بتقنية المعالجة العربية)...";
       const vehSnap = await db.collection("vehicles").get();
       vehSnap.forEach(doc => {
           let v = doc.data();
           if (v["اسم المورد"] && v["رقم المورد"]) {
-              nameToSapMap.set(String(v["اسم المورد"]).trim(), String(v["رقم المورد"]).trim());
+              let normName = normalizeArabicName(v["اسم المورد"]);
+              nameToSapMap.set(normName, normalizeValue(v["رقم المورد"]));
           }
       });
   }
@@ -851,7 +853,6 @@ async function safeUploadTest(inputId, label){
       
       currentBatchRows.forEach(row => {
           let ref = db.collection(collection).doc();
-          
           let cleanRow = {};
           let tempSupplierName = "";
 
@@ -867,9 +868,9 @@ async function safeUploadTest(inputId, label){
               cleanRow[cleanKey] = val;
           }
 
-          // تطبيق المطابقة: إذا كان الملف للرحلات ولا يوجد رقم المورد، يتم جلبه بواسطة الاسم
           if (collection === "trips" && !cleanRow["رقم المورد"] && tempSupplierName) {
-              let foundSap = nameToSapMap.get(tempSupplierName);
+              let normTemp = normalizeArabicName(tempSupplierName);
+              let foundSap = nameToSapMap.get(normTemp);
               if (foundSap) {
                   cleanRow["رقم المورد"] = foundSap;
               }
@@ -901,13 +902,13 @@ async function safeUploadTest(inputId, label){
   }
 
   dataLoaded = false; 
-  document.getElementById("adminResult").innerHTML = `✅ ${label} (${fileName}) تم رفعه بنجاح - إجمالي السجلات: ${totalRecords}`;
+  document.getElementById("adminResult").innerHTML = `✅ ${label} (${fileName}) تم رفعه ومعالجته بنجاح - إجمالي السجلات: ${totalRecords}`;
   
   loadUploadedFiles();
   document.getElementById(inputId).value = "";
 
  }catch(e){
-  document.getElementById("adminResult").innerHTML="❌ خطأ: "+e.message;
+  document.getElementById("adminResult").innerHTML="❌ خطأ أثناء القراءة والرفع: "+e.message;
  }
 }
 
@@ -919,20 +920,16 @@ async function loadUploadedFiles() {
             listContainer.innerHTML = "<p style='font-size: 13px; color: #777;'>لا توجد ملفات مرفوعة حالياً.</p>";
             return;
         }
-        
         let html = "";
         snap.forEach(doc => {
             let data = doc.data();
             if(doc.id === "GLOBAL_MESSAGES") return; 
-            
             let dateStr = "جاري المعالجة...";
             if(data.uploadedAt){
                 let d = data.uploadedAt.toDate();
                 dateStr = d.toLocaleDateString('ar-EG') + " " + d.toLocaleTimeString('ar-EG');
             }
-            
             let uploader = data.uploadedBy ? `<br><span style="color:#075bb5;">تم الرفع بواسطة: ${data.uploadedBy}</span>` : "";
-            
             html += `
             <div class="file-item" id="item_${data.fileId}">
                 <div class="file-info">
@@ -944,57 +941,40 @@ async function loadUploadedFiles() {
             `;
         });
         listContainer.innerHTML = html;
-        
     } catch (e) {}
 }
 
 async function deleteUploadedFile(fileId, collectionTarget) {
-    if(!confirm("⚠️ تنبيه: هل أنت متأكد من حذف هذا الملف بالكامل من قاعدة البيانات بشكل نهائي؟")) return;
-    
+    if(!confirm("⚠️ تنبيه: هل أنت متأكد من حذف هذا الملف بالكامل من قاعدة البيانات؟")) return;
     document.getElementById("adminResult").innerHTML = "⏳ جاري حذف الملف ومحتوياته...";
-    
     try {
         const recordsSnap = await db.collection(collectionTarget).where("fileId", "==", fileId).get();
-        
         let docsToDelete = recordsSnap.docs;
         let batchCount = Math.ceil(docsToDelete.length / 450);
-        
         for (let i = 0; i < batchCount; i++) {
             let batch = db.batch();
             let start = i * 450;
             let end = start + 450;
             let currentBatchDocs = docsToDelete.slice(start, end);
-            
             currentBatchDocs.forEach(doc => {
                 batch.delete(doc.ref);
             });
-            
             if (i === batchCount - 1) {
                 let fileRecordRef = db.collection("uploadedFiles").doc(fileId);
                 batch.delete(fileRecordRef);
             }
-            
             await batch.commit();
-            document.getElementById("adminResult").innerHTML = `⏳ جاري الحذف... (دفعة ${i+1} من ${batchCount})`;
         }
-        
-        if (docsToDelete.length === 0) {
-            let fileRecordRef = db.collection("uploadedFiles").doc(fileId);
-            await fileRecordRef.delete();
-        }
-        
         document.getElementById("adminResult").innerHTML = "✅ تم حذف الملف بنجاح.";
         dataLoaded = false; 
         loadUploadedFiles(); 
-        
     } catch (e) {
-        document.getElementById("adminResult").innerHTML = "❌ حدث خطأ أثناء الحذف: " + e.message;
+        document.getElementById("adminResult").innerHTML = "❌ خطأ أثناء الحذف: " + e.message;
     }
 }
 
 async function exportNotesReport() {
     let notesData = [];
-    
     let supMap = new Map();
     try {
         const supSnap = await db.collection("suppliers").get();
@@ -1012,7 +992,6 @@ async function exportNotesReport() {
         if(t.note) {
             let supId = normalizeValue(t["رقم المورد"]);
             let supInfo = supMap.get(supId) || {};
-            
             let rowData = {
                 "رقم ساب": supId,
                 "اسم المورد": supInfo.ownerName || "غير مسجل",
@@ -1020,7 +999,6 @@ async function exportNotesReport() {
                 "الهاتف المسجل": supInfo.phone || "غير مسجل",
                 "الإيميل البديل": supInfo.recoveryEmail || "لا يوجد",
             };
-            
             for(let k in t) {
                 if(!["fileId", "fileName", "uploadedAt", "id", "note", "noteUpdatedAt", "sortDate"].includes(k)) {
                     if(k.includes("تاريخ") || k.includes("وقت الوردية") || k.includes("التاريخ")) {
@@ -1030,7 +1008,6 @@ async function exportNotesReport() {
                     }
                 }
             }
-            
             rowData["تعليق أو ملاحظات المورد"] = t.note;
             notesData.push(rowData);
         }
@@ -1042,23 +1019,24 @@ async function exportNotesReport() {
     }
     
     const ws = XLSX.utils.json_to_sheet(notesData);
-    
     const colWidths = [];
     Object.keys(notesData[0]).forEach(key => {
         colWidths.push({ wch: Math.max(key.length, 15) });
     });
     ws['!cols'] = colWidths;
-    
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Notes");
-    
     let d = new Date();
     let timeStamp = `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}_${d.getHours()}-${d.getMinutes()}`;
     XLSX.writeFile(wb, `Supplier_Notes_Report_${timeStamp}.xlsx`);
 }
 
+// الدالة المحدثة لتوحيد الأرقام
 function normalizeValue(v){
- return String(v ?? "").replace(/\s+/g,"").trim();
+ let s = String(v ?? "").replace(/\s+/g,"").trim();
+ // توحيد جميع الأرقام العربية إلى إنجليزية
+ s = s.replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d));
+ return s;
 }
 
 async function loadSupplierData(){
@@ -1068,7 +1046,6 @@ async function loadSupplierData(){
    
    let sap = "";
    let userDocCol = (currentRole === "admin") ? "users" : "suppliers";
-   
    const supplierDoc = await db.collection(userDocCol).doc(user.uid).get();
    
    if(supplierDoc.exists && currentRole !== "admin") {
@@ -1147,7 +1124,6 @@ async function loadSupplierData(){
    globalTrips.forEach(d=>{
       if(isAdmin || normalizeValue(d["رقم المورد"])===sap){
         let date = onlyDate(d["وقت الوردية"] || d["التاريخ"]);
-        
         if((!fromDate || date >= fromDate) && (!toDate || date <= toDate)){
             totalTrips++;
             let status=String(d["حالة الرحلة"] || d["الحالة"] || "").trim();
@@ -1220,7 +1196,6 @@ firebase.auth().onAuthStateChanged(async function(user){
                 updateMessagesBadge();
             }
          });
-         
      } catch(e) {}
      
      hideAll();
@@ -1235,9 +1210,7 @@ function openPanel(name){
  activePanel=name;
  document.getElementById("popupBox").style.display="flex"; 
  history.pushState(null, null, "#"+name);
- 
  let titleElement = document.getElementById("popupTitle");
- 
  if(name === 'رحلات ناجحة'){
      titleElement.innerHTML = `🟢 ${name}`;
  } else if(name === 'رحلات فاشلة'){
@@ -1245,11 +1218,9 @@ function openPanel(name){
  } else {
      titleElement.innerHTML = `🚛 ${name}`;
  }
-
  let searchBox = document.getElementById("searchInput");
  searchBox.style.display = "block";
  searchBox.value = "";
-
  document.getElementById("popupResult").innerHTML="";
  showData();
 }
@@ -1297,28 +1268,23 @@ function preventToggle(event) {
 
 async function saveNote(tripId, event) {
     if(event) event.stopPropagation();
-    
     let noteInput = document.getElementById("note_" + tripId);
     if(!noteInput || !noteInput.value.trim()) {
         showAlert("الرجاء كتابة الملحوظة أولاً.");
         return;
     }
-    
     let noteText = noteInput.value.trim();
     let btn = document.getElementById("btn_" + tripId);
     let originalText = btn.innerText;
     btn.innerText = "جاري الحفظ...";
     btn.disabled = true;
-    
     try {
         await db.collection("trips").doc(tripId).update({
             note: noteText,
             noteUpdatedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
-        
         let trip = globalTrips.find(t => t.id === tripId);
         if(trip) trip.note = noteText;
-        
         let container = document.getElementById("noteContainer_" + tripId);
         container.innerHTML = `
             <div style="padding:10px; background:#e8f5e9; border:1px solid #c8e6c9; border-radius:5px; margin-bottom:10px;">
@@ -1330,7 +1296,6 @@ async function saveNote(tripId, event) {
                 <button id="btn_${tripId}" onclick="saveNote('${tripId}', event)" style="width:auto; padding:8px 15px; background:#dc3545; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">تحديث</button>
             </div>
         `;
-        
     } catch (e) {
         showAlert("خطأ في الحفظ: " + e.message);
         btn.innerText = originalText;
@@ -1424,7 +1389,6 @@ async function showData(){
       let parsedDate = new Date(date);
       if(isNaN(parsedDate)) parsedDate = new Date(0);
       x.sortDate = parsedDate;
-      
       arr.push(x);
     }
    }
