@@ -561,13 +561,13 @@ async function exportSupplierDataToExcel() {
         if (normalizeValue(t["رقم المورد"]) === loggedInSupplierSapGlobal) {
             let row = {};
             for(let k in t) {
-                if(!["fileId", "fileName", "uploadedAt", "id", "noteUpdatedAt", "sortDate"].includes(k)) {
+                if(!["fileId", "fileName", "uploadedAt", "id", "note", "noteUpdatedAt", "sortDate"].includes(k)) {
                     let val = t[k];
                     if(k.includes("تاريخ") || k.includes("وقت الوردية") || k.includes("التاريخ")) val = onlyDate(val);
                     row[k] = val;
                 }
             }
-            if(t.note) row["ملاحظاتي"] = t.note;
+            if(t.note) row["ملاحظات (المورد - العميل)"] = t.note.split('| (تاريخ')[0].trim();
             tData.push(row);
         }
     });
@@ -747,7 +747,7 @@ function switchAdminTab(tabId, btnElement) {
     document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.getElementById(tabId).classList.add('active');
-    btnElement.classList.add('active');
+    if(btnElement) btnElement.classList.add('active');
 }
 
 function openAdmin(){
@@ -755,14 +755,12 @@ function openAdmin(){
  history.pushState(null, null, "#admin");
  loadUploadedFiles(); 
  
+ // الفتح دائماً على تبويبة "البيانات" كما طلبت
+ switchAdminTab('tab-data', document.getElementById('btn-tab-data'));
  if(currentRole === "super_admin") {
-     switchAdminTab('tab-data', document.getElementById('btn-tab-data'));
      loadAdminsList(); 
  } else if (currentRole === "admin") {
-     if(adminPermissions.data) switchAdminTab('tab-data', document.getElementById('btn-tab-data'));
-     else if(adminPermissions.suppliers) switchAdminTab('tab-suppliers', document.getElementById('btn-tab-suppliers'));
-     else if(adminPermissions.msgs) switchAdminTab('tab-msgs', document.getElementById('btn-tab-msgs'));
-     else if(adminPermissions.reports) switchAdminTab('tab-reports', document.getElementById('btn-tab-reports'));
+     loadAdminsList();
  }
 }
 
@@ -1386,7 +1384,7 @@ function openAdminNotificationsPanel() {
                     </div>
                     <div style="display:flex; gap:6px;">
                         <button onclick="showPasswordResetInstructions()" style="flex:1; padding:8px 12px; font-size:12px; background:#17a2b8; color:#fff; border-radius:6px; border:none; cursor:pointer;">كيف أغيره؟</button>
-                        <button onclick="deletePasswordRequest('${req.id}')" style="flex:1; padding:8px 12px; font-size:12px; background:#e47377; color:#fff; border-radius:6px; border:none; cursor:pointer;">مسح الطلب من الإشعارات</button>
+                        <button onclick="deletePasswordRequest('${req.id}', event)" style="flex:1; padding:8px 12px; font-size:12px; background:#e47377; color:#fff; border-radius:6px; border:none; cursor:pointer;">مسح الطلب من الإشعارات</button>
                     </div>
                 </div>`;
             } else {
@@ -1394,7 +1392,7 @@ function openAdminNotificationsPanel() {
                 <div style="background:#f8d7da; padding:15px; border-radius:10px; margin-bottom:12px; border:2px solid #f5c6cb;">
                     <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
                         <span style="font-size:12px; color:#721c24; font-weight:bold;">📅 ${dateStr}</span>
-                        <button onclick="deletePasswordRequest('${req.id}')" style="background:#e47377; color:#fff; border:none; border-radius:4px; padding:4px 8px; cursor:pointer; font-size:10px;">حذف 🗑️</button>
+                        <button onclick="deletePasswordRequest('${req.id}', event)" style="background:#e47377; color:#fff; border:none; border-radius:4px; padding:4px 8px; cursor:pointer; font-size:10px;">حذف 🗑️</button>
                     </div>
                     <div style="font-size:14px; color:#721c24; margin-bottom:8px;">
                         ⚠️ طلب استعادة من رقم هاتف <b>غير مسجل</b> في قاعدة البيانات: <br>
@@ -1408,7 +1406,26 @@ function openAdminNotificationsPanel() {
     document.getElementById("popupResult").innerHTML = html;
 }
 
-// دالة لمعرفة الرسائل المرئية للمستخدم حسب الصلاحية ونوع الخدمة
+async function deletePasswordRequest(reqId, event) {
+    if(event) { event.stopPropagation(); event.preventDefault(); }
+    if(!confirm("هل أنت متأكد من إنهاء وحذف هذا الطلب من الإشعارات؟")) return;
+    
+    globalPasswordRequests = globalPasswordRequests.filter(r => r.id !== reqId);
+    openAdminNotificationsPanel(); 
+    updateAdminNotificationsBadge();
+
+    try {
+        let doc = await db.collection("uploadedFiles").doc("PASSWORD_RESET_REQUESTS").get();
+        if(doc.exists) {
+            let reqs = doc.data().requests || [];
+            let updatedReqs = reqs.filter(r => r.id !== reqId);
+            await db.collection("uploadedFiles").doc("PASSWORD_RESET_REQUESTS").update({requests: updatedReqs});
+        }
+    } catch(e) {
+        console.error("Error deleting password request:", e);
+    }
+}
+
 function getVisibleMessages() {
     if(currentRole === "admin" || currentRole === "super_admin") return globalMessages;
     return globalMessages.filter(m => {
@@ -1664,7 +1681,6 @@ async function loadSupplierData(){
    document.getElementById("numTotal").innerHTML = totalTrips;
    document.getElementById("numPerf").innerHTML = (totalTrips ? Math.round((success/totalTrips)*100):0)+"%";
 
-   // استدعاء دالة تحديث عدد الرسائل هنا مباشرة بعد الانتهاء من تحميل وتحديد أنواع الخدمة
    updateMessagesBadge();
    
  }catch(e){ document.getElementById('loadingOverlay').style.display = 'none'; }
@@ -1968,7 +1984,7 @@ function getNoteFormHTML(x) {
         </div>
         
         <div id="form_self_${x.id}" style="display:none; margin-top:10px; background:#f9f9f9; padding:12px; border-radius:8px; border:1px solid #eee;">
-            <input type="text" id="input_self_note_${x.id}" value="${oldSelfNote}" placeholder="اكتب مبرر الفشل هنا (عطل بالبوابة، تأخير...)" style="margin-bottom:8px; width:100%; padding:8px; border:1px solid #ccc; border-radius:5px; font-family:tahoma; box-sizing:border-box;">
+            <input type="text" id="input_self_note_${x.id}" value="${oldSelfNote}" placeholder="(حضور متاخر- عدم المرور من البوابة ...)" style="margin-bottom:8px; width:100%; padding:8px; border:1px solid #ccc; border-radius:5px; font-family:tahoma; box-sizing:border-box;">
             <div style="display:flex; gap:5px;">
                 <button onclick="submitAdvancedNote('${x.id}', 'self', event)" style="background:#dc3545; flex:1; font-weight:bold; padding:8px; border:none; border-radius:5px; color:white; cursor:pointer;">حفظ ${x.note ? 'التعديل' : 'التبرير'}</button>
                 <button onclick="cancelAdvancedNoteForm('${x.id}', event)" style="background:#6c757d; width:auto; padding:8px 15px; border:none; border-radius:5px; color:white; cursor:pointer;">إلغاء</button>
@@ -1978,12 +1994,12 @@ function getNoteFormHTML(x) {
         <div id="form_alt_${x.id}" style="display:none; margin-top:10px; background:#e9ecef; padding:12px; border-radius:8px; border:1px solid #ccc;">
             <div style="display:flex; gap:8px; margin-bottom:10px; align-items:center; justify-content:flex-start; flex-wrap:wrap; direction:rtl;">
                 <span style="font-size:13px; font-weight:bold; color:#333; white-space:nowrap;">رقم الرخصة</span>
-                <input type="text" id="input_alt_l1_${x.id}" value="${oldAltL1}" maxlength="1" placeholder="-" style="width:40px; height:40px; text-align:center; padding:5px; border:1px solid #bbb; border-radius:20px; font-family:tahoma; font-size:14px; margin:0; outline:none;">
-                <input type="text" id="input_alt_l2_${x.id}" value="${oldAltL2}" maxlength="1" placeholder="-" style="width:40px; height:40px; text-align:center; padding:5px; border:1px solid #bbb; border-radius:20px; font-family:tahoma; font-size:14px; margin:0; outline:none;">
-                <input type="text" id="input_alt_l3_${x.id}" value="${oldAltL3}" maxlength="1" placeholder="-" style="width:40px; height:40px; text-align:center; padding:5px; border:1px solid #bbb; border-radius:20px; font-family:tahoma; font-size:14px; margin:0; outline:none;">
-                <input type="number" id="input_alt_nums_${x.id}" value="${oldAltNums}" oninput="if(this.value.length > 5) this.value = this.value.slice(0, 5);" placeholder="أرقام" style="flex:1; min-width:80px; height:40px; text-align:center; padding:5px; border:1px solid #bbb; border-radius:20px; font-family:tahoma; font-size:14px; margin:0; outline:none;">
+                <input type="text" id="input_alt_l1_${x.id}" value="${oldAltL1}" maxlength="1" placeholder="-" oninput="this.value=this.value.replace(/[0-9٠-٩]/g, ''); if(this.value.length===1) document.getElementById('input_alt_l2_${x.id}').focus();" style="width:40px; height:40px; text-align:center; padding:5px; border:1px solid #bbb; border-radius:20px; font-family:tahoma; font-size:14px; margin:0; outline:none;">
+                <input type="text" id="input_alt_l2_${x.id}" value="${oldAltL2}" maxlength="1" placeholder="-" oninput="this.value=this.value.replace(/[0-9٠-٩]/g, ''); if(this.value.length===1) document.getElementById('input_alt_l3_${x.id}').focus();" style="width:40px; height:40px; text-align:center; padding:5px; border:1px solid #bbb; border-radius:20px; font-family:tahoma; font-size:14px; margin:0; outline:none;">
+                <input type="text" id="input_alt_l3_${x.id}" value="${oldAltL3}" maxlength="1" placeholder="-" oninput="this.value=this.value.replace(/[0-9٠-٩]/g, ''); if(this.value.length===1) document.getElementById('input_alt_nums_${x.id}').focus();" style="width:40px; height:40px; text-align:center; padding:5px; border:1px solid #bbb; border-radius:20px; font-family:tahoma; font-size:14px; margin:0; outline:none;">
+                <input type="text" id="input_alt_nums_${x.id}" value="${oldAltNums}" placeholder="أرقام" oninput="this.value=this.value.replace(/[^0-9٠-٩]/g, '').slice(0, 5);" style="flex:1; min-width:80px; height:40px; text-align:center; padding:5px; border:1px solid #bbb; border-radius:20px; font-family:tahoma; font-size:14px; margin:0; outline:none;">
             </div>
-            <input type="text" id="input_alt_note_${x.id}" value="${oldAltNote}" placeholder="ملاحظة إضافية (اختياري)" style="margin-bottom:8px; width:100%; padding:8px; border:1px solid #ccc; border-radius:5px; font-family:tahoma; box-sizing:border-box;">
+            <input type="text" id="input_alt_note_${x.id}" value="${oldAltNote}" placeholder="(عطل السيارة الاساسى - تلف الملصق .... )" style="margin-bottom:8px; width:100%; padding:8px; border:1px solid #ccc; border-radius:5px; font-family:tahoma; box-sizing:border-box;">
             <div style="display:flex; gap:5px;">
                 <button onclick="submitAdvancedNote('${x.id}', 'alt', event)" style="background:#dc3545; flex:1; font-weight:bold; padding:8px; border:none; border-radius:5px; color:white; cursor:pointer;">حفظ ${x.note ? 'التعديل' : 'التبرير'}</button>
                 <button onclick="cancelAdvancedNoteForm('${x.id}', event)" style="background:#6c757d; width:auto; padding:8px 15px; border:none; border-radius:5px; color:white; cursor:pointer;">إلغاء</button>
@@ -2169,7 +2185,7 @@ async function submitAdvancedNote(tripId, type, event) {
     }
 }
 
-// دالة استخراج تقرير الملاحظات والتبريرات للإدارة بتفصيل وترتيب شامل
+// دالة استخراج تقرير الملاحظات والتبريرات للإدارة
 async function exportNotesReport() {
     let btn = document.querySelector("button[onclick='exportNotesReport()']");
     let originalText = btn.innerText;
