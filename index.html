@@ -284,7 +284,7 @@ button:disabled {background:#999 !important; cursor:not-allowed;}
         </div>
         <div style="border-right:1px solid #ddd; height: 50px;"></div>
         <div style="text-align:center; width: 48%;">
-            <div style="font-size:14px; font-weight:bold; margin-bottom:4px; color:#333;">نسبة الأداء 📊</div>
+            <div style="font-size:14px; font-weight:bold; margin-bottom:4px; color:#333;">نسبة الرحلات الناجحة 📊</div>
             <div class="num" id="numPerf" style="font-size: 32px;">0%</div>
         </div>
     </div>
@@ -292,6 +292,10 @@ button:disabled {background:#999 !important; cursor:not-allowed;}
 
 <div id="globalFilter">
     <h3>فترة البحث والإحصائيات</h3>
+    <div style="display:flex; gap:10px; margin-bottom:5px; font-size:12px; font-weight:bold; color:#555;">
+        <span style="flex:1; text-align:right;">من تاريخ:</span>
+        <span style="flex:1; text-align:right;">إلى تاريخ:</span>
+    </div>
     <div class="filter-row">
       <input type="date" id="globalFromDate">
       <input type="date" id="globalToDate">
@@ -938,6 +942,7 @@ function clearDashFilter() {
 <h3 id="popupTitle" style="font-size:16px; padding:10px; margin-top:0; margin-bottom:10px; border-radius:8px; color:#333; text-align:center; background:#fff; box-shadow:0 2px 4px rgba(0,0,0,0.05); border:1px solid #eee;"></h3>
 <div id="popupCount">إجمالي السجلات المعروضة: 0</div>
 <input type="text" id="searchInput" placeholder="🔍 ابحث هنا..." onkeyup="filterPopupResults()" style="display:none; padding:10px; margin-bottom:10px; width:100%; border-radius:8px; border:2px solid #075bb5; font-family:tahoma; font-size:13px; box-sizing:border-box;">
+<div id="failedTripsHint" style="display:none; text-align:center; font-size:12px; color:#856404; background:#fff3cd; padding:8px; border-radius:8px; margin-bottom:10px; border:1px solid #ffeeba;">💡 يمكنك إضافة ملحوظة وسبب الفشل للرحلة من خلال الضغط على الرحلة وتوسيع التفاصيل.</div>
 <div id="popupResult" style="flex:1; overflow-y:auto; padding-right:5px; margin-bottom:10px;"></div>
 <button id="loadMoreBtn" class="load-more-btn hide" onclick="loadMoreRecords()">استدعاء المزيد 👇</button>
 <button onclick="closePopup()" style="background:#546e7a; color:#fff; font-size:14px; padding:12px; margin-top:10px; border-radius:8px; font-weight:bold; cursor:pointer; border:none;">رجوع 🔙</button>
@@ -1812,6 +1817,12 @@ function openPanel(name){
  document.getElementById("popupCount").style.display = "block";
  document.getElementById("popupResult").innerHTML="";
  
+ if(name === 'رحلات فاشلة') {
+     document.getElementById("failedTripsHint").style.display = "block";
+ } else {
+     document.getElementById("failedTripsHint").style.display = "none";
+ }
+ 
  showData();
 }
 
@@ -2036,17 +2047,35 @@ function loadMoreRecords() {
         deskInfo += `</span>`;
         if(!addD) deskInfo = ""; else deskInfo = deskInfo.replace(/ \| <\/span>$/, '</span>');
 
-        let providerInfo = (isAdmin && !adminDashFilteredSap) ? ` <span style="background:#e9ecef; color:#333; padding:2px 8px; border-radius:10px; font-size:12px; margin-right:auto;">مورد: ${x["رقم المورد"] || ""}</span>` : "";
+        let providerInfoInner = (isAdmin && !adminDashFilteredSap && x["رقم المورد"]) 
+            ? `<span style="background:#e9ecef; color:#333; padding:2px 8px; border-radius:10px; font-size:12px; white-space:nowrap;">مورد: ${x["رقم المورد"]}</span>` 
+            : "";
+            
         let mainInfo = "";
 
         if(activePanel === "السيارات" || activePanel === "الأكواد") {
             let codeStr = x["كود الحافلة"] || x["كود"] || "";
-            mainInfo = `${serialBadge} 🚚 ${x["رقم اللوحة"]||""} ${codeStr ? '<span style="color:#777; font-size:13px;">| كود: '+codeStr+'</span>' : ''} ${deskInfo} ${providerInfo}`;
+            let rightSideContainer = providerInfoInner ? `<div style="margin-right:auto; display:flex; gap:5px; align-items:center;">${providerInfoInner}</div>` : "";
+            mainInfo = `${serialBadge} 🚚 ${x["رقم اللوحة"]||""} ${codeStr ? '<span style="color:#777; font-size:13px;">| كود: '+codeStr+'</span>' : ''} ${deskInfo} ${rightSideContainer}`;
         } else {
             let dateStr = onlyDate(x["وقت الوردية"] || x["التاريخ"]);
             let shiftStr = x["الوردية"]||x["وردية"]||x["وقت الوردية"]||"";
-            let noteIcon = (activePanel === "رحلات فاشلة") ? "📝 " : "";
-            mainInfo = `${serialBadge} 📅 ${dateStr} - ${noteIcon}${shiftStr} ${deskInfo} ${providerInfo}`;
+            
+            let noteIcon = "";
+            let noteBadgeSpan = "";
+            
+            if (activePanel === "رحلات فاشلة") {
+                noteIcon = `<span id="icon_${x.id}">${x.note ? '<span style="background:#007bff; color:white; font-size:10px; padding:2px 5px; border-radius:4px; margin-left:4px; box-shadow: 0 1px 3px rgba(0,0,0,0.3);">📝 مضاف</span>' : '<span style="font-size:14px; margin-left:4px; opacity:0.5;">📝</span>'}</span>`;
+                noteBadgeSpan = `<span id="badge_${x.id}">${x.note ? '<span class="desktop-only" style="background:#e9f5ff; color:#007bff; border:1px solid #b8daff; padding:2px 8px; border-radius:10px; font-size:11px; white-space:nowrap; margin:0;">مضاف ملاحظة ✓</span>' : ''}</span>`;
+            }
+            
+            let rightElements = "";
+            if (noteBadgeSpan) rightElements += noteBadgeSpan;
+            if (providerInfoInner) rightElements += providerInfoInner;
+            
+            let rightSideContainer = rightElements ? `<div style="margin-right:auto; display:flex; gap:5px; align-items:center;">${rightElements}</div>` : "";
+
+            mainInfo = `${serialBadge} 📅 ${dateStr} - ${noteIcon}${shiftStr} ${deskInfo} ${rightSideContainer}`;
         }
         
         let extraInfo = getUniformedDataRows(x);
@@ -2178,7 +2207,13 @@ async function submitAdvancedNote(tripId, type, event) {
         if (trip) trip.note = finalNote;
         
         let container = document.getElementById("noteContainer_" + tripId);
-        container.innerHTML = getNoteFormHTML(trip);
+        if(container) container.innerHTML = getNoteFormHTML(trip);
+        
+        let iconEl = document.getElementById("icon_" + tripId);
+        if(iconEl) iconEl.innerHTML = '<span style="background:#007bff; color:white; font-size:10px; padding:2px 5px; border-radius:4px; margin-left:4px; box-shadow: 0 1px 3px rgba(0,0,0,0.3);">📝 مضاف</span>';
+        
+        let badgeEl = document.getElementById("badge_" + tripId);
+        if(badgeEl) badgeEl.innerHTML = '<span class="desktop-only" style="background:#e9f5ff; color:#007bff; border:1px solid #b8daff; padding:2px 8px; border-radius:10px; font-size:11px; white-space:nowrap; margin:0;">مضاف ملاحظة ✓</span>';
         
     } catch (e) { 
         showAlert("خطأ في الحفظ: " + e.message); 
@@ -2241,7 +2276,7 @@ async function exportNotesReport() {
                     "(تاريخ التحديث)": updatedDate,
                     
                     "كود الحافلة": t["كود الحافلة"] || t["كود"] || "",
-                    "كود FID": t["كود FID"] || "",
+                    "RFID كود": t["RFID كود"] || t["كود RFID"] || t["RFID"] || "",
                     "رقم اللوحات": t["رقم اللوحات"] || t["رقم اللوحة"] || "",
                     "وصف الحافلة": t["وصف الحافلة"] || "",
                     "وصف الخط": t["وصف الخط"] || t["اسم الخط"] || t["خط السير"] || "",
@@ -2252,7 +2287,7 @@ async function exportNotesReport() {
 
                 let excludedKeys = ["fileId", "fileName", "uploadedAt", "id", "note", "noteUpdatedAt", "sortDate",
                  "التاريخ", "الوردية", "وردية", "وقت الوردية", "رقم المورد",
-                 "كود الحافلة", "كود", "كود FID", "رقم اللوحات", "رقم اللوحة",
+                 "كود الحافلة", "كود", "كود FID", "RFID كود", "كود RFID", "RFID", "رقم اللوحات", "رقم اللوحة",
                  "وصف الحافلة", "وصف الخط", "اسم الخط", "خط السير",
                  "المنطقة المركز", "المنطقة/المركز", "المنطقة", "الفرع", "مشرف التشغيل", "اسم السائق"];
 
