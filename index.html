@@ -567,7 +567,7 @@ async function exportSupplierDataToExcel() {
                     row[k] = val;
                 }
             }
-            if(t.note) row["ملاحظات (المورد - العميل)"] = t.note.split('| (تاريخ')[0].trim();
+            if(t.note) row["ملاحظات (المورد - العميل)"] = t.note;
             tData.push(row);
         }
     });
@@ -755,7 +755,6 @@ function openAdmin(){
  history.pushState(null, null, "#admin");
  loadUploadedFiles(); 
  
- // الفتح دائماً على تبويبة "البيانات" كما طلبت
  switchAdminTab('tab-data', document.getElementById('btn-tab-data'));
  if(currentRole === "super_admin") {
      loadAdminsList(); 
@@ -1999,7 +1998,7 @@ function getNoteFormHTML(x) {
                 <input type="text" id="input_alt_l3_${x.id}" value="${oldAltL3}" maxlength="1" placeholder="-" oninput="this.value=this.value.replace(/[0-9٠-٩]/g, ''); if(this.value.length===1) document.getElementById('input_alt_nums_${x.id}').focus();" style="width:40px; height:40px; text-align:center; padding:5px; border:1px solid #bbb; border-radius:20px; font-family:tahoma; font-size:14px; margin:0; outline:none;">
                 <input type="text" id="input_alt_nums_${x.id}" value="${oldAltNums}" placeholder="أرقام" oninput="this.value=this.value.replace(/[^0-9٠-٩]/g, '').slice(0, 5);" style="flex:1; min-width:80px; height:40px; text-align:center; padding:5px; border:1px solid #bbb; border-radius:20px; font-family:tahoma; font-size:14px; margin:0; outline:none;">
             </div>
-            <input type="text" id="input_alt_note_${x.id}" value="${oldAltNote}" placeholder="(عطل السيارة الاساسى - تلف الملصق .... )" style="margin-bottom:8px; width:100%; padding:8px; border:1px solid #ccc; border-radius:5px; font-family:tahoma; box-sizing:border-box;">
+            <input type="text" id="input_alt_note_${x.id}" value="${oldAltNote}" placeholder="(عطل السيارة الأساسي - تلف الملصق .... )" style="margin-bottom:8px; width:100%; padding:8px; border:1px solid #ccc; border-radius:5px; font-family:tahoma; box-sizing:border-box;">
             <div style="display:flex; gap:5px;">
                 <button onclick="submitAdvancedNote('${x.id}', 'alt', event)" style="background:#dc3545; flex:1; font-weight:bold; padding:8px; border:none; border-radius:5px; color:white; cursor:pointer;">حفظ ${x.note ? 'التعديل' : 'التبرير'}</button>
                 <button onclick="cancelAdvancedNoteForm('${x.id}', event)" style="background:#6c757d; width:auto; padding:8px 15px; border:none; border-radius:5px; color:white; cursor:pointer;">إلغاء</button>
@@ -2161,9 +2160,12 @@ async function submitAdvancedNote(tripId, type, event) {
             return; 
         }
         
-        finalNote = `[حضور سيارة بديلة] اللوحة: ${nums} ${letters}`;
-        if (note) finalNote += ` | ملاحظة: ${note}`;
-        finalNote += ` ${dateString}`;
+        if (!note) {
+            showAlert("الرجاء كتابة مبرر الفشل (عطل السيارة الأساسي، تلف الملصق...).");
+            return;
+        }
+        
+        finalNote = `[حضور سيارة بديلة] اللوحة: ${nums} ${letters} | ملاحظة: ${note} ${dateString}`;
     }
     
     let btn = event.target; 
@@ -2185,7 +2187,6 @@ async function submitAdvancedNote(tripId, type, event) {
     }
 }
 
-// دالة استخراج تقرير الملاحظات والتبريرات للإدارة
 async function exportNotesReport() {
     let btn = document.querySelector("button[onclick='exportNotesReport()']");
     let originalText = btn.innerText;
