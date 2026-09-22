@@ -118,10 +118,10 @@ button:disabled {background:#999 !important; cursor:not-allowed;}
 @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
 .file-list { margin-top: 10px; text-align: right; }
-.file-item { background: #f8f9fb; padding: 8px; border-radius: 6px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #eee; font-size: 13px;}
+.file-item { background: #f8f9fb; padding: 12px; border-radius: 6px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #eee; font-size: 13px;}
 .file-item .file-info { display: flex; flex-direction: column; }
-.file-item .file-date { font-size: 10px; color: #777; margin-top: 2px; }
-.delete-btn { background: #dc3545; color: white; border: none; border-radius: 4px; padding: 4px 8px; cursor: pointer; width: auto; margin: 0; font-size:12px;}
+.file-item .file-date { font-size: 11px; color: #075bb5; margin-top: 4px; font-weight:bold; }
+.delete-btn { background: #dc3545; color: white; border: none; border-radius: 4px; padding: 4px 10px; cursor: pointer; width: auto; margin: 0; font-size:12px; font-weight:bold;}
 
 .detail-card { background: #fdfdfd; padding: 12px; border-radius: 10px; margin: 8px 0; border: 1px solid #e0e0e0; box-shadow: 0 1px 3px rgba(0,0,0,0.03); position: relative;}
 .detail-card summary { font-size: 14px; font-weight: bold; color: #075bb5; cursor: pointer; outline: none; list-style: none; display: flex; align-items: center; }
@@ -246,6 +246,10 @@ button:disabled {background:#999 !important; cursor:not-allowed;}
         </div>
         <button id="adminBtn" class="hide" onclick="openAdmin()" style="background:#fff; color:#075bb5; padding:6px 10px; font-size:12px; border-radius:8px; box-shadow:0 2px 4px rgba(0,0,0,0.1); margin-top:10px; width:100%;">⚙️ لوحة الإدارة</button>
     </div>
+</div>
+
+<div style="text-align:center; margin-top:10px; background:#e9ecef; padding:8px; border-radius:10px; color:#555; font-size:12px; font-weight:bold; border:1px solid #ddd; box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+    🔄 أحدث نسخة من البيانات المعروضة: <span id="globalLastUpdateTxt" style="color:#075bb5;">جاري التحقق...</span>
 </div>
 
 <div id="adminDashFilter" class="hide">
@@ -413,11 +417,41 @@ function showPasswordResetInstructions() {
     showAlert("لأسباب أمنية في سيرفرات فايربيز، لا يمكن للأدمن تغيير كلمة سر المورد مباشرة من التطبيق. \n\nلتغييرها قم بالتالي:\n1. افتح منصة Firebase Console ثم Authentication.\n2. ابحث عن المورد واحذف حسابه (Delete account).\n3. ارجع للبرنامج هنا واضغط (إنشاء مورد جديد يدوياً).\n4. أعد إنشائه بنفس البيانات وكلمة السر الجديدة.\n\n(ملاحظة: رحلاته وسياراته لن تضيع لأنها مرتبطة برقم ساب).");
 }
 
+async function loadUploadedFiles() {
+    let listDiv = document.getElementById("uploadedFilesList");
+    listDiv.innerHTML = "⏳ جاري تحميل الملفات...";
+    try {
+        let snap = await db.collection("systemFiles").orderBy("date", "desc").get();
+        if(snap.empty) {
+            listDiv.innerHTML = `<span style="font-size:12px; color:#666;">لا توجد بيانات مرفوعة حالياً.</span>`;
+            return;
+        }
+        let html = "";
+        snap.forEach(doc => {
+            let d = doc.data();
+            let dt = new Date(d.date).toLocaleString('ar-EG');
+            html += `
+            <div class="file-item">
+                <div class="file-info">
+                    <strong>${d.typeName} - ${d.name}</strong>
+                    <span class="file-date">بواسطة: ${d.uploader} | ${dt}</span>
+                </div>
+                <button class="delete-btn" onclick="deleteUploadedFile('${d.id}', '${d.type}', '${d.name}')">حذف 🗑️</button>
+            </div>`;
+        });
+        listDiv.innerHTML = html;
+    } catch(e) {
+        listDiv.innerHTML = "❌ خطأ في تحميل الملفات المرفوعة.";
+    }
+}
+
 async function uploadAsChunks(collectionName, arrayData) {
     let oldSnap = await db.collection("data_" + collectionName).get();
     let batch = db.batch();
     oldSnap.docs.forEach(doc => batch.delete(doc.ref)); 
     await batch.commit();
+    
+    if (arrayData.length === 0) return;
     
     let chunkSize = 250; 
     let totalChunks = Math.ceil(arrayData.length / chunkSize);
@@ -453,6 +487,107 @@ async function updateSystemVersion() {
     } catch(e) {}
 }
 
+async function safeUploadTest(inputId, typeName) {
+    const fileInput = document.getElementById(inputId);
+    const file = fileInput.files[0];
+    const resultDiv = document.getElementById("adminResult");
+
+    if (!file) {
+        resultDiv.innerHTML = `❌ الرجاء اختيار ملف (${typeName}) أولاً.`;
+        return;
+    }
+
+    resultDiv.innerHTML = `⏳ جاري قراءة الملف، يرجى الانتظار...`;
+
+    try {
+        const data = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const wb = XLSX.read(e.target.result, {type: 'array'});
+                    const ws = wb.Sheets[wb.SheetNames[0]];
+                    const json = XLSX.utils.sheet_to_json(ws, {defval: ""});
+                    resolve(json);
+                } catch (err) {
+                    reject(err);
+                }
+            };
+            reader.onerror = reject;
+            reader.readAsArrayBuffer(file);
+        });
+
+        if (data.length === 0) {
+            resultDiv.innerHTML = `❌ الملف فارغ أو غير صالح.`;
+            return;
+        }
+
+        resultDiv.innerHTML = `⏳ جاري معالجة ودمج السجلات...`;
+
+        let collectionName = inputId === 'vehiclesFile' ? 'vehicles' : 'trips';
+        let fileId = 'file_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+        let uploadDate = new Date().toISOString();
+
+        data.forEach((row, i) => {
+            row.fileId = fileId;
+            row.fileName = file.name;
+            row.uploadedAt = uploadDate;
+            if (!row.id) {
+                row.id = collectionName === 'trips' 
+                    ? 'trip_' + Date.now() + '_' + i + '_' + Math.random().toString(36).substr(2, 5)
+                    : 'veh_' + Date.now() + '_' + i;
+            }
+        });
+
+        let existingData = await downloadChunks(collectionName);
+        let combinedData = existingData.concat(data);
+
+        resultDiv.innerHTML = `⏳ جاري رفع ${combinedData.length} سجل إجمالي لقاعدة البيانات...`;
+        await uploadAsChunks(collectionName, combinedData);
+        
+        await db.collection("systemFiles").doc(fileId).set({
+            id: fileId,
+            name: file.name,
+            type: collectionName,
+            typeName: typeName,
+            date: uploadDate,
+            uploader: currentUserName || "الإدارة"
+        });
+
+        await updateSystemVersion();
+
+        resultDiv.innerHTML = `✅ تم رفع ودمج ${typeName} بنجاح (تمت إضافة ${data.length} سجل).`;
+        fileInput.value = ""; 
+        loadUploadedFiles();
+        dataLoaded = false; 
+        
+    } catch (error) {
+        resultDiv.innerHTML = `❌ حدث خطأ أثناء الرفع: ` + error.message;
+    }
+}
+
+async function deleteUploadedFile(fileId, collectionName, fileName) {
+    if(!confirm(`هل أنت متأكد من حذف ملف "${fileName}" وكافة السجلات المرتبطة به؟`)) return;
+
+    document.getElementById("adminResult").innerHTML = `⏳ جاري حذف الملف واستبعاد بياناته...`;
+    try {
+        let existingData = await downloadChunks(collectionName);
+        let originalCount = existingData.length;
+        let filteredData = existingData.filter(x => x.fileId !== fileId);
+        let removedCount = originalCount - filteredData.length;
+
+        await uploadAsChunks(collectionName, filteredData);
+        await db.collection("systemFiles").doc(fileId).delete();
+        await updateSystemVersion();
+
+        document.getElementById("adminResult").innerHTML = `✅ تم حذف الملف "${fileName}" واستبعاد ${removedCount} سجل بنجاح.`;
+        loadUploadedFiles();
+        dataLoaded = false;
+        
+    } catch(e) {
+        document.getElementById("adminResult").innerHTML = `❌ خطأ في الحذف: ` + e.message;
+    }
+}
+
 async function wipeAllData() {
     if(!confirm("⚠️ تحذير: هل أنت متأكد من مسح كافة بيانات السيارات والرحلات؟")) return;
     let pwd = prompt("لتأكيد المسح الشامل، اكتب كلمة 'مسح':");
@@ -469,6 +604,11 @@ async function wipeAllData() {
         let batch = db.batch();
         notesSnap.docs.forEach(doc => batch.delete(doc.ref));
         await batch.commit();
+        
+        let sysFilesSnap = await db.collection("systemFiles").get();
+        let batchSys = db.batch();
+        sysFilesSnap.docs.forEach(doc => batchSys.delete(doc.ref));
+        await batchSys.commit();
 
         await updateSystemVersion(); 
 
@@ -571,7 +711,7 @@ async function exportSupplierDataToExcel() {
                     row[k] = val;
                 }
             }
-            if(t.note) row["ملاحظات (المورد - العميل)"] = t.note;
+            if(t.note) row["ملاحظات (المورد - العميل)"] = t.note.split('| (تاريخ')[0].trim();
             tData.push(row);
         }
     });
@@ -771,9 +911,6 @@ function closeAdmin(){
  document.getElementById("adminPanel").style.display="none";
  if(!dataLoaded) { loadSupplierData(); }
 }
-
-vehiclesFile.onchange=function(){ if(this.files.length){ document.getElementById("adminResult").innerHTML="تم اختيار ملف السيارات: "+this.files[0].name; } };
-tripsFile.onchange=function(){ if(this.files.length){ document.getElementById("adminResult").innerHTML="تم اختيار ملف الرحلات: "+this.files[0].name; } };
 
 function filterDashSuppliers() {
     let inputStr = document.getElementById("dashSupplierSearch").value;
@@ -1356,6 +1493,7 @@ function openAdminNotificationsPanel() {
     document.getElementById("popupTitle").innerHTML = "🔔 طلبات استعادة الرقم السري";
     document.getElementById("searchInput").style.display = "none";
     document.getElementById("popupCount").style.display = "none"; 
+    document.getElementById("failedTripsHint").style.display = "none"; 
     document.getElementById("loadMoreBtn").classList.add("hide"); 
     
     let html = "<div style='padding:5px;'>";
@@ -1459,6 +1597,7 @@ function openMessagesPanel() {
     document.getElementById("popupTitle").innerHTML = "🔔 الإشعارات والرسائل العامة";
     document.getElementById("searchInput").style.display = "none";
     document.getElementById("popupCount").style.display = "none"; 
+    document.getElementById("failedTripsHint").style.display = "none"; 
     document.getElementById("loadMoreBtn").classList.add("hide"); 
     
     let html = "<div style='padding:5px;'>";
@@ -1538,7 +1677,13 @@ async function loadSupplierData(){
        let serverVersion = 0;
        try {
            let metaDoc = await db.collection("system").doc("meta").get();
-           if(metaDoc.exists) serverVersion = metaDoc.data().version || 0;
+           if(metaDoc.exists) {
+               serverVersion = metaDoc.data().version || 0;
+               let dt = new Date(serverVersion);
+               let timeString = dt.toLocaleDateString('ar-EG') + ' - ' + dt.toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit'});
+               let el = document.getElementById('globalLastUpdateTxt');
+               if(el) el.innerText = timeString;
+           }
        } catch(e) {}
 
        let localVersion = localStorage.getItem("elaraby_data_version") || 0;
@@ -1578,6 +1723,28 @@ async function loadSupplierData(){
                let k = normalizeValue(d.sapNumber); if(k) globalSupplierDataMap.set(k, d); 
            });
        }
+
+       // --- نظام المطابقة الذكي: التعرف التلقائي على رقم المورد للرحلات عن طريق اسم المورد ---
+       let nameToSapMap = new Map();
+       globalSupplierDataMap.forEach((data, sap) => {
+           let name = robustNormalize(data.ownerName);
+           if(sap && name) nameToSapMap.set(name, sap);
+       });
+       globalVehicles.forEach(v => {
+           let sap = normalizeValue(v["رقم المورد"]);
+           let name = robustNormalize(v["اسم المورد"]);
+           if(sap && name) nameToSapMap.set(name, sap);
+       });
+       
+       globalTrips.forEach(t => {
+           if(!t["رقم المورد"] || String(t["رقم المورد"]).trim() === "") {
+               let tName = robustNormalize(t["اسم المورد"]);
+               if(tName && nameToSapMap.has(tName)) {
+                   t["رقم المورد"] = nameToSapMap.get(tName);
+               }
+           }
+       });
+       // ------------------------------------------------------------------------------------
        
        dataLoaded = true; document.getElementById('loadingOverlay').style.display = 'none'; 
    }
