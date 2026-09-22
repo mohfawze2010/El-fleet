@@ -711,7 +711,7 @@ async function exportSupplierDataToExcel() {
                     row[k] = val;
                 }
             }
-            if(t.note) row["ملاحظات (المورد - العميل)"] = t.note.split('| (تاريخ')[0].trim();
+            if(t.note) row["ملاحظات (المورد - العميل)"] = t.note;
             tData.push(row);
         }
     });
