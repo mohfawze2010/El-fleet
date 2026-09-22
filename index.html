@@ -326,6 +326,7 @@ let globalMessages = [];
 let globalReadMessages = [];
 let globalPasswordRequests = []; 
 let globalSupplierDataMap = new Map();
+let globalVehicleToServiceType = new Map();
 let currentUserName = ""; 
 let dataLoaded = false;
 let adminDashFilteredSap = null; 
@@ -914,10 +915,10 @@ function clearDashFilter() {
                 <h4 style="margin:0 0 8px 0; font-size:14px; color:#333;">✉️ إرسال إشعار عام للموردين</h4>
                 <select id="adminMsgTarget" style="margin-bottom:8px; padding:8px; font-family:tahoma; width:100%; border-radius:8px;">
                     <option value="all">الجميع (كافة أنواع الخدمات)</option>
-                    <option value="كلى ايجار">لموردي (كلى ايجار) فقط</option>
-                    <option value="خطوط فرعية">لموردي (خطوط فرعية) فقط</option>
+                    <option value="ايجار">لموردي (الايجار) فقط</option>
+                    <option value="فرعي">لموردي (الخطوط الفرعية) فقط</option>
                 </select>
-                <textarea id="adminMsgInput" placeholder="اكتب رسالة جديدة..." style="height:100px;"></textarea>
+                <textarea id="adminMsgInput" placeholder="اكتب رسالة جديدة لتظهر للموردين المستهدفين..." style="height:100px;"></textarea>
                 <button onclick="sendAdminMessage()" style="background:#f0ad4e; color:#fff; font-weight:bold;">🚀 إرسال الرسالة الآن</button>
             </div>
         </div>
@@ -1414,7 +1415,9 @@ function getVisibleMessages() {
         if(!m.target || m.target === "all") return true;
         let hasType = false;
         currentSupplierServiceTypes.forEach(t => {
-            if(t.includes(m.target)) hasType = true;
+            let normT = String(t).toLowerCase();
+            if(m.target === "ايجار" && normT.includes("ايجار")) hasType = true;
+            if(m.target === "فرعي" && (normT.includes("فرعي") || normT.includes("فرعية"))) hasType = true;
         });
         return hasType;
     });
@@ -1562,6 +1565,7 @@ async function loadSupplierData(){
    let showAll = false; let activeSap = loggedInSap;
    if(isAdmin) { if(adminDashFilteredSap) { activeSap = adminDashFilteredSap; showAll = false; } else { showAll = true; } }
 
+   globalVehicleToServiceType.clear();
    let branchSet = new Set();
    let serviceTypeSet = new Set();
    
@@ -1569,14 +1573,19 @@ async function loadSupplierData(){
        if(showAll || normalizeValue(d["رقم المورد"])===activeSap){ 
            if(d["الفرع"]) branchSet.add(String(d["الفرع"]).trim()); 
            let sType = String(d["نوع الخدمة"] || d["الخدمة"] || "").trim();
-           if(sType) serviceTypeSet.add(sType);
+           if(sType) {
+               serviceTypeSet.add(sType);
+               let plate = normalizeValue(d["رقم اللوحة"]);
+               let code = normalizeValue(d["كود الحافلة"] || d["كود"]);
+               if(plate) globalVehicleToServiceType.set(plate, sType);
+               if(code) globalVehicleToServiceType.set(code, sType);
+           }
        } 
    });
+   
    globalTrips.forEach(d => { 
        if(showAll || normalizeValue(d["رقم المورد"])===activeSap){ 
            if(d["الفرع"]) branchSet.add(String(d["الفرع"]).trim()); 
-           let sType = String(d["نوع الخدمة"] || d["الخدمة"] || "").trim();
-           if(sType) serviceTypeSet.add(sType);
        } 
    });
 
@@ -1625,6 +1634,12 @@ async function loadSupplierData(){
       if(showAll || normalizeValue(d["رقم المورد"])===activeSap){
         let b = String(d["الفرع"] || "").trim();
         let sType = String(d["نوع الخدمة"] || d["الخدمة"] || "").trim();
+        if(!sType) {
+            let tripPlate = normalizeValue(d["رقم اللوحة"]);
+            let tripCode = normalizeValue(d["كود الحافلة"] || d["كود"]);
+            sType = globalVehicleToServiceType.get(tripPlate) || globalVehicleToServiceType.get(tripCode) || "";
+        }
+        
         if((!activeBranch || b === activeBranch) && (!activeServiceType || sType === activeServiceType)) {
             let date = onlyDate(d["وقت الوردية"] || d["التاريخ"]);
             if((!fromDate || date >= fromDate) && (!toDate || date <= toDate)){
@@ -1648,6 +1663,9 @@ async function loadSupplierData(){
 
    document.getElementById("numTotal").innerHTML = totalTrips;
    document.getElementById("numPerf").innerHTML = (totalTrips ? Math.round((success/totalTrips)*100):0)+"%";
+
+   // استدعاء دالة تحديث عدد الرسائل هنا مباشرة بعد الانتهاء من تحميل وتحديد أنواع الخدمة
+   updateMessagesBadge();
    
  }catch(e){ document.getElementById('loadingOverlay').style.display = 'none'; }
 }
@@ -1852,6 +1870,12 @@ function showData(){
    if(showAll || normalizeValue(x["رقم المورد"])===activeSap){
     let b = String(x["الفرع"] || "").trim();
     let sType = String(x["نوع الخدمة"] || x["الخدمة"] || "").trim();
+    if(!sType) {
+        let tripPlate = normalizeValue(x["رقم اللوحة"]);
+        let tripCode = normalizeValue(x["كود الحافلة"] || x["كود"]);
+        sType = globalVehicleToServiceType.get(tripPlate) || globalVehicleToServiceType.get(tripCode) || "";
+    }
+    
     if((!activeBranch || b === activeBranch) && (!activeServiceType || sType === activeServiceType)) {
         let date = onlyDate(x["وقت الوردية"] || x["التاريخ"]);
         if((!from || date >= from) && (!to || date <= to)){
@@ -2188,7 +2212,6 @@ async function exportNotesReport() {
                 let updMatch = n.match(/تاريخ التحديث:\s*([^)|]+)/);
                 if(updMatch) updatedDate = updMatch[1].trim();
                 
-                // بناء صف البيانات بالترتيب المطلوب 
                 let row = {
                     "التاريخ": shiftDate,
                     "الوردية": t["الوردية"] || t["وردية"] || t["وقت الوردية"] || "",
@@ -2200,7 +2223,6 @@ async function exportNotesReport() {
                     "(تاريخ الإضافة)": addedDate,
                     "(تاريخ التحديث)": updatedDate,
                     
-                    // ترتيب الأعمدة المطلوب بعد الملاحظات مباشرة من اليمين لليسار
                     "كود الحافلة": t["كود الحافلة"] || t["كود"] || "",
                     "كود FID": t["كود FID"] || "",
                     "رقم اللوحات": t["رقم اللوحات"] || t["رقم اللوحة"] || "",
@@ -2211,7 +2233,6 @@ async function exportNotesReport() {
                     "اسم السائق": t["اسم السائق"] || ""
                 };
 
-                // دمج كافة البيانات المتبقية وتفادي التكرار
                 let excludedKeys = ["fileId", "fileName", "uploadedAt", "id", "note", "noteUpdatedAt", "sortDate",
                  "التاريخ", "الوردية", "وردية", "وقت الوردية", "رقم المورد",
                  "كود الحافلة", "كود", "كود FID", "رقم اللوحات", "رقم اللوحة",
