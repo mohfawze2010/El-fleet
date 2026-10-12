@@ -1810,54 +1810,129 @@ async function safeUploadTest(inputId, label) {
             });
 
            if (collectionName === 'trips' || collectionName === 'dues') {
-                resultDiv.innerHTML = `⏳ جاري الربط الدقيق باسم المكتب والاسم التجاري الكامل... ⬅`;
-                
-                let officeNameToSapMap = new Map();
+                resultDiv.innerHTML = `⏳ جاري الربط برقم المورد (ساب) من الأسماء واللوحات والأكواد...`;
 
-                // 1. تسجيل اسم المكتب الكامل من قاعدة بيانات الموردين
+                // خرائط الربط: اسم منظّف → ساب | لوحة → ساب | كود → ساب
+                let nameToSapMap = new Map();
+                let plateToSapMap = new Map();
+                let codeToSapMap = new Map();
+
+                function registerName(name, sap) {
+                    let n = deepCleanArabic(name);
+                    if (n && sap && n.length >= 3) {
+                        // لا نستبدل ساباً معروفاً بـ unknown
+                        if (!nameToSapMap.has(n) || nameToSapMap.get(n) === "unknown") {
+                            nameToSapMap.set(n, sap);
+                        }
+                    }
+                    // نسخة بدون فواصل شائعة (/ - _)
+                    let n2 = n.replace(/[\/\-_]/g, "");
+                    if (n2 && n2 !== n && n2.length >= 3) {
+                        if (!nameToSapMap.has(n2) || nameToSapMap.get(n2) === "unknown") {
+                            nameToSapMap.set(n2, sap);
+                        }
+                    }
+                }
+
+                // 1) من حسابات الموردين المسجّلين (اسم المالك + اسم المكتب)
                 globalSupplierDataMap.forEach((d, sap) => {
                     let normSap = normalizeValue(sap);
-                    let offName = deepCleanArabic(d.officeName);
-                    let oName = deepCleanArabic(d.ownerName);
-                    // الأولوية لاسم المكتب الكامل
-                    if (offName && normSap) officeNameToSapMap.set(offName, normSap);
-                    else if (oName && normSap) officeNameToSapMap.set(oName, normSap);
+                    if (!normSap) return;
+                    registerName(d.officeName, normSap);
+                    registerName(d.ownerName, normSap);
+                    // جزء قبل الشرطة المائلة إن وُجد (مثل: الزياد للرحلات/نادر ...)
+                    if (d.officeName && String(d.officeName).includes("/")) {
+                        registerName(String(d.officeName).split("/")[0], normSap);
+                    }
+                    if (d.ownerName && String(d.ownerName).includes("/")) {
+                        registerName(String(d.ownerName).split("/")[0], normSap);
+                    }
                 });
-                
-                // 2. تسجيل اسم المورد الكامل من ملف السيارات (المرجع الأساسي لربط الأسطول)
+
+                // 2) من ملف السيارات (مرجع الأسطول) — الاسم + اللوحة + الكود
                 let existingVeh = await downloadAllData('vehicles');
                 existingVeh.forEach(v => {
                     let sap = normalizeValue(v["رقم المورد"]);
-                    let vName = deepCleanArabic(v["اسم المورد"]);
-                    if (sap && vName) {
-                        officeNameToSapMap.set(vName, sap);
-                    }
+                    if (!sap || sap === "unknown") return;
+                    registerName(v["اسم المورد"], sap);
+                    registerName(v["المورد"], sap);
+                    let plate = normalizeValue(v["رقم اللوحة"] || v["رقم اللوحات"]);
+                    let code = normalizeValue(v["كود الحافلة"] || v["كود"]);
+                    if (plate) plateToSapMap.set(plate, sap);
+                    if (code) codeToSapMap.set(code, sap);
                 });
 
-                // 3. مطابقة كل سطر في الملف بالاسم الكامل للمكتب/المورد
-                data = data.map(row => {
-                    let rowSap = normalizeValue(row["رقم المورد"] || row["SAP"] || row["Sap"]);
-                    let rawName = row["المورد"] || row["اسم المورد"] || row["اسم المورد / المورد"] || row["اسم المكتب"] || "";
-                    let cleanRowName = deepCleanArabic(rawName);
+                /** مطابقة اسم مرنة: تطابق كامل ثم احتواء ثم تشابه رموز */
+                function resolveSapByName(rawName) {
+                    let clean = deepCleanArabic(rawName);
+                    if (!clean) return "";
+                    if (nameToSapMap.has(clean)) return nameToSapMap.get(clean);
+                    let clean2 = clean.replace(/[\/\-_]/g, "");
+                    if (nameToSapMap.has(clean2)) return nameToSapMap.get(clean2);
 
-                    if (!rowSap && cleanRowName) {
-                        // تطابق مباشر وكامل مع اسم المكتب/المورد المسجل
-                        if (officeNameToSapMap.has(cleanRowName)) {
-                            rowSap = officeNameToSapMap.get(cleanRowName);
-                        } else {
-                            // في حال وجود بادئة أو لاحقة إضافية في الشيت، نطابق الاسم الكامل
-                            for (let [storedOfficeName, sSap] of officeNameToSapMap.entries()) {
-                                if (storedOfficeName.length >= 8 && (cleanRowName.includes(storedOfficeName) || storedOfficeName.includes(cleanRowName))) {
-                                    rowSap = sSap;
-                                    break;
-                                }
+                    // جزء قبل /
+                    let beforeSlash = deepCleanArabic(String(rawName).split("/")[0] || "");
+                    if (beforeSlash && nameToSapMap.has(beforeSlash)) return nameToSapMap.get(beforeSlash);
+
+                    let bestSap = "";
+                    let bestScore = 0;
+                    for (let [stored, sSap] of nameToSapMap.entries()) {
+                        if (!stored || stored.length < 5) continue;
+                        if (clean.includes(stored) || stored.includes(clean) ||
+                            clean2.includes(stored) || stored.includes(clean2)) {
+                            // تفضيل الأطول (أدق)
+                            let score = Math.min(stored.length, clean.length);
+                            if (score > bestScore) {
+                                bestScore = score;
+                                bestSap = sSap;
                             }
                         }
                     }
+                    // قبول الاحتواء فقط إذا كان الجزء المشترك معقولاً
+                    if (bestScore >= 8) return bestSap;
+                    return "";
+                }
 
-                    row["رقم المورد"] = rowSap || "unknown";
+                let matchedCount = 0;
+                let unmatchedNames = new Set();
+
+                data = data.map(row => {
+                    let rowSap = normalizeValue(row["رقم المورد"] || row["SAP"] || row["Sap"] || row["رقم ساب"] || row["ساب"]);
+                    let rawName = row["المورد"] || row["اسم المورد"] || row["اسم المورد / المورد"] || row["اسم المكتب"] || "";
+
+                    // أ) لوحة أو كود الحافلة من صف الرحلة → ساب من السيارات
+                    if (!rowSap) {
+                        let tripPlate = normalizeValue(row["رقم اللوحة"] || row["رقم اللوحات"]);
+                        let tripCode = normalizeValue(row["كود الحافلة"] || row["كود"] || row["Bus Trip Code"]);
+                        if (tripPlate && plateToSapMap.has(tripPlate)) rowSap = plateToSapMap.get(tripPlate);
+                        else if (tripCode && codeToSapMap.has(tripCode)) rowSap = codeToSapMap.get(tripCode);
+                    }
+
+                    // ب) مطابقة الاسم
+                    if (!rowSap && rawName) {
+                        rowSap = resolveSapByName(rawName);
+                    }
+
+                    if (rowSap && rowSap !== "unknown") {
+                        matchedCount++;
+                    } else {
+                        unmatchedNames.add(String(rawName || "بدون اسم").trim() || "بدون اسم");
+                        rowSap = "unknown";
+                    }
+
+                    row["رقم المورد"] = rowSap;
                     return row;
                 });
+
+                // حفظ ملخص المطابقة لإظهاره بعد الرفع
+                window.__lastUploadMatchInfo = {
+                    total: data.length,
+                    matched: matchedCount,
+                    unmatched: data.length - matchedCount,
+                    unmatchedNames: Array.from(unmatchedNames).slice(0, 15)
+                };
+            } else {
+                window.__lastUploadMatchInfo = null;
             }
 
             let existingData = await downloadAllData(collectionName);
@@ -1886,7 +1961,16 @@ async function safeUploadTest(inputId, label) {
             let newVer = Date.now();
             await db.collection("system").doc("meta").set({ version: newVer }, { merge: true });
 
-            resultDiv.innerHTML = `✅ تم رفع وتحديث ${label} بنجاح (${data.length} سجل)!`;
+            let matchNote = "";
+            if (window.__lastUploadMatchInfo) {
+                let m = window.__lastUploadMatchInfo;
+                if (m.unmatched > 0) {
+                    matchNote = `<br><span style="color:#856404;font-size:12px;">⚠️ تم ربط ${m.matched} من ${m.total} سجل برقم مورد. لم يُربط ${m.unmatched} سجل (ستُحفظ تحت unknown ولن تظهر لحساب المورد).<br>أسماء غير مطابقة: ${m.unmatchedNames.map(n => sanitizeHTML(n)).join(" | ")}<br>تأكد أن أسماء الموردين في الشيت مطابقة لأسماء السيارات/حسابات الموردين، أو أضف عمود «رقم المورد».</span>`;
+                } else {
+                    matchNote = `<br><span style="color:#155724;font-size:12px;">✓ تم ربط جميع السجلات (${m.matched}) برقم المورد بنجاح.</span>`;
+                }
+            }
+            resultDiv.innerHTML = `✅ تم رفع وتحديث ${label} بنجاح (${data.length} سجل)!` + matchNote;
             fileInput.value = "";
             
             loadUploadedFiles();
@@ -3693,7 +3777,8 @@ async function loadSupplierData(){
        } catch(e) {}
 
        let isAdmin = (currentRole === "admin" || currentRole === "super_admin");
-       let cachePrefix = isAdmin ? "elaraby_admin_" : "elaraby_supplier_" + loggedInSupplierSapGlobal + "_";
+       // v2: يتضمن استرداد رحلات unknown + تحسين الربط — لتفادي كاش قديم ناقص
+       let cachePrefix = isAdmin ? "elaraby_admin_v2_" : "elaraby_supplier_v2_" + loggedInSupplierSapGlobal + "_";
        let localVersion = localStorage.getItem("elaraby_data_version") || 0;
 
        clearOldLocalStorage();
@@ -3721,14 +3806,71 @@ async function loadSupplierData(){
                globalDues = dData || [];
            } else {
                if(loggedInSupplierSapGlobal) {
-                   const [vData, tData, dData] = await Promise.all([
+                   const [vData, tData, dData, orphanTrips, orphanDues] = await Promise.all([
                        downloadSupplierDataBySap("vehicles", loggedInSupplierSapGlobal),
                        downloadSupplierDataBySap("trips", loggedInSupplierSapGlobal),
-                       downloadSupplierDataBySap("dues", loggedInSupplierSapGlobal)
+                       downloadSupplierDataBySap("dues", loggedInSupplierSapGlobal),
+                       // رحلات محفوظة بدون رقم مورد (unknown) — نحاول استردادها
+                       downloadSupplierDataBySap("trips", "unknown"),
+                       downloadSupplierDataBySap("dues", "unknown")
                    ]);
                    globalVehicles = vData || [];
                    globalTrips = tData || [];
                    globalDues = dData || [];
+
+                   // بناء مفاتيح هذا المورد للتعرف على رحلاته اليتيمة
+                   let myPlates = new Set();
+                   let myCodes = new Set();
+                   let myNames = new Set();
+                   globalVehicles.forEach(v => {
+                       let p = normalizeValue(v["رقم اللوحة"] || v["رقم اللوحات"]);
+                       let c = normalizeValue(v["كود الحافلة"] || v["كود"]);
+                       if (p) myPlates.add(p);
+                       if (c) myCodes.add(c);
+                       let vn = deepCleanArabic(v["اسم المورد"] || "");
+                       if (vn) myNames.add(vn);
+                   });
+                   try {
+                       let off = deepCleanArabic(supplierDoc.data()?.officeName || "");
+                       let own = deepCleanArabic(supplierDoc.data()?.ownerName || "");
+                       if (off) myNames.add(off);
+                       if (own) myNames.add(own);
+                       if (off.includes("/")) myNames.add(deepCleanArabic(off.split("/")[0]));
+                       if (own.includes("/")) myNames.add(deepCleanArabic(own.split("/")[0]));
+                   } catch (e) {}
+
+                   function belongsToMe(row) {
+                       let p = normalizeValue(row["رقم اللوحة"] || row["رقم اللوحات"]);
+                       let c = normalizeValue(row["كود الحافلة"] || row["كود"] || row["Bus Trip Code"]);
+                       if (p && myPlates.has(p)) return true;
+                       if (c && myCodes.has(c)) return true;
+                       let n = deepCleanArabic(row["اسم المورد"] || row["المورد"] || "");
+                       if (n) {
+                           if (myNames.has(n)) return true;
+                           for (let mn of myNames) {
+                               if (mn.length >= 6 && (n.includes(mn) || mn.includes(n))) return true;
+                           }
+                       }
+                       return false;
+                   }
+
+                   let seenTripKeys = new Set(globalTrips.map(t =>
+                       [onlyDate(t["وقت الوردية"] || t["التاريخ"] || ""), normalizeValue(t["رقم اللوحة"] || ""), normalizeValue(t["كود الحافلة"] || t["كود"] || ""), String(t["حالة الرحلة"] || t["الحالة"] || "")].join("|")
+                   ));
+                   (orphanTrips || []).forEach(t => {
+                       if (!belongsToMe(t)) return;
+                       t["رقم المورد"] = loggedInSupplierSapGlobal;
+                       let key = [onlyDate(t["وقت الوردية"] || t["التاريخ"] || ""), normalizeValue(t["رقم اللوحة"] || ""), normalizeValue(t["كود الحافلة"] || t["كود"] || ""), String(t["حالة الرحلة"] || t["الحالة"] || "")].join("|");
+                       if (!seenTripKeys.has(key)) {
+                           seenTripKeys.add(key);
+                           globalTrips.push(t);
+                       }
+                   });
+                   (orphanDues || []).forEach(d => {
+                       if (!belongsToMe(d)) return;
+                       d["رقم المورد"] = loggedInSupplierSapGlobal;
+                       globalDues.push(d);
+                   });
                } else {
                    globalVehicles = [];
                    globalTrips = [];
