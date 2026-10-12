@@ -54,6 +54,7 @@ document.addEventListener("keydown", function(event) {
 </script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 
 <style>
 body {font-family:tahoma;background:#f3f6fb;margin:0;padding:15px}
@@ -646,8 +647,9 @@ appId:"1:750424180328:web:44511a696ba43923249ddd"
 };
 
 firebase.initializeApp(firebaseConfig);
-const auth=firebase.auth();
-const db=firebase.firestore();
+const auth = firebase.auth();
+const db = firebase.firestore();
+const storage = firebase.storage();
 let currentRole="supplier";
 let adminPermissions = {}; 
 
@@ -865,6 +867,25 @@ function renderLicenseNotificationsContent() {
 
     if (isAdmin) {
         document.getElementById("popupTitle").innerHTML = "🪪 صور الرخص المحدثة من الموردين";
+        
+        // أزرار تنظيف ذكي (سوبر أدمن فقط) - نظام مجاني Base64
+        if (currentRole === "super_admin") {
+            let approxSize = estimateLicenseDocSize(globalAdminLicenseUpdates);
+            let sizeKb = Math.round(approxSize / 1024);
+            html += `<div style="margin-bottom:12px; text-align:center;">
+                <div style="font-size:11px; color:#666; margin-bottom:8px;">📦 حجم بيانات الرخص التقريبي: <b style="color:#075bb5;">${sizeKb} KB</b> / ~1000 KB</div>
+                <button onclick="cleanupOldLicenseImages()" style="background:#6c757d; color:#fff; border:none; padding:10px 14px; border-radius:8px; font-size:12px; font-weight:bold; cursor:pointer; margin:4px;">
+                    🧹 تنظيف الصور (أكثر من 30 يوم + معتمدة)
+                </button>
+                <button onclick="bulkDeleteOldLicenseRecords()" style="background:#dc3545; color:#fff; border:none; padding:10px 14px; border-radius:8px; font-size:12px; font-weight:bold; cursor:pointer; margin:4px;">
+                    🗑️ حذف مجمع للسجلات القديمة نهائياً
+                </button>
+                <button onclick="smartCleanupLicenseSpaceIfNeeded(globalAdminLicenseUpdates).then(()=>{renderLicenseNotificationsContent();updateAdminLicenseBadge();showAlert('✅ تم فحص المساحة وتنظيفها إن لزم.');})" style="background:#17a2b8; color:#fff; border:none; padding:10px 14px; border-radius:8px; font-size:12px; font-weight:bold; cursor:pointer; margin:4px;">
+                    📉 تحرير المساحة الآن (عند الامتلاء)
+                </button>
+            </div>`;
+        }
+
         if(globalAdminLicenseUpdates.length === 0) {
             html += "<p style='text-align:center; font-size:13px;'>لا توجد مرفقات جديدة للرخص حالياً.</p>";
         } else {
@@ -875,8 +896,19 @@ function renderLicenseNotificationsContent() {
                 let imagesHtml = "";
                 if(update.images && update.images.length > 0) {
                     update.images.forEach((imgStr, i) => {
-                        imagesHtml += `<a href="${imgStr}" download="License_${update.plate}_${i+1}.jpg" style="background:#075bb5; color:#fff; padding:6px 10px; border-radius:5px; text-decoration:none; font-size:12px; margin-left:5px; display:inline-block; margin-top:5px;">📥 تحميل الصورة ${i+1}</a>`;
+                        if (!imgStr) return;
+                        // يدعم روابط http القديمة + Base64 (data:image) للنظام المجاني
+                        let isData = imgStr.startsWith("data:") || imgStr.startsWith("http");
+                        if (isData) {
+                            imagesHtml += `
+                                <a href="${imgStr}" target="_blank" rel="noopener" style="background:#075bb5; color:#fff; padding:6px 10px; border-radius:5px; text-decoration:none; font-size:12px; margin-left:5px; display:inline-block; margin-top:5px;">👁️ عرض الصورة ${i+1}</a>
+                                <a href="${imgStr}" download="License_${(update.plate || 'img').replace(/[^a-zA-Z0-9\u0600-\u06FF]/g,'_')}_${i+1}.jpg" style="background:#17a2b8; color:#fff; padding:6px 10px; border-radius:5px; text-decoration:none; font-size:12px; margin-left:5px; display:inline-block; margin-top:5px;">📥 تحميل</a>`;
+                        } else {
+                            imagesHtml += `<span style="background:#6c757d; color:#fff; padding:6px 10px; border-radius:5px; font-size:12px; margin-left:5px; display:inline-block; margin-top:5px;">صورة غير متاحة</span>`;
+                        }
                     });
+                } else if (update.cleanedAt) {
+                    imagesHtml = `<span style="color:#888; font-size:12px;">🧹 تم تنظيف الصور لتوفير المساحة (${update.cleanedReason === 'age_30d' ? 'بعد 30 يوم' : 'بسبب المساحة'})</span>`;
                 }
 
                 let updateAuditInfo = "";
@@ -998,6 +1030,7 @@ async function markLicenseUpdated(updateId) {
     let nowStr = new Date().toLocaleString('ar-EG');
     let adminName = currentUserName || "مشرف الإدارة";
 
+    // لا نحذف الصور تلقائياً - الأدمن يحتفظ بإمكانية العرض والتحميل
     globalAdminLicenseUpdates = globalAdminLicenseUpdates.map(u => {
         if(u.id === updateId) {
             return {
@@ -1018,7 +1051,7 @@ async function markLicenseUpdated(updateId) {
         await db.collection("uploadedFiles").doc("ALL_LICENSE_UPDATES").set({
             updates: globalAdminLicenseUpdates
         });
-        showAlert(`✅ تم اعتماد التحديث بواسطة [${adminName}].`);
+        showAlert(`✅ تم اعتماد التحديث بواسطة [${adminName}]. الصور محفوظة ويمكن عرضها أو تحميلها.`);
     } catch(e) {
         console.error("Error updating license status:", e);
         showAlert("❌ خطأ أثناء حفظ الاعتماد.");
@@ -1032,6 +1065,7 @@ async function deleteLicenseUpdateRecord(updateId) {
     }
     if(!confirm("هل أنت متأكد من حذف هذا السجل وصوره نهائياً من النظام لتوفير المساحة؟")) return;
 
+    // حذف من Firestore فقط (النظام المجاني - Base64 بدون Storage)
     globalAdminLicenseUpdates = globalAdminLicenseUpdates.filter(u => u.id !== updateId);
     renderLicenseNotificationsContent();
     updateAdminLicenseBadge();
@@ -1060,21 +1094,230 @@ function updateAdminLicenseBadge() {
     }
 }
 
-async function openComplaintModal() {
-    document.getElementById("compText").value = "";
-    document.getElementById("complaintModalOverlay").style.display = "block";
-    document.getElementById("complaintModal").style.display = "block";
-    history.pushState(null, null, "#complaints");
+// تنظيف الصور القديمة (أكثر من 30 يوم + تم اعتمادها) - سوبر أدمن فقط | النظام المجاني Base64
+async function cleanupOldLicenseImages() {
+    if (currentRole !== "super_admin") {
+        showAlert("🚫 هذه الخاصية متاحة لمدير النظام فقط.");
+        return;
+    }
+    if (!confirm("هل تريد حذف صور الرخص التي مر عليها أكثر من 30 يوماً وتم اعتمادها؟\n(الصور غير المعتمدة لن تُحذف)\n\nيمكن أيضاً حذف السجلات القديمة بالكامل من الزر أدناه.")) return;
 
+    let now = Date.now();
+    let thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+    let deletedCount = 0;
+    let keptUpdates = [];
+
+    for (let update of globalAdminLicenseUpdates) {
+        let ts = update.timestamp ? new Date(update.timestamp).getTime() : 0;
+        let isOld = (now - ts) > thirtyDaysMs;
+        let isApproved = update.isUpdated === true;
+
+        if (isOld && isApproved) {
+            deletedCount++;
+            // نحتفظ بالسجل بدون الصور (للأرشيف) - Base64 محذوف لتوفير المساحة
+            keptUpdates.push({
+                ...update,
+                images: [],
+                imagePaths: [],
+                cleanedAt: new Date().toISOString(),
+                cleanedReason: "age_30d"
+            });
+        } else {
+            keptUpdates.push(update);
+        }
+    }
+
+    globalAdminLicenseUpdates = keptUpdates;
+    renderLicenseNotificationsContent();
+    updateAdminLicenseBadge();
+
+    try {
+        await db.collection("uploadedFiles").doc("ALL_LICENSE_UPDATES").set({
+            updates: globalAdminLicenseUpdates
+        });
+        showAlert(`✅ تم تنظيف صور ${deletedCount} سجل قديم (أكثر من 30 يوم + معتمد) وتوفير المساحة.`);
+    } catch (e) {
+        console.error(e);
+        showAlert("❌ خطأ أثناء الحفظ: " + e.message);
+    }
+}
+
+// حذف مجمع للسجلات القديمة بالكامل (معتمدة + أكثر من 30 يوم) - سوبر أدمن
+async function bulkDeleteOldLicenseRecords() {
+    if (currentRole !== "super_admin") {
+        showAlert("🚫 هذه الخاصية متاحة لمدير النظام فقط.");
+        return;
+    }
+    if (!confirm("⚠️ سيتم حذف السجلات القديمة (أكثر من 30 يوم ومعتمدة) نهائياً من النظام.\nهل أنت متأكد؟")) return;
+
+    let now = Date.now();
+    let thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+    let before = globalAdminLicenseUpdates.length;
+    globalAdminLicenseUpdates = globalAdminLicenseUpdates.filter(u => {
+        let ts = u.timestamp ? new Date(u.timestamp).getTime() : 0;
+        let isOld = (now - ts) > thirtyDaysMs;
+        let isApproved = u.isUpdated === true;
+        return !(isOld && isApproved);
+    });
+    let deleted = before - globalAdminLicenseUpdates.length;
+
+    renderLicenseNotificationsContent();
+    updateAdminLicenseBadge();
+
+    try {
+        await db.collection("uploadedFiles").doc("ALL_LICENSE_UPDATES").set({
+            updates: globalAdminLicenseUpdates
+        });
+        showAlert(`✅ تم حذف ${deleted} سجل قديم نهائياً وتوفير المساحة.`);
+    } catch (e) {
+        console.error(e);
+        showAlert("❌ خطأ أثناء الحفظ: " + e.message);
+    }
+}
+
+async function openComplaintModal() {
+    // فتح كصفحة كاملة زي الرسائل والرخص
+    activePanel = "الشكاوى";
+    document.getElementById("popupBox").style.display = "flex";
+    history.pushState(null, null, "#complaints");
+    document.getElementById("popupTitle").innerHTML = "💡 تواصل معنا - المقترحات والشكاوى";
+    document.getElementById("searchInput").style.display = "none";
+    document.getElementById("popupCount").style.display = "none";
+    document.getElementById("failedTripsHint").style.display = "none";
+    document.getElementById("loadMoreBtn").classList.add("hide");
+
+    // تعليم الردود كمقروءة
     currentSupplierComps.forEach(async c => {
         if(c.status === 'replied' && !c.readBySupplier) {
             try { await db.collection("complaints").doc(c.id).update({readBySupplier: true}); } catch(e){}
         }
     });
+
+    renderComplaintsFullPage();
 }
 
 function closeComplaintModal() {
     history.back();
+}
+
+function renderComplaintsFullPage() {
+    let html = `
+    <div style="padding:8px;">
+        <!-- نموذج إضافة شكوى/مقترح جديد -->
+        <div style="background:#f3f6fb; padding:14px; border-radius:12px; margin-bottom:16px; border:1px solid #dbe2ef;">
+            <h4 style="margin:0 0 10px 0; color:#075bb5; font-size:14px;">➕ إرسال مقترح أو شكوى جديدة</h4>
+            <select id="compTypeFull" style="margin-bottom:10px; padding:10px; width:100%; border-radius:8px; font-family:tahoma; border:1px solid #ccc;">
+                <option value="مقترح">أريد تقديم مقترح 💡</option>
+                <option value="شكوى">أريد تقديم شكوى ⚠️</option>
+            </select>
+            <textarea id="compTextFull" placeholder="اكتب التفاصيل هنا بوضوح..." style="height:90px; margin-bottom:10px; width:100%; padding:10px; border-radius:8px; resize:none; font-family:tahoma; border:1px solid #ccc;"></textarea>
+            <button onclick="submitComplaintFull(event)" style="background:#28a745; width:100%; padding:12px; border-radius:8px; color:#fff; font-weight:bold; border:none; cursor:pointer; font-size:14px;">إرسال</button>
+        </div>
+
+        <!-- سجل الشكاوى السابقة -->
+        <h4 style="margin:0 0 10px 0; color:#333; font-size:14px; border-bottom:2px solid #ddd; padding-bottom:6px;">سجل رسائلك السابقة 📥</h4>
+        <div id="supplierComplaintsFullContainer"></div>
+    </div>`;
+
+    document.getElementById("popupResult").innerHTML = html;
+    renderSupplierComplaintsFull(currentSupplierComps);
+}
+
+function renderSupplierComplaintsFull(comps) {
+    let container = document.getElementById("supplierComplaintsFullContainer");
+    if (!container) return;
+
+    if (!comps || comps.length === 0) {
+        container.innerHTML = "<p style='text-align:center; color:#888; font-size:13px; padding:15px;'>لا توجد رسائل سابقة.</p>";
+        return;
+    }
+
+    let html = "";
+    comps.forEach(c => {
+        let statusClass = "comp-open";
+        let statusText = "قيد المراجعة ⏳";
+        let badgeColor = c.type === 'شكوى' ? '#dc3545' : '#28a745';
+
+        if (c.status === 'replied') {
+            statusClass = "comp-replied";
+            statusText = "يوجد رد من الإدارة ✓";
+        } else if (c.status === 'closed') {
+            statusClass = "comp-closed";
+            statusText = "مغلقة 🔒";
+        }
+
+        let dt = new Date(c.createdAt).toLocaleString('ar-EG');
+        let shortText = sanitizeHTML(c.text.length > 80 ? c.text.substring(0, 80) + "..." : c.text);
+
+        html += `
+        <div class="comp-card ${statusClass}" style="cursor:pointer; transition: transform 0.2s;" onclick="openSupplierComplaintDetails('${c.id}')">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <b style="font-size:13px; color:#004085;">${sanitizeHTML(c.type)}</b>
+                <span style="font-size:11px; font-weight:bold;">${statusText}</span>
+            </div>
+            <div style="margin-bottom:5px;">
+                <span style="color:${badgeColor}; font-weight:bold; font-size:11px;">[${sanitizeHTML(c.type)}]</span>
+                <span style="font-size:13px; color:#444;">${shortText}</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
+                <span style="color:#888; font-size:10px;">🕒 ${dt}</span>
+                <span style="color:#007bff; font-size:11px; font-weight:bold;">عرض التذكرة والرد ➔</span>
+            </div>
+        </div>`;
+    });
+
+    if (comps.length >= supplierCompLimit) {
+        html += `<button onclick="loadMoreSupplierComps(); setTimeout(()=>renderSupplierComplaintsFull(currentSupplierComps), 500);" style="width:100%; padding:10px; background:#e9ecef; border:1px solid #ccc; border-radius:8px; margin-top:10px; cursor:pointer; font-weight:bold; color:#075bb5;">عرض أقدم 👇</button>`;
+    }
+
+    container.innerHTML = html;
+}
+
+async function submitComplaintFull(event) {
+    let type = document.getElementById("compTypeFull").value;
+    let text = document.getElementById("compTextFull").value.trim();
+    if (!text) { showAlert("الرجاء كتابة التفاصيل."); return; }
+
+    let btn = event.target;
+    let orig = btn.innerText;
+    btn.innerText = "جاري الإرسال..."; btn.disabled = true;
+
+    try {
+        let docId = generateFileId();
+        let ownerNameVal = document.getElementById("showOwner").innerText
+            .replace("المورد: ", "")
+            .replace("👑 مدير النظام: ", "")
+            .replace("🛡️ مشرف: ", "")
+            .trim();
+
+        await db.collection("complaints").doc(docId).set({
+            id: docId,
+            type: type,
+            text: text,
+            sapNumber: loggedInSupplierSapGlobal || "إدارة",
+            ownerName: ownerNameVal,
+            createdAt: new Date().toISOString(),
+            status: 'open',
+            reply: '',
+            repliedBy: '',
+            readBySupplier: false,
+            conversation: []
+        });
+
+        document.getElementById("compTextFull").value = "";
+        btn.innerText = orig; btn.disabled = false;
+        showAlert(`✅ تم إرسال ال${type} بنجاح. سيتم مراجعة طلبك من الفريق المختص.`);
+
+        // تحديث القائمة
+        setTimeout(() => {
+            if (activePanel === "الشكاوى") renderComplaintsFullPage();
+        }, 600);
+
+    } catch (e) {
+        btn.innerText = orig; btn.disabled = false;
+        console.error(e);
+        showAlert("❌ خطأ: " + e.message);
+    }
 }
 
 async function submitComplaint(event) {
@@ -1367,30 +1610,97 @@ async function loadUploadedFiles() {
     }
 }
 
+// حد آمن لحجم وثيقة Firestore (~1 ميجابايت) — نقسم بيانات كل مورد إلى أجزاء
+const MAX_PAYLOAD_BYTES = 900000;
+
+function utf8ByteLength(str) {
+    try {
+        return new TextEncoder().encode(str).length;
+    } catch (e) {
+        return unescape(encodeURIComponent(str)).length;
+    }
+}
+
+/** تقسيم مصفوفة صفوف مورد واحد إلى أجزاء لا يتجاوز كل منها MAX_PAYLOAD_BYTES */
+function splitRowsIntoChunks(rows) {
+    if (!rows || rows.length === 0) return [];
+    let chunks = [];
+    let current = [];
+    for (let i = 0; i < rows.length; i++) {
+        current.push(rows[i]);
+        let testStr = JSON.stringify(current);
+        if (utf8ByteLength(testStr) > MAX_PAYLOAD_BYTES) {
+            current.pop();
+            if (current.length === 0) {
+                // صف واحد أكبر من الحد — نحفظه وحده مع تحذير (نادر جداً)
+                chunks.push([rows[i]]);
+                current = [];
+            } else {
+                chunks.push(current);
+                current = [rows[i]];
+            }
+        }
+    }
+    if (current.length > 0) chunks.push(current);
+    return chunks;
+}
+
 async function uploadGroupedData(collectionName, groupedData) {
+    // حذف كل الوثائق القديمة على دفعات (حد Firestore batch = 500)
     let oldSnap = await db.collection("data_" + collectionName).get();
-    let batch = db.batch();
-    oldSnap.docs.forEach(doc => batch.delete(doc.ref)); 
-    await batch.commit();
-    
+    let deleteRefs = oldSnap.docs.map(d => d.ref);
+    for (let i = 0; i < deleteRefs.length; i += 400) {
+        let batch = db.batch();
+        deleteRefs.slice(i, i + 400).forEach(ref => batch.delete(ref));
+        await batch.commit();
+    }
+
     let docKeys = Object.keys(groupedData);
     if (docKeys.length === 0) return;
-    
-    let totalDocs = docKeys.length;
-    for (let i = 0; i < totalDocs; i++) {
-        let docId = docKeys[i];
-        let sapOriginal = groupedData[docId][0]["رقم المورد"] || "unknown";
-        let jsonStr = JSON.stringify(groupedData[docId]);
-        
-        await db.collection("data_" + collectionName).doc(docId).set({ 
+
+    // بناء قائمة أجزاء الكتابة: كل جزء = وثيقة واحدة
+    let writeJobs = [];
+    for (let k = 0; k < docKeys.length; k++) {
+        let sapClean = docKeys[k];
+        let rows = groupedData[sapClean] || [];
+        if (rows.length === 0) continue;
+        let sapOriginal = rows[0]["رقم المورد"] || "unknown";
+        let chunks = splitRowsIntoChunks(rows);
+        for (let c = 0; c < chunks.length; c++) {
+            let docId = c === 0 ? sapClean : (sapClean + "__c" + c);
+            writeJobs.push({
+                docId: docId,
+                sapNumberClean: sapClean,
+                sapNumber: sapOriginal,
+                rows: chunks[c]
+            });
+        }
+    }
+
+    let totalJobs = writeJobs.length;
+    for (let i = 0; i < totalJobs; i++) {
+        let job = writeJobs[i];
+        let jsonStr = JSON.stringify(job.rows);
+        let sizeBytes = utf8ByteLength(jsonStr);
+
+        if (sizeBytes > 1048487) {
+            throw new Error(
+                "FILE_TOO_LARGE|" +
+                "ملف كبير جداً: بيانات المورد (ساب: " + job.sapNumberClean +
+                ") تجاوزت الحد المسموح بعد التقسيم. قلّل عدد الصفوف لهذا المورد أو قسّم الملف يدوياً."
+            );
+        }
+
+        await db.collection("data_" + collectionName).doc(job.docId).set({
             payload: jsonStr,
-            sapNumberClean: docId,
-            sapNumber: sapOriginal
+            sapNumberClean: job.sapNumberClean,
+            sapNumber: job.sapNumber,
+            chunkIndex: job.docId.indexOf("__c") >= 0 ? parseInt(job.docId.split("__c")[1], 10) || 0 : 0
         });
-        
-        let pct = Math.round(((i + 1) / totalDocs) * 100);
+
+        let pct = Math.round(((i + 1) / totalJobs) * 100);
         let resultDiv = document.getElementById("adminResult");
-        if(resultDiv && resultDiv.innerHTML.includes('جاري الرفع')) {
+        if (resultDiv && (resultDiv.innerHTML.includes("جاري الرفع") || resultDiv.innerHTML.includes("جاري حفظ") || resultDiv.innerHTML.includes("جاري حذف"))) {
             resultDiv.innerHTML = `⏳ جاري الرفع لقاعدة البيانات... ${pct}%`;
         }
     }
@@ -1455,8 +1765,40 @@ async function safeUploadTest(inputId, label) {
             let data = XLSX.utils.sheet_to_json(worksheet);
 
             if (!data || !data.length) {
-                resultDiv.innerHTML = `❌ الملف فارغ أو لا يحتوي على بيانات صالحة!`;
+                resultDiv.innerHTML = `❌ الملف فارغ أو غير مطابق: لا يحتوي على صفوف بيانات صالحة.`;
                 return;
+            }
+
+            // التحقق من توافق أعمدة الملف الأساسية
+            let sampleKeys = Object.keys(data[0] || {}).map(k => String(k).trim());
+            let hasSapOrName = sampleKeys.some(k =>
+                k === "رقم المورد" || k === "SAP" || k === "Sap" ||
+                k === "اسم المورد" || k === "المورد" || k === "اسم المكتب" || k === "اسم المورد / المورد"
+            );
+            if (collectionName === "vehicles") {
+                let hasPlateOrCode = sampleKeys.some(k =>
+                    k.includes("لوحة") || k.includes("كود") || k === "كود الحافلة"
+                );
+                if (!hasSapOrName || !hasPlateOrCode) {
+                    resultDiv.innerHTML = `❌ الملف غير مطابق لقالب السيارات. تأكد من وجود أعمدة مثل: رقم المورد / اسم المورد، ورقم اللوحة أو كود الحافلة.`;
+                    return;
+                }
+            } else if (collectionName === "trips") {
+                let hasTripHint = sampleKeys.some(k =>
+                    k.includes("حالة") || k.includes("وردية") || k.includes("تاريخ") || k.includes("لوحة") || k.includes("كود")
+                );
+                if (!hasSapOrName && !hasTripHint) {
+                    resultDiv.innerHTML = `❌ الملف غير مطابق لقالب الرحلات. تأكد من أعمدة مثل: اسم المورد، التاريخ/الوردية، حالة الرحلة.`;
+                    return;
+                }
+            } else if (collectionName === "dues") {
+                let hasAmount = sampleKeys.some(k =>
+                    k.includes("مبلغ") || k.includes("الفترة") || k.includes("فترة")
+                );
+                if (!hasSapOrName && !hasAmount) {
+                    resultDiv.innerHTML = `❌ الملف غير مطابق لقالب المستحقات. تأكد من أعمدة مثل: رقم/اسم المورد، الفترة، مبلغ الرحلات.`;
+                    return;
+                }
             }
 
             data = data.map(row => {
@@ -1553,7 +1895,27 @@ async function safeUploadTest(inputId, label) {
 
         } catch (err) {
             console.error(err);
-            resultDiv.innerHTML = `❌ حدث خطأ أثناء الرفع: ${err.message}`;
+            let msg = (err && err.message) ? String(err.message) : String(err);
+            let friendly = "";
+            if (msg.indexOf("FILE_TOO_LARGE|") === 0) {
+                friendly = "❌ " + msg.replace("FILE_TOO_LARGE|", "");
+            } else if (
+                msg.indexOf("longer than 1048487") >= 0 ||
+                msg.indexOf("exceeds the maximum allowed size") >= 0 ||
+                msg.indexOf("Payload size") >= 0 ||
+                /1048487|1,?048,?576|document.*too large/i.test(msg)
+            ) {
+                friendly = "❌ الملف كبير جداً: حجم بيانات أحد الموردين تجاوز الحد المسموح في قاعدة البيانات (~1 ميجابايت لكل جزء). تم تصميم النظام لتقسيم البيانات حسب رقم المورد؛ إن استمر الخطأ قسّم ملف الإكسل إلى ملفات أصغر (مثلاً حسب الفرع) ثم ارفع كل ملف على حدة.";
+            } else if (/invalid|parse|sheet|workbook|XLSX|corrupt/i.test(msg)) {
+                friendly = "❌ الملف غير مطابق أو تالف: تعذر قراءة ملف الإكسل. تأكد أنه بصيغة .xlsx/.xls وأن الصف الأول يحتوي على أسماء الأعمدة الصحيحة.";
+            } else if (/permission|PERMISSION|insufficient|unauthenticated/i.test(msg)) {
+                friendly = "❌ لا توجد صلاحية للرفع. تأكد من تسجيل الدخول بحساب إدارة مع صلاحية البيانات.";
+            } else if (/network|unavailable|offline|Failed to fetch/i.test(msg)) {
+                friendly = "❌ فشل الاتصال بالخادم. تحقق من الإنترنت ثم أعد المحاولة.";
+            } else {
+                friendly = "❌ حدث خطأ أثناء الرفع: " + msg;
+            }
+            resultDiv.innerHTML = friendly;
         }
     };
 
@@ -1589,7 +1951,14 @@ async function deleteUploadedFile(fileId, collectionName, fileName) {
         
     } catch(e) {
         console.error(e);
-        document.getElementById("adminResult").innerHTML = `❌ خطأ في الحذف: ` + e.message;
+        let msg = (e && e.message) ? String(e.message) : String(e);
+        let friendly = msg;
+        if (msg.indexOf("FILE_TOO_LARGE|") === 0) {
+            friendly = msg.replace("FILE_TOO_LARGE|", "");
+        } else if (msg.indexOf("longer than 1048487") >= 0 || /1048487|document.*too large/i.test(msg)) {
+            friendly = "تعذر إعادة حفظ البيانات المتبقية لأن حجم بيانات أحد الموردين كبير جداً. جرّب حذف ملفات أخرى أولاً أو تواصل مع مدير النظام.";
+        }
+        document.getElementById("adminResult").innerHTML = `❌ خطأ في الحذف: ` + friendly;
     }
 }
 
@@ -1850,6 +2219,10 @@ function listenSupplierComps() {
                 }
             }
             renderSupplierComplaints(myComps);
+            // تحديث الصفحة الكاملة لو كانت مفتوحة
+            if (activePanel === "الشكاوى" && document.getElementById("popupBox").style.display === "flex") {
+                renderSupplierComplaintsFull(myComps);
+            }
             if(document.getElementById("supplierComplaintModal").style.display === "block") {
                 let openCompId = document.getElementById("supplierComplaintModal").getAttribute("data-comp-id");
                 if (openCompId) openSupplierComplaintDetails(openCompId, true);
@@ -2113,6 +2486,7 @@ function selectMsgSupplier(sap, name) {
                     📌 <b>الأعمدة المطلوبة بالشيت:</b><br>
                     <code>رقم المورد</code> | <code>اسم المورد</code> | <code>رقم اللوحة</code> | <code>كود الحافلة</code> | <code>الفرع</code> | <code>نوع الخدمة</code>
                 </div>
+                <button onclick="downloadExcelTemplate('vehicles')" style="margin-bottom:8px; background:#17a2b8; font-size:12px; padding:8px;">📄 تحميل شيت فارغ (قالب السيارات)</button>
                 <input type="file" id="vehiclesFile" accept=".xlsx,.xls,.csv" style="margin-bottom:8px;">
                 <button onclick="safeUploadTest('vehiclesFile','بيانات السيارات')" style="margin-bottom:0; background:#075bb5;">📥 رفع بيانات السيارات</button>
             </div>
@@ -2124,6 +2498,7 @@ function selectMsgSupplier(sap, name) {
                     📌 <b>الأعمدة المطلوبة بالشيت:</b><br>
                     <code>اسم المورد</code> (أو <code>المورد</code>) | <code>رقم اللوحة</code> أو <code>كود الحافلة</code> | <code>التاريخ</code> (أو <code>وقت الوردية</code>) | <code>حالة الرحلة</code>
                 </div>
+                <button onclick="downloadExcelTemplate('trips')" style="margin-bottom:8px; background:#0f6674; font-size:12px; padding:8px;">📄 تحميل شيت فارغ (قالب الرحلات)</button>
                 <input type="file" id="tripsFile" accept=".xlsx,.xls,.csv" style="margin-bottom:8px;">
                 <button onclick="safeUploadTest('tripsFile','بيانات الرحلات')" style="margin-bottom:0; background:#17a2b8;">📥 رفع بيانات الرحلات</button>
             </div>
@@ -2133,8 +2508,9 @@ function selectMsgSupplier(sap, name) {
                 <p style="font-weight:bold; margin:0 0 6px 0; font-size:13px; color:#28a745;">💰 رفع ملف المستحقات (Excel/CSV)</p>
                 <div style="background:#e8f5e9; padding:8px 10px; border-radius:6px; font-size:11px; color:#155724; margin-bottom:8px; line-height:1.6; border:1px dashed #28a745;">
                     📌 <b>الأعمدة المطلوبة بالشيت:</b><br>
-                    <code>اسم المورد</code> (أو <code>المورد</code>) | <code>الفترة</code> (مثال: 2026-09) | <code>مبلغ الرحلات</code> (أو <code>المبلغ</code>)
+                    <code>اسم المورد</code> (أو <code>المورد</code>) | <code>الفترة</code> (مثال: 2026-09) | <code>مبلغ الرحلات</code> (أو <code>المبلغ</code>) | <code>Bus Trip Code</code> (أو <code>كود الحافلة</code>)
                 </div>
+                <button onclick="downloadExcelTemplate('dues')" style="margin-bottom:8px; background:#1e7e34; font-size:12px; padding:8px;">📄 تحميل شيت فارغ (قالب المستحقات)</button>
                 <input type="file" id="duesFile" accept=".xlsx,.xls,.csv" style="margin-bottom:8px;">
                 <button onclick="safeUploadTest('duesFile','ملف المستحقات')" style="margin-bottom:0; background:#28a745;">📤 رفع بيانات المستحقات</button>
             </div>
@@ -2165,6 +2541,7 @@ function selectMsgSupplier(sap, name) {
             <div style="background:#fdfdfd; padding:12px; border-radius:10px; border:1px solid #6c757d; margin-bottom:15px;">
                 <h4 style="margin:0 0 8px 0; font-size:14px; color:#333;">📁 إنشاء حسابات مجمعة (إكسيل)</h4>
                 <p style="font-size:11px; color:#666; margin-top:0;">ارفع ملف إكسيل يحتوي على: (رقم ساب، اسم المورد، اسم المكتب، رقم الهاتف، كلمة المرور).</p>
+                <button onclick="downloadExcelTemplate('suppliers')" style="background:#17a2b8; font-size:12px; padding:8px; margin-bottom:6px;">📄 تحميل شيت فارغ (قالب الموردين)</button>
                 <input type="file" id="suppliersFile" accept=".xlsx,.xls">
                 <button onclick="bulkUploadSuppliers('suppliersFile')" style="background:#6c757d; font-weight:bold; margin-top:8px;">📥 رفع وإنشاء الحسابات</button>
             </div>
@@ -3068,9 +3445,12 @@ function openAdminComplaintDetails(compId, skipHistory = false) {
                 <span style="color:#666; font-size:10px;">${new Date(c.repliedAt).toLocaleString('ar-EG')}</span>
             </div>`;
     } else if (c.status === 'closed') {
+         let closedByTxt = c.closedBy ? sanitizeHTML(c.closedBy) : "الإدارة";
+         let closedAtTxt = c.closedAt ? new Date(c.closedAt).toLocaleString('ar-EG') : "";
          threadHtml += `
             <div style="background:#f8d7da; border:1px solid #f5c6cb; padding:10px; border-radius:8px; margin-bottom:15px;">
-                <p style="margin:0; font-size:13px; color:#721c24; font-weight:bold; text-align:center;">تم إغلاق الشكوى دون رد.</p>
+                <p style="margin:0; font-size:13px; color:#721c24; font-weight:bold; text-align:center;">تم إغلاق التذكرة نهائياً 🔒</p>
+                <p style="margin:8px 0 0 0; font-size:12px; color:#721c24; text-align:center;">بواسطة: <b>${closedByTxt}</b>${closedAtTxt ? " | 🕒 " + closedAtTxt : ""}</p>
             </div>`;
     }
 
@@ -3084,6 +3464,7 @@ function openAdminComplaintDetails(compId, skipHistory = false) {
                 <div>
                     <b style="color:#333; font-size:14px;">المورد: ${sanitizeHTML(c.ownerName)}</b><br>
                     <span style="color:#666; font-size:12px;">رقم ساب: ${sanitizeHTML(c.sapNumber)}</span>
+                    ${c.status === 'closed' && c.closedBy ? `<br><span style="color:#6c757d; font-size:11px;">أُغلقت بواسطة: <b>${sanitizeHTML(c.closedBy)}</b></span>` : ""}
                 </div>
                 <div style="text-align:left;">
                     <span style="color:${badgeColor}; font-weight:bold; font-size:12px; border:1px solid ${badgeColor}; padding:2px 6px; border-radius:4px;">${sanitizeHTML(c.type)}</span><br>
@@ -3156,9 +3537,23 @@ async function submitReplyModal(compId, event) {
 async function lockComplaintModal(compId) {
     if(!confirm("هل أنت متأكد من إغلاق هذه التذكرة نهائياً؟ (لن يتمكن المورد من التعديل عليها مجدداً)")) return;
     try {
-        await db.collection("complaints").doc(compId).update({ status: 'closed' });
-        showAlert("✅ تم الإغلاق بنجاح.");
+        let closerName = currentUserName || "مشرف الإدارة";
+        let closedAtIso = new Date().toISOString();
+        await db.collection("complaints").doc(compId).update({
+            status: 'closed',
+            closedBy: closerName,
+            closedAt: closedAtIso
+        });
+        // تحديث القائمة المحلية فوراً
+        let localC = globalComplaints.find(x => x.id === compId);
+        if (localC) {
+            localC.status = 'closed';
+            localC.closedBy = closerName;
+            localC.closedAt = closedAtIso;
+        }
+        showAlert("✅ تم الإغلاق بنجاح بواسطة: " + closerName);
         closeAdminComplaintModal();
+        if (typeof renderAdminComplaints === "function") renderAdminComplaints();
     } catch(e) { console.error(e); showAlert("❌ خطأ: " + e.message); }
 }
 
@@ -3176,11 +3571,13 @@ function renderAdminComplaints() {
         let badgeColor = c.type === 'شكوى' ? '#dc3545' : '#28a745';
         
         let statusBadge = "";
-        if(c.status === 'closed') statusBadge = `<span style="background:#6c757d; color:#fff; padding:2px 6px; border-radius:4px; font-size:10px;">مغلقة 🔒</span>`;
-        else if(c.status === 'replied') statusBadge = `<span style="background:#17a2b8; color:#fff; padding:2px 6px; border-radius:4px; font-size:10px;">تم الرد ✓</span>`;
+        if(c.status === 'closed') {
+            let byWho = c.closedBy ? (" · " + sanitizeHTML(c.closedBy)) : "";
+            statusBadge = `<span style="background:#6c757d; color:#fff; padding:2px 6px; border-radius:4px; font-size:10px;">مغلقة 🔒${byWho}</span>`;
+        } else if(c.status === 'replied') statusBadge = `<span style="background:#17a2b8; color:#fff; padding:2px 6px; border-radius:4px; font-size:10px;">تم الرد ✓</span>`;
         else statusBadge = `<span style="background:#ffc107; color:#333; padding:2px 6px; border-radius:4px; font-size:10px;">مفتوحة / محدثة</span>`;
         
-        let searchTarget = (c.ownerName || "") + " " + (c.sapNumber || "") + " " + (c.type || "");
+        let searchTarget = (c.ownerName || "") + " " + (c.sapNumber || "") + " " + (c.type || "") + " " + (c.closedBy || "");
         
         let fullText = c.text;
         let shortText = sanitizeHTML(fullText.length > 70 ? fullText.substring(0, 70) + "..." : fullText);
@@ -3237,12 +3634,14 @@ async function exportComplaintsToExcel() {
             "ردود المورد": supplierReplies.join("\n"),
             "تاريخ الإضافة": new Date(c.createdAt).toLocaleString('ar-EG'),
             "الحالة": c.status === 'closed' ? 'مغلقة نهائياً' : (c.status === 'replied' ? 'تم الرد' : 'مفتوحة'),
-            "تاريخ آخر رد": c.repliedAt ? new Date(c.repliedAt).toLocaleString('ar-EG') : ""
+            "تاريخ آخر رد": c.repliedAt ? new Date(c.repliedAt).toLocaleString('ar-EG') : "",
+            "أغلقها (المشرف)": c.status === 'closed' ? (c.closedBy || "") : "",
+            "تاريخ الإغلاق": c.status === 'closed' && c.closedAt ? new Date(c.closedAt).toLocaleString('ar-EG') : ""
         };
     });
     
     const ws = XLSX.utils.json_to_sheet(data);
-    const colWidths = [ {wch: 15}, {wch: 25}, {wch: 12}, {wch: 40}, {wch: 45}, {wch: 45}, {wch: 20}, {wch: 15}, {wch: 20} ];
+    const colWidths = [ {wch: 15}, {wch: 25}, {wch: 12}, {wch: 40}, {wch: 45}, {wch: 45}, {wch: 20}, {wch: 15}, {wch: 20}, {wch: 18}, {wch: 20} ];
     ws['!cols'] = colWidths;
     
     const wb = XLSX.utils.book_new();
@@ -4687,6 +5086,46 @@ async function exportNotesReport() {
     }
 }
 
+
+function downloadExcelTemplate(type) {
+    let headers = [];
+    let sample = [];
+    let fileName = "Template.xlsx";
+    if (type === "vehicles") {
+        headers = ["رقم المورد", "اسم المورد", "رقم اللوحة", "كود الحافلة", "الفرع", "نوع الخدمة", "تاريخ انتهاء رخصة السيارة", "وصف الحافلة"];
+        sample = ["12345", "اسم المورد مثال", "أ ب ج 1234", "BUS001", "القاهرة", "نقل موظفين", "2027-01-15", "أتوبيس 50 راكب"];
+        fileName = "قالب_السيارات.xlsx";
+    } else if (type === "trips") {
+        headers = ["اسم المورد", "رقم اللوحة", "كود الحافلة", "التاريخ", "وقت الوردية", "الوردية", "حالة الرحلة", "وصف الخط", "الفرع", "نوع الخدمة"];
+        sample = ["اسم المورد مثال", "أ ب ج 1234", "BUS001", "2026-09-01", "2026-09-01 07:00", "صباحي", "رحلة ناجحة", "خط المعادي", "القاهرة", "نقل موظفين"];
+        fileName = "قالب_الرحلات.xlsx";
+    } else if (type === "dues") {
+        headers = ["اسم المورد", "رقم المورد", "الفترة", "مبلغ الرحلات", "Bus Trip Code", "كود الحافلة", "رقم اللوحة", "وصف الحافلة"];
+        sample = ["اسم المورد مثال", "12345", "2026-09", "1500", "TRIP001", "BUS001", "أ ب ج 1234", "أتوبيس 50 راكب"];
+        fileName = "قالب_المستحقات.xlsx";
+    } else if (type === "suppliers") {
+        headers = ["رقم ساب", "اسم المورد", "اسم المكتب", "رقم الهاتف", "كلمة المرور"];
+        sample = ["12345", "اسم المورد", "اسم المكتب", "01012345678", "Pass123"];
+        fileName = "قالب_الموردين.xlsx";
+    } else {
+        showAlert("نوع القالب غير معروف.");
+        return;
+    }
+    try {
+        let row = {};
+        headers.forEach((h, i) => { row[h] = sample[i] || ""; });
+        const ws = XLSX.utils.json_to_sheet([row]);
+        // تفريغ الصف التجريبي ليبقى الهيدر فقط (أو نترك صف مثال للتوضيح)
+        // نترك صف مثال واحد للمساعدة
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "القالب");
+        XLSX.writeFile(wb, fileName);
+        showAlert("✅ تم تحميل القالب. الصف الأول مثال توضيحي — احذفه أو عدّله ثم أضف بياناتك مع الحفاظ على أسماء الأعمدة.");
+    } catch (e) {
+        showAlert("❌ تعذر إنشاء القالب: " + e.message);
+    }
+}
+
 function compressImage(file) {
     return new Promise((resolve, reject) => {
         let reader = new FileReader();
@@ -4696,25 +5135,82 @@ function compressImage(file) {
             img.src = event.target.result;
             img.onload = () => {
                 let canvas = document.createElement("canvas");
-                let max_width = 750;
+                // ضغط أقوى جداً للنظام المجاني (Base64 داخل Firestore) لتوفير المساحة
+                let maxWidth = 400;
+                let maxHeight = 520;
                 let width = img.width;
                 let height = img.height;
-                
-                if (width > max_width) {
-                    height = Math.round((height * max_width) / width);
-                    width = max_width;
+
+                if (width > maxWidth) {
+                    height = Math.round((height * maxWidth) / width);
+                    width = maxWidth;
                 }
-                
+                if (height > maxHeight) {
+                    width = Math.round((width * maxHeight) / height);
+                    height = maxHeight;
+                }
+
                 canvas.width = width;
                 canvas.height = height;
                 let ctx = canvas.getContext("2d");
+                ctx.fillStyle = "#FFFFFF";
+                ctx.fillRect(0, 0, width, height);
                 ctx.drawImage(img, 0, 0, width, height);
-                resolve(canvas.toDataURL("image/jpeg", 0.5));
+                // جودة منخفضة جداً (0.22) لحجم Base64 صغير داخل Firestore
+                resolve(canvas.toDataURL("image/jpeg", 0.22));
             };
             img.onerror = err => reject(err);
         };
         reader.onerror = error => reject(error);
     });
+}
+
+// تقدير حجم وثيقة الرخص بالبايت (تقريبي من طول النصوص)
+function estimateLicenseDocSize(updates) {
+    try {
+        return JSON.stringify(updates || []).length;
+    } catch(e) {
+        return 0;
+    }
+}
+
+// تنظيف ذكي: حذف صور السجلات المعتمدة الأقدم عند اقتراب امتلاء المساحة (حد آمن ~750KB للوثيقة)
+async function smartCleanupLicenseSpaceIfNeeded(updatesArr) {
+    const SAFE_LIMIT = 750000; // ~750KB (حد Firestore 1MB)
+    let updates = updatesArr ? [...updatesArr] : [...(globalAdminLicenseUpdates || [])];
+    let size = estimateLicenseDocSize(updates);
+    if (size < SAFE_LIMIT) return updates;
+
+    // ترتيب: الأقدم أولاً، ونفضّل المعتمدة
+    updates.sort((a, b) => {
+        let ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+        let tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+        return ta - tb;
+    });
+
+    let changed = false;
+    for (let i = 0; i < updates.length && estimateLicenseDocSize(updates) > SAFE_LIMIT; i++) {
+        let u = updates[i];
+        if (u.isUpdated === true && u.images && u.images.length > 0) {
+            updates[i] = { ...u, images: [], imagePaths: [], cleanedAt: new Date().toISOString(), cleanedReason: "space" };
+            changed = true;
+        }
+    }
+    // إذا ما زال كبيراً، احذف صور غير المعتمدة الأقدم أيضاً
+    for (let i = 0; i < updates.length && estimateLicenseDocSize(updates) > SAFE_LIMIT; i++) {
+        let u = updates[i];
+        if (u.images && u.images.length > 0) {
+            updates[i] = { ...u, images: [], imagePaths: [], cleanedAt: new Date().toISOString(), cleanedReason: "space_force" };
+            changed = true;
+        }
+    }
+    if (changed) {
+        globalAdminLicenseUpdates = updates;
+        try {
+            await db.collection("uploadedFiles").doc("ALL_LICENSE_UPDATES").set({ updates: updates });
+        } catch(e) { console.warn("smartCleanup save failed", e); }
+    }
+    return updates;
 }
 
 async function handleLicenseImagesUpload(event, plate, code, vId) {
@@ -4723,36 +5219,54 @@ async function handleLicenseImagesUpload(event, plate, code, vId) {
     if(files.length > 2) { showAlert("عفواً، الحد الأقصى هو صورتين فقط للسيارة الواحدة."); return; }
 
     let statusText = document.getElementById("upload_status_" + vId);
-    statusText.innerText = "⏳ جاري ضغط ورفع الصور...";
+    statusText.innerText = "⏳ جاري ضغط الصور بقوة (نظام مجاني)...";
     statusText.style.color = "#075bb5";
 
     try {
-        let base64Images = [];
-        for(let i=0; i<files.length; i++) {
-            let compressed = await compressImage(files[i]);
-            base64Images.push(compressed);
+        let imageBase64List = [];
+        let sap = loggedInSupplierSapGlobal || "unknown";
+
+        for (let i = 0; i < files.length; i++) {
+            // ضغط أقوى جداً وتخزين Base64 مباشرة في Firestore (بدون Storage - النظام المجاني)
+            let compressedBase64 = await compressImage(files[i]);
+            imageBase64List.push(compressedBase64);
         }
 
-        let supplierNameVal = document.getElementById("showOwner").innerText.replace("المورد: ", "").replace("👑 مدير النظام: ", "").replace("🛡️ مشرف: ", "").trim();
+        let supplierNameVal = document.getElementById("showOwner").innerText
+            .replace("المورد: ", "")
+            .replace("👑 مدير النظام: ", "")
+            .replace("🛡️ مشرف: ", "")
+            .trim();
 
         let updateObj = {
             id: generateFileId(),
             plate: plate || "",
             code: code || "",
             vId: vId || "",
-            supplierSap: loggedInSupplierSapGlobal || "",
+            supplierSap: sap,
             supplierName: supplierNameVal || "مورد",
-            images: base64Images,
-            status: 'unread',
+            images: imageBase64List,  // Base64 مضغوط داخل Firestore (مجاني)
+            imagePaths: [],           // لم نعد نستخدم Storage
+            status: "unread",
             isUpdated: false,
             timestamp: new Date().toISOString()
         };
 
-        await db.collection("uploadedFiles").doc("ALL_LICENSE_UPDATES").set({
-            updates: firebase.firestore.FieldValue.arrayUnion(updateObj)
-        }, { merge: true });
+        // تنظيف ذكي قبل الإضافة إذا كانت المساحة ممتلئة تقريباً
+        let currentUpdates = globalAdminLicenseUpdates ? [...globalAdminLicenseUpdates] : [];
+        currentUpdates = await smartCleanupLicenseSpaceIfNeeded(currentUpdates);
+        currentUpdates.push(updateObj);
 
-        statusText.innerText = "✅ تم الإرفاق والإرسال للإدارة بنجاح.";
+        // تنظيف مرة أخرى بعد الإضافة إذا لزم
+        currentUpdates = await smartCleanupLicenseSpaceIfNeeded(currentUpdates);
+
+        await db.collection("uploadedFiles").doc("ALL_LICENSE_UPDATES").set({
+            updates: currentUpdates
+        });
+
+        globalAdminLicenseUpdates = currentUpdates;
+
+        statusText.innerText = "✅ تم الإرفاق والإرسال للإدارة بنجاح (Base64 مضغوط).";
         statusText.style.color = "#28a745";
         
         setTimeout(() => {
