@@ -770,11 +770,39 @@ let globalComplaints = [];
 let currentSupplierComps = [];
 let globalSupplierDataMap = new Map();
 let globalAdminsMap = new Map();
+let globalVehicleToBranch = new Map();
 let globalVehicleToServiceType = new Map();
 let currentUserName = ""; 
 let dataLoaded = false;
 let adminDashFilteredSap = null; 
-let activeBranch = ""; 
+let activeBranch = "";
+/** غيّر هذا الرقم مع كل إصدار منطق جديد لإبطال كاش IndexedDB تلقائياً */
+const APP_LOGIC_VERSION = "9.5";
+(function invalidateStaleAppCache() {
+    try {
+        let prev = localStorage.getItem("elaraby_app_logic_ver");
+        if (prev !== APP_LOGIC_VERSION) {
+            localStorage.setItem("elaraby_app_logic_ver", APP_LOGIC_VERSION);
+            // إبطال كاش البيانات حتى يُعاد التحميل من السيرفر
+            localStorage.removeItem("elaraby_data_version");
+            // مسح مفاتيح الكاش القديمة من localStorage
+            Object.keys(localStorage).forEach(k => {
+                if (k.indexOf("elaraby_") === 0 && k !== "elaraby_app_logic_ver") {
+                    // لا نحذف بيانات تسجيل الدخول إن وُجدت بمفاتيح أخرى
+                    if (k.indexOf("elaraby_admin") === 0 || k.indexOf("elaraby_supplier") === 0 || k === "elaraby_data_version") {
+                        localStorage.removeItem(k);
+                    }
+                }
+            });
+            // مسح IndexedDB للكاش
+            try {
+                indexedDB.deleteDatabase("ElarabyFleetDB");
+            } catch (e) {}
+            console.log("Elaraby: cache invalidated for app logic", APP_LOGIC_VERSION);
+        }
+    } catch (e) {}
+})();
+ 
 let activeServiceType = "";
 let currentSupplierServiceTypes = new Set();
 let loggedInSupplierSapGlobal = "";
@@ -1999,7 +2027,7 @@ async function safeUploadTest(inputId, label) {
                 }
             } else if (collectionName === "dues") {
                 let hasAmount = sampleKeys.some(k =>
-                    k.includes("مبلغ") || k.includes("الفترة") || k.includes("فترة")
+                    k.includes("مبلغ") || k.includes("الفترة") || k.includes("فترة") || k.includes("فتره") || k.includes("فرع")
                 );
                 if (!hasSapOrName && !hasAmount) {
                     resultDiv.innerHTML = `❌ الملف غير مطابق لقالب المستحقات. تأكد من أعمدة مثل: رقم/اسم المورد، الفترة، مبلغ الرحلات.`;
@@ -2135,6 +2163,13 @@ async function safeUploadTest(inputId, label) {
                     row["رقم المورد"] = rowSap;
                     // توحيد حقل اسم المكتب للتخزين والفلترة لاحقاً
                     if (!row["اسم المكتب"] && rawName) row["اسم المكتب"] = rawName;
+                    // توحيد أسماء أعمدة المستحقات
+                    if (collectionName === "dues") {
+                        if (!row["الفترة"] && (row["الفتره"] || row["فترة"])) row["الفترة"] = row["الفتره"] || row["فترة"];
+                        if (!row["الفرع"] && row["فرع"]) row["الفرع"] = row["فرع"];
+                        if (!row["مبلغ الرحلات"] && row["المبلغ"]) row["مبلغ الرحلات"] = row["المبلغ"];
+                        if (!row["كود الحافلة"] && (row["Bus Trip Code"] || row["كود"])) row["كود الحافلة"] = row["Bus Trip Code"] || row["كود"];
+                    }
                     return row;
                 });
 
@@ -2857,7 +2892,7 @@ function selectMsgSupplier(sap, name) {
                 <div class="upload-acc-body">
                     <div class="upload-cols-hint" style="color:#155724; border-color:#8fd19e; background:#e8f5e9;">
                         📌 <b>الأعمدة المطلوبة:</b>
-                        <code>اسم المورد</code> | <code>الفترة</code> | <code>مبلغ الرحلات</code> | <code>Bus Trip Code</code> / <code>كود الحافلة</code>
+                        <code>اسم المورد</code> | <code>الفترة</code> (أو <code>الفتره</code>) | <code>الفرع</code> | <code>مبلغ الرحلات</code> | <code>كود الحافلة</code>
                     </div>
                     <div class="upload-acc-actions">
                         <button type="button" class="btn-sm" onclick="downloadExcelTemplate('dues')" style="background:#1e7e34;">📄 قالب</button>
@@ -4063,7 +4098,7 @@ async function loadSupplierData(){
 
        let isAdmin = (currentRole === "admin" || currentRole === "super_admin");
        // v4: فلترة وربط باسم المكتب في العرض + تحميل مباشر off_*
-       let cachePrefix = isAdmin ? "elaraby_admin_v4_" : "elaraby_supplier_v4_" + loggedInSupplierSapGlobal + "_";
+       let cachePrefix = isAdmin ? "elaraby_admin_v5_" : "elaraby_supplier_v5_" + loggedInSupplierSapGlobal + "_";
        let localVersion = localStorage.getItem("elaraby_data_version") || 0;
 
        clearOldLocalStorage();
@@ -4317,17 +4352,24 @@ async function loadSupplierData(){
    window.__activeSap = activeSap;
 
    globalVehicleToServiceType.clear();
+   if (typeof globalVehicleToBranch !== "undefined" && globalVehicleToBranch.clear) globalVehicleToBranch.clear();
+   else window.globalVehicleToBranch = new Map();
    let branchSet = new Set();
    let serviceTypeSet = new Set();
    
    globalVehicles.forEach(d => { 
        if(showAll || normalizeValue(d["رقم المورد"])===activeSap || rowMatchesActiveSupplier(d, activeSap, activeOfficeKeys)){ 
            if(d["الفرع"]) branchSet.add(String(d["الفرع"]).trim()); 
+           let plate = normalizeValue(d["رقم اللوحة"]);
+           let code = normalizeValue(d["كود الحافلة"] || d["كود"]);
+           let vBranch = String(d["الفرع"] || "").trim();
+           if (vBranch) {
+               if (plate) globalVehicleToBranch.set(plate, vBranch);
+               if (code) globalVehicleToBranch.set(code, vBranch);
+           }
            let sType = String(d["نوع الخدمة"] || d["الخدمة"] || "").trim();
            if(sType) {
                serviceTypeSet.add(sType);
-               let plate = normalizeValue(d["رقم اللوحة"]);
-               let code = normalizeValue(d["كود الحافلة"] || d["كود"]);
                if(plate) globalVehicleToServiceType.set(plate, sType);
                if(code) globalVehicleToServiceType.set(code, sType);
            }
@@ -4339,13 +4381,39 @@ async function loadSupplierData(){
            if(d["الفرع"]) branchSet.add(String(d["الفرع"]).trim()); 
        } 
    });
+   // فروع من المستحقات أيضاً (مورد قد يكون له أكثر من فرع في شيت المستحقات)
+   globalDues.forEach(d => {
+       if (showAll || rowMatchesActiveSupplier(d, activeSap, activeOfficeKeys)) {
+           let b = getDuesBranch(d);
+           if (b) branchSet.add(b);
+       }
+   });
 
-   let branchesArr = Array.from(branchSet).filter(Boolean);
+   // توحيد أسماء الفروع المتشابهة (فرع بنها ≈ بنها) مع الإبقاء على أوضح تسمية
+   let branchNormMap = new Map();
+   Array.from(branchSet).filter(Boolean).forEach(b => {
+       let n = normalizeBranchName(b);
+       if (!n) return;
+       let prev = branchNormMap.get(n);
+       if (!prev) branchNormMap.set(n, b);
+       else {
+           // نفضّل الاسم الأقصر أو بدون بادئة فرع
+           let prefer = (String(b).indexOf("فرع") === 0 && String(prev).indexOf("فرع") !== 0) ? prev
+               : (String(b).length < String(prev).length ? b : prev);
+           branchNormMap.set(n, prefer);
+       }
+   });
+   let branchesArr = Array.from(branchNormMap.values());
+   // إن كان activeBranch يطابق أحد الفروع بعد التطبيع، ثبّت القيمة
+   if (activeBranch) {
+       let an = normalizeBranchName(activeBranch);
+       if (branchNormMap.has(an)) activeBranch = branchNormMap.get(an);
+   }
    let branchHtml = "";
    if(branchesArr.length > 1) {
        branchHtml = `الفرع: <select id="branchSelector" onchange="changeBranch(this.value)">
            <option value="">كل الفروع</option>
-           ${branchesArr.map(b => `<option value="${b}" ${b===activeBranch?'selected':''}>${b}</option>`).join('')}
+           ${branchesArr.map(b => `<option value="${b}" ${normalizeBranchName(b)===normalizeBranchName(activeBranch)?'selected':''}>${b}</option>`).join('')}
        </select>`;
    } else if(branchesArr.length === 1) { branchHtml = `الفرع: ${branchesArr[0]}`; } 
    else { branchHtml = "الفرع: غير محدد"; }
@@ -4374,9 +4442,9 @@ async function loadSupplierData(){
 
    globalVehicles.forEach(d=>{
       if(showAll || rowMatchesActiveSupplier(d, activeSap, activeOfficeKeys) || normalizeValue(d["رقم المورد"])===activeSap){
-         let b = String(d["الفرع"] || "").trim();
+         let b = resolveRowBranch(d);
          let sType = String(d["نوع الخدمة"] || d["الخدمة"] || "").trim();
-         if((!activeBranch || b === activeBranch) && (!activeServiceType || sType === activeServiceType)) {
+         if((!activeBranch || branchesMatch(b, activeBranch)) && (!activeServiceType || sType === activeServiceType)) {
              vehiclesKeys.add(normalizeValue(d["رقم اللوحة"] || Math.random()));
              let code = normalizeValue(d["كود الحافلة"] || d["كود"]);
              if(code) codesKeys.add(code);
@@ -4386,7 +4454,7 @@ async function loadSupplierData(){
 
    globalTrips.forEach(d=>{
       if(showAll || rowMatchesActiveSupplier(d, activeSap, activeOfficeKeys)){
-        let b = String(d["الفرع"] || "").trim();
+        let b = resolveRowBranch(d);
         let sType = String(d["نوع الخدمة"] || d["الخدمة"] || "").trim();
         if(!sType) {
             let tripPlate = normalizeValue(d["رقم اللوحة"]);
@@ -4394,7 +4462,7 @@ async function loadSupplierData(){
             sType = globalVehicleToServiceType.get(tripPlate) || globalVehicleToServiceType.get(tripCode) || "";
         }
         
-        if((!activeBranch || b === activeBranch) && (!activeServiceType || sType === activeServiceType)) {
+        if((!activeBranch || branchesMatch(b, activeBranch)) && (!activeServiceType || sType === activeServiceType)) {
             let date = onlyDate(d["وقت الوردية"] || d["التاريخ"]);
             if((!fromDate || date >= fromDate) && (!toDate || date <= toDate)){
                 totalTrips++; 
@@ -4420,43 +4488,28 @@ async function loadSupplierData(){
    ];
 
    globalDues.forEach(d => {
-       if (showAll || rowMatchesActiveSupplier(d, activeSap, activeOfficeKeys)) {
-           let rawPeriod = d["الفترة"] || d["فترة"] || "";
-           let periodLabel = "";
-           let periodSortKey = 0;
+       if (!(showAll || rowMatchesActiveSupplier(d, activeSap, activeOfficeKeys))) return;
+       // فلتر الفرع الخارجي (من رأس الصفحة)
+       let dBranch = getDuesBranch(d);
+       if (activeBranch && !branchesMatch(dBranch, activeBranch)) return;
 
-           if (rawPeriod !== undefined && rawPeriod !== null && String(rawPeriod).trim() !== "") {
-               let valStr = String(rawPeriod).trim();
-               let numVal = Number(valStr);
+       let rawPeriod = getRawDuesPeriod(d);
+       let periodLabel = formatDuesPeriodLabel(rawPeriod);
+       let periodSortKey = parseDuesPeriodSortKey(rawPeriod || periodLabel);
 
-               if (!isNaN(numVal) && numVal > 30000 && numVal < 60000) {
-                   let dateObj = new Date(Math.round((numVal - 25569) * 86400 * 1000));
-                   let mName = arabicMonthsList[dateObj.getUTCMonth()];
-                   let yNum = dateObj.getUTCFullYear();
-                   periodLabel = `${mName} ${yNum}`;
-                   periodSortKey = dateObj.getTime();
-               } else {
-                   periodLabel = valStr;
-                   let parsed = new Date(valStr);
-                   periodSortKey = !isNaN(parsed.getTime()) ? parsed.getTime() : 1;
-               }
-           } else {
-               periodLabel = "غير محدد";
-           }
+       d._formattedPeriod = periodLabel;
+       d._periodSortKey = periodSortKey;
+       d._duesBranch = dBranch;
+       myDues.push(d);
 
-           d._formattedPeriod = periodLabel;
-           d._periodSortKey = periodSortKey;
-           myDues.push(d);
+       let val = d["مبلغ الرحلات"] || d["المبلغ"] || 0;
+       if (typeof val === "string") val = val.replace(/,/g, "").trim();
+       let num = parseFloat(val) || 0;
 
-           let val = d["مبلغ الرحلات"] || d["المبلغ"] || 0;
-           if (typeof val === "string") val = val.replace(/,/g, "").trim();
-           let num = parseFloat(val) || 0;
-
-           if (!duesPeriodsMap.has(periodLabel)) {
-               duesPeriodsMap.set(periodLabel, { total: 0, sortKey: periodSortKey });
-           }
-           duesPeriodsMap.get(periodLabel).total += num;
+       if (!duesPeriodsMap.has(periodLabel)) {
+           duesPeriodsMap.set(periodLabel, { total: 0, sortKey: periodSortKey });
        }
+       duesPeriodsMap.get(periodLabel).total += num;
    });
 
    // فرز الفترات من الأحدث إلى الأقدم وحفظها عالمياً لاستخدامها في لوحة التفاصيل
@@ -4490,10 +4543,13 @@ async function loadSupplierData(){
 
    let dueMonthLabelEl = document.getElementById("dueMonthLabel");
    if (dueMonthLabelEl) {
-       if (latestPeriodName) {
-           dueMonthLabelEl.innerHTML = `فترة: ${latestPeriodName}`;
+       let labelParts = [];
+       if (latestPeriodName) labelParts.push("فترة: " + latestPeriodName);
+       if (activeBranch) labelParts.push("فرع: " + activeBranch);
+       if (labelParts.length) {
+           dueMonthLabelEl.innerHTML = labelParts.join(" | ");
            dueMonthLabelEl.style.color = "#075bb5";
-           dueMonthLabelEl.style.fontSize = "13px";
+           dueMonthLabelEl.style.fontSize = "12px";
            dueMonthLabelEl.style.fontWeight = "bold";
        } else {
            dueMonthLabelEl.innerHTML = "";
@@ -4747,40 +4803,22 @@ function renderDuesByPeriod(showAll, activeSap) {
 
         let officeKeysForDues = window.__activeOfficeKeys || new Set();
         (globalDues || []).forEach(d => {
-            if (showAll || rowMatchesActiveSupplier(d, activeSap, officeKeysForDues)) {
-                let rawPeriod = d["الفترة"] || d["فترة"] || "";
-                let periodLabel = "";
-                let periodSortKey = 0;
+            if (!(showAll || rowMatchesActiveSupplier(d, activeSap, officeKeysForDues))) return;
+            let dBranch = getDuesBranch(d);
+            if (activeBranch && !branchesMatch(dBranch, activeBranch)) return;
 
-                if (rawPeriod !== undefined && rawPeriod !== null && String(rawPeriod).trim() !== "") {
-                    let valStr = String(rawPeriod).trim();
-                    let numVal = Number(valStr);
+            let rawPeriod = getRawDuesPeriod(d);
+            let periodLabel = formatDuesPeriodLabel(rawPeriod);
+            let periodSortKey = parseDuesPeriodSortKey(rawPeriod || periodLabel);
 
-                    if (!isNaN(numVal) && numVal > 30000 && numVal < 60000) {
-                        let dateObj = new Date(Math.round((numVal - 25569) * 86400 * 1000));
-                        let mName = arabicMonthsList[dateObj.getUTCMonth()];
-                        let yNum = dateObj.getUTCFullYear();
-                        periodLabel = `${mName} ${yNum}`;
-                        periodSortKey = dateObj.getTime();
-                    } else {
-                        periodLabel = valStr;
-                        let parsed = new Date(valStr);
-                        periodSortKey = !isNaN(parsed.getTime()) ? parsed.getTime() : 1;
-                    }
-                } else {
-                    periodLabel = "غير محدد";
-                    periodSortKey = 0;
-                }
+            let val = d["مبلغ الرحلات"] || d["المبلغ"] || 0;
+            if (typeof val === "string") val = val.replace(/,/g, "").trim();
+            let num = parseFloat(val) || 0;
 
-                let val = d["مبلغ الرحلات"] || d["المبلغ"] || 0;
-                if (typeof val === "string") val = val.replace(/,/g, "").trim();
-                let num = parseFloat(val) || 0;
-
-                if (!duesPeriodsMap.has(periodLabel)) {
-                    duesPeriodsMap.set(periodLabel, { total: 0, sortKey: periodSortKey });
-                }
-                duesPeriodsMap.get(periodLabel).total += num;
+            if (!duesPeriodsMap.has(periodLabel)) {
+                duesPeriodsMap.set(periodLabel, { total: 0, sortKey: periodSortKey });
             }
+            duesPeriodsMap.get(periodLabel).total += num;
         });
 
         globalDuesPeriodsCache = Array.from(duesPeriodsMap.entries())
@@ -4791,15 +4829,95 @@ function renderDuesByPeriod(showAll, activeSap) {
     buildDuesPeriodUI();
 }
 
-function getDuesPeriodLabel(d) {
+
+/** قراءة عمود الفترة من صف المستحقات (يدعم الفترة / الفتره / فترة) */
+function getRawDuesPeriod(d) {
+    if (!d) return "";
+    let v = d["الفترة"] || d["الفتره"] || d["فترة"] || d["period"] || d["Period"] || "";
+    if (v === undefined || v === null) return "";
+    return String(v).trim();
+}
+
+/** قراءة الفرع من صف المستحقات */
+function getDuesBranch(d) {
+    if (!d) return "";
+    let v = d["الفرع"] || d["فرع"] || d["branch"] || d["Branch"] || "";
+    if (v === undefined || v === null) return "";
+    return String(v).trim();
+}
+
+/** توحيد اسم الفرع للمقارنة (فرع بنها ≈ بنها) */
+function normalizeBranchName(b) {
+    if (!b) return "";
+    let s = String(b).trim();
+    // إزالة بادئة «فرع» الشائعة
+    s = s.replace(/^فرع\s*/u, "").replace(/^فرع\s*/u, "").trim();
+    if (typeof deepCleanArabic === "function") s = deepCleanArabic(s);
+    else s = s.replace(/\s+/g, " ").toLowerCase();
+    return s;
+}
+
+/** هل فرع الصف يطابق الفرع المختار؟ */
+
+function resolveRowBranch(d) {
+    let b = String((d && (d["الفرع"] || d["فرع"])) || "").trim();
+    if (b) return b;
+    let plate = normalizeValue(d["رقم اللوحة"]);
+    let code = normalizeValue(d["كود الحافلة"] || d["كود"] || d["Bus Trip Code"]);
+    if (typeof globalVehicleToBranch !== "undefined") {
+        if (plate && globalVehicleToBranch.has(plate)) return globalVehicleToBranch.get(plate);
+        if (code && globalVehicleToBranch.has(code)) return globalVehicleToBranch.get(code);
+    }
+    return "";
+}
+
+function branchesMatch(rowBranch, selectedBranch) {
+    if (!selectedBranch) return true;
+    let a = normalizeBranchName(rowBranch);
+    let b = normalizeBranchName(selectedBranch);
+    if (!a) return false; // صف بدون فرع لا يظهر عند فلتر فرع محدد
+    if (a === b) return true;
+    if (a.includes(b) || b.includes(a)) return true;
+    return false;
+}
+
+/** مفتاح فرز للفترة النصية مثل «سبتمبر 2026» */
+function parseDuesPeriodSortKey(valStr) {
+    if (!valStr) return 0;
+    let s = String(valStr).trim();
+    let numVal = Number(s);
+    if (!isNaN(numVal) && numVal > 30000 && numVal < 60000) {
+        return new Date(Math.round((numVal - 25569) * 86400 * 1000)).getTime();
+    }
+    const monthMap = {
+        "يناير": 0, "فبراير": 1, "مارس": 2, "إبريل": 3, "ابريل": 3, "مايو": 4, "يونيو": 5,
+        "يوليو": 6, "أغسطس": 7, "اغسطس": 7, "سبتمبر": 8, "أكتوبر": 9, "اكتوبر": 9,
+        "نوفمبر": 10, "ديسمبر": 11
+    };
+    let m = s.match(/(يناير|فبراير|مارس|إبريل|ابريل|مايو|يونيو|يوليو|أغسطس|اغسطس|سبتمبر|أكتوبر|اكتوبر|نوفمبر|ديسمبر)\s*[-\/]?\s*(\d{4}|\d{2})/);
+    if (m) {
+        let year = parseInt(m[2], 10);
+        if (year < 100) year += 2000;
+        return new Date(year, monthMap[m[1]] || 0, 1).getTime();
+    }
+    // 2026-09 أو 09/2026
+    let m2 = s.match(/(\d{4})\s*[-\/]\s*(\d{1,2})/);
+    if (m2) return new Date(parseInt(m2[1], 10), parseInt(m2[2], 10) - 1, 1).getTime();
+    let m3 = s.match(/(\d{1,2})\s*[-\/]\s*(\d{4})/);
+    if (m3) return new Date(parseInt(m3[2], 10), parseInt(m3[1], 10) - 1, 1).getTime();
+    let parsed = new Date(s);
+    if (!isNaN(parsed.getTime()) && parsed.getFullYear() > 2000) return parsed.getTime();
+    return 1;
+}
+
+function formatDuesPeriodLabel(raw) {
+    if (raw === undefined || raw === null || String(raw).trim() === "") return "غير محدد";
+    let valStr = String(raw).trim();
+    let numVal = Number(valStr);
     const arabicMonthsList = [
         "يناير", "فبراير", "مارس", "إبريل", "مايو", "يونيو",
         "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"
     ];
-    let rawPeriod = d["الفترة"] || d["فترة"] || "";
-    if (rawPeriod === undefined || rawPeriod === null || String(rawPeriod).trim() === "") return "غير محدد";
-    let valStr = String(rawPeriod).trim();
-    let numVal = Number(valStr);
     if (!isNaN(numVal) && numVal > 30000 && numVal < 60000) {
         let dateObj = new Date(Math.round((numVal - 25569) * 86400 * 1000));
         return arabicMonthsList[dateObj.getUTCMonth()] + " " + dateObj.getUTCFullYear();
@@ -4807,42 +4925,125 @@ function getDuesPeriodLabel(d) {
     return valStr;
 }
 
-function buildDuesPeriodUI(selectedPeriod) {
+function getDuesPeriodLabel(d) {
+    return formatDuesPeriodLabel(getRawDuesPeriod(d));
+}
+
+function buildDuesPeriodUI(selectedPeriod, selectedBranch) {
     let resultDiv = document.getElementById("popupResult");
     let loadBtn = document.getElementById("loadMoreBtn");
     if (loadBtn) loadBtn.classList.add("hide");
 
-    if (!globalDuesPeriodsCache || globalDuesPeriodsCache.length === 0) {
-        let debugInfo = (typeof globalDues !== "undefined" && globalDues) ? globalDues.length : 0;
-        resultDiv.innerHTML = "<p style='text-align:center; font-size:13px; padding:20px;'>لا توجد بيانات مستحقات متاحة حالياً.<br><span style='font-size:11px;color:#888;'>سجلات المستحقات المحملة: " + debugInfo + "</span></p>";
-        document.getElementById("popupCount").innerText = "الإجمالي: 0";
-        return;
-    }
-
-    // فلتر الفترة في الأعلى
-    let filterHtml = `
-    <div style="background:#f0f7ff; border:1px solid #b8daff; border-radius:10px; padding:12px; margin-bottom:12px;">
-        <label style="font-size:13px; font-weight:bold; color:#004085; display:block; margin-bottom:6px;">🔍 فلتر الفترة:</label>
-        <select id="duesPeriodFilter" onchange="filterDuesByPeriod(this.value)" style="width:100%; padding:10px; border-radius:8px; border:1px solid #075bb5; font-family:tahoma; font-size:14px; background:#fff; cursor:pointer;">
-            <option value="">كل الفترات</option>
-            ${globalDuesPeriodsCache.map(p => {
-                let safeVal = String(p.period).replace(/"/g, "&quot;");
-                let safeTxt = sanitizeHTML(p.period);
-                return `<option value="${safeVal}" ${selectedPeriod === p.period ? "selected" : ""}>${safeTxt}</option>`;
-            }).join("")}
-        </select>
-    </div>`;
-
-    // تحديد المورد الحالي (ساب أو اسم المكتب)
     let isAdmin = (currentRole === "admin" || currentRole === "super_admin");
     let activeSap = isAdmin ? (adminDashFilteredSap ? adminDashFilteredSap : null) : loggedInSupplierSapGlobal;
     let showAll = isAdmin && !adminDashFilteredSap;
     let officeKeysDetail = window.__activeOfficeKeys || new Set();
 
-    // جمع السجلات التفصيلية (كود + مبلغ) حسب الفترة المختارة
+    // الفرع المختار داخلياً أو من الفلتر الخارجي
+    if (selectedBranch === undefined || selectedBranch === null) {
+        selectedBranch = (typeof window.__duesInternalBranch !== "undefined" && window.__duesInternalBranch !== null)
+            ? window.__duesInternalBranch
+            : (activeBranch || "");
+    }
+    window.__duesInternalBranch = selectedBranch || "";
+
+    // جمع الفروع المتاحة لهذا المورد من المستحقات
+    let branchSet = new Set();
+    (globalDues || []).forEach(d => {
+        if (!(showAll || rowMatchesActiveSupplier(d, activeSap, officeKeysDetail))) return;
+        let b = getDuesBranch(d);
+        if (b) branchSet.add(b);
+    });
+    let branchesArr = Array.from(branchSet).filter(Boolean).sort();
+
+    // إعادة بناء كاش الفترات مع مراعاة الفرع
+    let duesPeriodsMap = new Map();
+    (globalDues || []).forEach(d => {
+        if (!(showAll || rowMatchesActiveSupplier(d, activeSap, officeKeysDetail))) return;
+        let b = getDuesBranch(d);
+        if (selectedBranch && !branchesMatch(b, selectedBranch)) return;
+
+        let periodLabel = getDuesPeriodLabel(d);
+        let periodSortKey = parseDuesPeriodSortKey(getRawDuesPeriod(d) || periodLabel);
+        let val = d["مبلغ الرحلات"] || d["المبلغ"] || 0;
+        if (typeof val === "string") val = val.replace(/,/g, "").trim();
+        let num = parseFloat(val) || 0;
+        if (!duesPeriodsMap.has(periodLabel)) {
+            duesPeriodsMap.set(periodLabel, { total: 0, sortKey: periodSortKey });
+        }
+        duesPeriodsMap.get(periodLabel).total += num;
+    });
+    globalDuesPeriodsCache = Array.from(duesPeriodsMap.entries())
+        .map(([period, data]) => ({ period, total: data.total, sortKey: data.sortKey }))
+        .sort((a, b) => b.sortKey - a.sortKey);
+
+    if (!globalDuesPeriodsCache || globalDuesPeriodsCache.length === 0) {
+        let debugInfo = (typeof globalDues !== "undefined" && globalDues) ? globalDues.length : 0;
+        resultDiv.innerHTML = "<p style='text-align:center; font-size:13px; padding:20px;'>لا توجد بيانات مستحقات متاحة حالياً" +
+            (selectedBranch ? " للفرع: " + sanitizeHTML(selectedBranch) : "") +
+            ".<br><span style='font-size:11px;color:#888;'>سجلات المستحقات المحملة: " + debugInfo + "</span></p>";
+        document.getElementById("popupCount").innerText = "الإجمالي: 0";
+        return;
+    }
+
+    // بناء خيارات الفلتر بأمان (نص صريح داخل option)
+    let periodOptions = '<option value="">كل الفترات</option>';
+    globalDuesPeriodsCache.forEach(p => {
+        let val = String(p.period || "");
+        let sel = (selectedPeriod && selectedPeriod === p.period) ? " selected" : "";
+        let label = val + " — " + (Number(p.total) || 0).toLocaleString("en-US") + " ج";
+        periodOptions += '<option value="' + sanitizeHTML(val) + '"' + sel + '>' + sanitizeHTML(label) + '</option>';
+    });
+
+    let showBranchFilter = branchesArr.length > 1;
+    let branchOptions = '<option value="">كل الفروع</option>';
+    if (showBranchFilter) {
+        branchesArr.forEach(b => {
+            let val = String(b || "");
+            let sel = (selectedBranch && branchesMatch(val, selectedBranch)) ? " selected" : "";
+            branchOptions += '<option value="' + sanitizeHTML(val) + '"' + sel + '>' + sanitizeHTML(val) + '</option>';
+        });
+    }
+
+    let filterHtml = "";
+    if (showBranchFilter) {
+        filterHtml = `
+    <div style="background:#f0f7ff; border:1px solid #b8daff; border-radius:10px; padding:10px; margin-bottom:12px;">
+        <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end;">
+            <div style="flex:1 1 140px; min-width:120px;">
+                <label style="font-size:12px; font-weight:bold; color:#004085; display:block; margin-bottom:4px;">🏢 الفرع</label>
+                <select id="duesBranchFilter" onchange="filterDuesByBranch(this.value)" style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid #17a2b8; font-family:tahoma; font-size:13px; background:#fff; color:#222; cursor:pointer;">
+                    ${branchOptions}
+                </select>
+            </div>
+            <div style="flex:1 1 160px; min-width:140px;">
+                <label style="font-size:12px; font-weight:bold; color:#004085; display:block; margin-bottom:4px;">📅 الفترة</label>
+                <select id="duesPeriodFilter" onchange="filterDuesByPeriod(this.value)" style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid #075bb5; font-family:tahoma; font-size:13px; background:#fff; color:#222; cursor:pointer;">
+                    ${periodOptions}
+                </select>
+            </div>
+        </div>
+    </div>`;
+    } else {
+        let singleBranchNote = branchesArr.length === 1
+            ? '<div style="font-size:11px; color:#075bb5; margin-bottom:6px; font-weight:bold;">🏢 الفرع: ' + sanitizeHTML(branchesArr[0]) + '</div>'
+            : '';
+        filterHtml = `
+    <div style="background:#f0f7ff; border:1px solid #b8daff; border-radius:10px; padding:10px; margin-bottom:12px;">
+        ${singleBranchNote}
+        <label style="font-size:12px; font-weight:bold; color:#004085; display:block; margin-bottom:4px;">📅 الفترة</label>
+        <select id="duesPeriodFilter" onchange="filterDuesByPeriod(this.value)" style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid #075bb5; font-family:tahoma; font-size:13px; background:#fff; color:#222; cursor:pointer;">
+            ${periodOptions}
+        </select>
+    </div>`;
+    }
+
     let detailRows = [];
     (globalDues || []).forEach(d => {
         if (!(showAll || rowMatchesActiveSupplier(d, activeSap, officeKeysDetail))) return;
+        let b = getDuesBranch(d);
+        if (selectedBranch && !branchesMatch(b, selectedBranch)) return;
+
         let periodLabel = getDuesPeriodLabel(d);
         if (selectedPeriod && periodLabel !== selectedPeriod) return;
 
@@ -4855,20 +5056,18 @@ function buildDuesPeriodUI(selectedPeriod) {
             code: String(code),
             amount: amount,
             period: periodLabel,
+            branch: b || "",
             plate: d["رقم اللوحة"] || d["رقم اللوحات"] || "",
             desc: d["وصف الحافلة"] || d["وصف"] || ""
         });
     });
 
-    // ترتيب: الأحدث أولاً، وداخل كل فترة المبلغ الأعلى أولاً
     detailRows.sort((a, b) => {
-        // أولاً: الفترة الأحدث في الأعلى (نحتاج sortKey)
         let periodA = globalDuesPeriodsCache.find(p => p.period === a.period);
         let periodB = globalDuesPeriodsCache.find(p => p.period === b.period);
         let keyA = periodA ? periodA.sortKey : 0;
         let keyB = periodB ? periodB.sortKey : 0;
-        if (keyB !== keyA) return keyB - keyA; // الأحدث أولاً
-        // ثانياً: داخل نفس الفترة — المبلغ الأعلى أولاً
+        if (keyB !== keyA) return keyB - keyA;
         return b.amount - a.amount;
     });
 
@@ -4876,12 +5075,15 @@ function buildDuesPeriodUI(selectedPeriod) {
 
     let rowsHtml = "";
     if (detailRows.length === 0) {
-        rowsHtml = "<p style='text-align:center; font-size:13px; padding:15px; color:#666;'>لا توجد أكواد لهذه الفترة.</p>";
+        rowsHtml = "<p style='text-align:center; font-size:13px; padding:15px; color:#666;'>لا توجد أكواد لهذه الفترة/الفرع.</p>";
     } else {
         detailRows.forEach((r, idx) => {
             let extra = "";
             if (!selectedPeriod) {
-                extra = `<div style="font-size:11px; color:#075bb5; margin-top:2px;">📅 ${sanitizeHTML(r.period)}</div>`;
+                extra += `<div style="font-size:11px; color:#075bb5; margin-top:2px;">📅 ${sanitizeHTML(r.period)}</div>`;
+            }
+            if (r.branch && !selectedBranch) {
+                extra += `<div style="font-size:11px; color:#17a2b8;">🏢 ${sanitizeHTML(r.branch)}</div>`;
             }
             if (r.plate) {
                 extra += `<div style="font-size:11px; color:#888;">اللوحة: ${sanitizeHTML(r.plate)}</div>`;
@@ -4906,13 +5108,24 @@ function buildDuesPeriodUI(selectedPeriod) {
 
     resultDiv.innerHTML = filterHtml + rowsHtml;
 
-    document.getElementById("popupCount").innerText = selectedPeriod 
-        ? `الفترة: ${selectedPeriod} | عدد الأكواد: ${detailRows.length} | الإجمالي: ${totalAmount.toLocaleString("en-US")} ج`
-        : `كل الفترات | عدد الأكواد: ${detailRows.length} | الإجمالي: ${totalAmount.toLocaleString("en-US")} ج`;
+    let countParts = [];
+    if (selectedBranch) countParts.push("الفرع: " + selectedBranch);
+    if (selectedPeriod) countParts.push("الفترة: " + selectedPeriod);
+    else countParts.push("كل الفترات");
+    countParts.push("عدد الأكواد: " + detailRows.length);
+    countParts.push("الإجمالي: " + totalAmount.toLocaleString("en-US") + " ج");
+    document.getElementById("popupCount").innerText = countParts.join(" | ");
 }
 
 function filterDuesByPeriod(periodVal) {
-    buildDuesPeriodUI(periodVal || null);
+    buildDuesPeriodUI(periodVal || null, window.__duesInternalBranch || "");
+}
+
+function filterDuesByBranch(branchVal) {
+    window.__duesInternalBranch = branchVal || "";
+    let periodSel = document.getElementById("duesPeriodFilter");
+    let periodVal = periodSel ? periodSel.value : "";
+    buildDuesPeriodUI(periodVal || null, window.__duesInternalBranch);
 }
 
 
@@ -4991,9 +5204,9 @@ function showData(){
  if(activePanel === "السيارات" || activePanel === "الأكواد"){
   globalVehicles.forEach(x=>{
    if(showAll || rowMatchesActiveSupplier(x, activeSap, officeKeys) || normalizeValue(x["رقم المورد"])===activeSap){
-    let b = String(x["الفرع"] || "").trim();
+    let b = resolveRowBranch(x);
     let sType = String(x["نوع الخدمة"] || x["الخدمة"] || "").trim();
-    if((!activeBranch || b === activeBranch) && (!activeServiceType || sType === activeServiceType)) {
+    if((!activeBranch || branchesMatch(b, activeBranch)) && (!activeServiceType || sType === activeServiceType)) {
         let k = (activePanel==="الأكواد") ? normalizeValue(x["كود الحافلة"]||x["كود"]) : normalizeValue(x["رقم اللوحة"]||Math.random());
         if(k && !seen.has(k)){ 
             seen.add(k); 
@@ -5020,7 +5233,7 @@ function showData(){
  } else {
   globalTrips.forEach(x=>{
    if(showAll || rowMatchesActiveSupplier(x, activeSap, officeKeys)){
-    let b = String(x["الفرع"] || "").trim();
+    let b = resolveRowBranch(x);
     let sType = String(x["نوع الخدمة"] || x["الخدمة"] || "").trim();
     if(!sType) {
         let tripPlate = normalizeValue(x["رقم اللوحة"]);
@@ -5028,7 +5241,7 @@ function showData(){
         sType = globalVehicleToServiceType.get(tripPlate) || globalVehicleToServiceType.get(tripCode) || "";
     }
     
-    if((!activeBranch || b === activeBranch) && (!activeServiceType || sType === activeServiceType)) {
+    if((!activeBranch || branchesMatch(b, activeBranch)) && (!activeServiceType || sType === activeServiceType)) {
         let date = onlyDate(x["وقت الوردية"] || x["التاريخ"]);
         if((!from || date >= from) && (!to || date <= to)){
           let status = String(x["حالة الرحلة"]||x["الحالة"]||"").trim();
@@ -5601,7 +5814,7 @@ function downloadExcelTemplate(type) {
         sample = ["اسم المورد مثال", "أ ب ج 1234", "BUS001", "2026-09-01", "2026-09-01 07:00", "صباحي", "رحلة ناجحة", "خط المعادي", "القاهرة", "نقل موظفين"];
         fileName = "قالب_الرحلات.xlsx";
     } else if (type === "dues") {
-        headers = ["اسم المورد", "رقم المورد", "الفترة", "مبلغ الرحلات", "Bus Trip Code", "كود الحافلة", "رقم اللوحة", "وصف الحافلة"];
+        headers = ["اسم المورد", "رقم المورد", "الفترة", "الفرع", "مبلغ الرحلات", "كود الحافلة", "Bus Trip Code", "رقم اللوحة", "وصف الحافلة"];
         sample = ["اسم المورد مثال", "12345", "2026-09", "1500", "TRIP001", "BUS001", "أ ب ج 1234", "أتوبيس 50 راكب"];
         fileName = "قالب_المستحقات.xlsx";
     } else if (type === "suppliers") {
