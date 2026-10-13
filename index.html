@@ -296,6 +296,113 @@ button:disabled {background:#999 !important; cursor:not-allowed;}
 .tab-content.active { display: block; }
 @keyframes fadeIn { from {opacity:0;} to {opacity:1;} }
 
+/* ===== أقسام رفع البيانات القابلة للطي ===== */
+.upload-accordion {
+    border: 2px solid #c5d5e8;
+    border-radius: 12px;
+    margin-bottom: 12px;
+    background: #fff;
+    overflow: hidden;
+    box-shadow: 0 1px 4px rgba(7,91,181,0.06);
+}
+.upload-accordion[data-color="blue"] { border-color: #075bb5; }
+.upload-accordion[data-color="teal"] { border-color: #17a2b8; }
+.upload-accordion[data-color="green"] { border-color: #28a745; }
+.upload-accordion[data-color="gray"] { border-color: #adb5bd; }
+.upload-accordion[data-color="red"] { border-color: #dc3545; }
+
+.upload-acc-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 14px;
+    cursor: pointer;
+    user-select: none;
+    background: #f8fafc;
+    transition: background 0.15s;
+}
+.upload-acc-header:hover { background: #eef4fb; }
+.upload-accordion.open .upload-acc-header { background: #e8f1fb; border-bottom: 1px solid #d0dceb; }
+
+.upload-acc-plus {
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    border-radius: 6px;
+    background: #075bb5;
+    color: #fff;
+    font-size: 18px;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    transition: transform 0.2s, background 0.15s;
+}
+.upload-accordion[data-color="teal"] .upload-acc-plus { background: #17a2b8; }
+.upload-accordion[data-color="green"] .upload-acc-plus { background: #28a745; }
+.upload-accordion[data-color="gray"] .upload-acc-plus { background: #6c757d; }
+.upload-accordion[data-color="red"] .upload-acc-plus { background: #dc3545; }
+.upload-accordion.open .upload-acc-plus { transform: rotate(45deg); }
+
+.upload-acc-title {
+    flex: 1;
+    font-size: 13px;
+    font-weight: bold;
+    color: #333;
+    margin: 0;
+}
+.upload-accordion[data-color="blue"] .upload-acc-title { color: #075bb5; }
+.upload-accordion[data-color="teal"] .upload-acc-title { color: #0f6674; }
+.upload-accordion[data-color="green"] .upload-acc-title { color: #155724; }
+.upload-accordion[data-color="red"] .upload-acc-title { color: #dc3545; }
+
+.upload-acc-body {
+    display: none;
+    padding: 12px 14px 14px;
+    background: #fff;
+}
+.upload-accordion.open .upload-acc-body { display: block; }
+
+.upload-cols-hint {
+    background: #f0f6fc;
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 11px;
+    color: #075bb5;
+    margin-bottom: 10px;
+    line-height: 1.65;
+    border: 1px dashed #a8c4e0;
+}
+.upload-acc-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+.upload-acc-actions button.btn-sm {
+    width: auto !important;
+    min-width: 0;
+    flex: 0 0 auto;
+    padding: 8px 14px !important;
+    font-size: 12px !important;
+    border-radius: 8px !important;
+    margin: 0 !important;
+    white-space: nowrap;
+}
+.upload-acc-actions input[type="file"] {
+    width: auto !important;
+    flex: 1 1 160px;
+    min-width: 140px;
+    max-width: 100%;
+    padding: 6px 8px !important;
+    margin: 0 !important;
+    font-size: 12px;
+    border: 1px solid #ccd6e0;
+    border-radius: 8px;
+    background: #f8fafc;
+}
+
 .load-more-btn { background: #17a2b8; color: white; padding: 12px; width: 100%; border: none; border-radius: 8px; font-weight: bold; font-family: tahoma; cursor: pointer; margin-top: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.15); transition: 0.2s;}
 .load-more-btn:active { transform: scale(0.98); }
 
@@ -2558,6 +2665,20 @@ if(e.code==="auth/user-not-found" || e.code==="auth/wrong-password" || e.code===
 }
 }
 
+
+function toggleUploadAccordion(id) {
+    let el = document.getElementById(id);
+    if (!el) return;
+    let wasOpen = el.classList.contains('open');
+    // إغلاق باقي الأقسام في نفس التبويب لشاشة أنظف (اختياري: اتركها متعددة)
+    // el.parentElement.querySelectorAll('.upload-accordion.open').forEach(a => { if (a !== el) a.classList.remove('open'); });
+    if (wasOpen) el.classList.remove('open');
+    else el.classList.add('open');
+    if (id === 'acc_files' && !wasOpen && typeof loadUploadedFiles === 'function') {
+        loadUploadedFiles();
+    }
+}
+
 function switchAdminTab(tabId, btnElement) {
     document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -2688,50 +2809,89 @@ function selectMsgSupplier(sap, name) {
         </div>
 
         <div id="tab-data" class="tab-content active">
-            <!-- 1. كارت رفع ملف السيارات -->
-            <div style="background:#fdfdfd; padding:12px; border-radius:10px; border:1px solid #075bb5; margin-bottom:15px;">
-                <p style="font-weight:bold; margin:0 0 6px 0; font-size:13px; color:#075bb5;">🚗 رفع ملف السيارات (Excel/CSV)</p>
-                <div style="background:#eaf2fb; padding:8px 10px; border-radius:6px; font-size:11px; color:#075bb5; margin-bottom:8px; line-height:1.6; border:1px dashed #075bb5;">
-                    📌 <b>الأعمدة المطلوبة بالشيت:</b><br>
-                    <code>رقم المورد</code> | <code>اسم المورد</code> | <code>رقم اللوحة</code> | <code>كود الحافلة</code> | <code>الفرع</code> | <code>نوع الخدمة</code>
+
+            <!-- 1. السيارات -->
+            <div class="upload-accordion" data-color="blue" id="acc_vehicles">
+                <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_vehicles')">
+                    <span class="upload-acc-plus">+</span>
+                    <p class="upload-acc-title">🚗 رفع ملف السيارات (Excel/CSV)</p>
                 </div>
-                <button onclick="downloadExcelTemplate('vehicles')" style="margin-bottom:8px; background:#17a2b8; font-size:12px; padding:8px;">📄 تحميل شيت فارغ (قالب السيارات)</button>
-                <input type="file" id="vehiclesFile" accept=".xlsx,.xls,.csv" style="margin-bottom:8px;">
-                <button onclick="safeUploadTest('vehiclesFile','بيانات السيارات')" style="margin-bottom:0; background:#075bb5;">📥 رفع بيانات السيارات</button>
+                <div class="upload-acc-body">
+                    <div class="upload-cols-hint">
+                        📌 <b>الأعمدة المطلوبة:</b>
+                        <code>رقم المورد</code> | <code>اسم المورد</code> | <code>رقم اللوحة</code> | <code>كود الحافلة</code> | <code>الفرع</code> | <code>نوع الخدمة</code>
+                    </div>
+                    <div class="upload-acc-actions">
+                        <button type="button" class="btn-sm" onclick="downloadExcelTemplate('vehicles')" style="background:#17a2b8;">📄 قالب</button>
+                        <input type="file" id="vehiclesFile" accept=".xlsx,.xls,.csv">
+                        <button type="button" class="btn-sm" onclick="safeUploadTest('vehiclesFile','بيانات السيارات')" style="background:#075bb5;">📥 رفع</button>
+                    </div>
+                </div>
             </div>
 
-            <!-- 2. كارت رفع ملف الرحلات -->
-            <div style="background:#fdfdfd; padding:12px; border-radius:10px; border:1px solid #17a2b8; margin-bottom:15px;">
-                <p style="font-weight:bold; margin:0 0 6px 0; font-size:13px; color:#17a2b8;">🚍 رفع ملف الرحلات (Excel/CSV)</p>
-                <div style="background:#e8f7f9; padding:8px 10px; border-radius:6px; font-size:11px; color:#0f6674; margin-bottom:8px; line-height:1.6; border:1px dashed #17a2b8;">
-                    📌 <b>الأعمدة المطلوبة بالشيت:</b><br>
-                    <code>اسم المورد</code> (أو <code>المورد</code>) | <code>رقم اللوحة</code> أو <code>كود الحافلة</code> | <code>التاريخ</code> (أو <code>وقت الوردية</code>) | <code>حالة الرحلة</code>
+            <!-- 2. الرحلات -->
+            <div class="upload-accordion" data-color="teal" id="acc_trips">
+                <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_trips')">
+                    <span class="upload-acc-plus">+</span>
+                    <p class="upload-acc-title">🚌 رفع ملف الرحلات (Excel/CSV)</p>
                 </div>
-                <button onclick="downloadExcelTemplate('trips')" style="margin-bottom:8px; background:#0f6674; font-size:12px; padding:8px;">📄 تحميل شيت فارغ (قالب الرحلات)</button>
-                <input type="file" id="tripsFile" accept=".xlsx,.xls,.csv" style="margin-bottom:8px;">
-                <button onclick="safeUploadTest('tripsFile','بيانات الرحلات')" style="margin-bottom:0; background:#17a2b8;">📥 رفع بيانات الرحلات</button>
+                <div class="upload-acc-body">
+                    <div class="upload-cols-hint" style="color:#0f6674; border-color:#7ec8d4; background:#e8f7f9;">
+                        📌 <b>الأعمدة المطلوبة:</b>
+                        <code>اسم المورد</code> | <code>رقم اللوحة</code> أو <code>كود الحافلة</code> | <code>التاريخ</code> / <code>وقت الوردية</code> | <code>حالة الرحلة</code>
+                    </div>
+                    <div class="upload-acc-actions">
+                        <button type="button" class="btn-sm" onclick="downloadExcelTemplate('trips')" style="background:#0f6674;">📄 قالب</button>
+                        <input type="file" id="tripsFile" accept=".xlsx,.xls,.csv">
+                        <button type="button" class="btn-sm" onclick="safeUploadTest('tripsFile','بيانات الرحلات')" style="background:#17a2b8;">📥 رفع</button>
+                    </div>
+                </div>
             </div>
 
-            <!-- 3. كارت رفع ملف المستحقات -->
-            <div style="background:#fdfdfd; padding:12px; border-radius:10px; border:1px solid #28a745; margin-bottom:15px;">
-                <p style="font-weight:bold; margin:0 0 6px 0; font-size:13px; color:#28a745;">💰 رفع ملف المستحقات (Excel/CSV)</p>
-                <div style="background:#e8f5e9; padding:8px 10px; border-radius:6px; font-size:11px; color:#155724; margin-bottom:8px; line-height:1.6; border:1px dashed #28a745;">
-                    📌 <b>الأعمدة المطلوبة بالشيت:</b><br>
-                    <code>اسم المورد</code> (أو <code>المورد</code>) | <code>الفترة</code> (مثال: 2026-09) | <code>مبلغ الرحلات</code> (أو <code>المبلغ</code>) | <code>Bus Trip Code</code> (أو <code>كود الحافلة</code>)
+            <!-- 3. المستحقات -->
+            <div class="upload-accordion" data-color="green" id="acc_dues">
+                <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_dues')">
+                    <span class="upload-acc-plus">+</span>
+                    <p class="upload-acc-title">💰 رفع ملف المستحقات (Excel/CSV)</p>
                 </div>
-                <button onclick="downloadExcelTemplate('dues')" style="margin-bottom:8px; background:#1e7e34; font-size:12px; padding:8px;">📄 تحميل شيت فارغ (قالب المستحقات)</button>
-                <input type="file" id="duesFile" accept=".xlsx,.xls,.csv" style="margin-bottom:8px;">
-                <button onclick="safeUploadTest('duesFile','ملف المستحقات')" style="margin-bottom:0; background:#28a745;">📤 رفع بيانات المستحقات</button>
+                <div class="upload-acc-body">
+                    <div class="upload-cols-hint" style="color:#155724; border-color:#8fd19e; background:#e8f5e9;">
+                        📌 <b>الأعمدة المطلوبة:</b>
+                        <code>اسم المورد</code> | <code>الفترة</code> | <code>مبلغ الرحلات</code> | <code>Bus Trip Code</code> / <code>كود الحافلة</code>
+                    </div>
+                    <div class="upload-acc-actions">
+                        <button type="button" class="btn-sm" onclick="downloadExcelTemplate('dues')" style="background:#1e7e34;">📄 قالب</button>
+                        <input type="file" id="duesFile" accept=".xlsx,.xls,.csv">
+                        <button type="button" class="btn-sm" onclick="safeUploadTest('duesFile','ملف المستحقات')" style="background:#28a745;">📤 رفع</button>
+                    </div>
+                </div>
             </div>
 
-            <div style="background:#fdfdfd; padding:12px; border-radius:10px; border:1px solid #eee; margin-bottom:15px;">
-                <h4 style="margin:0 0 5px 0; font-size:14px; color:#333;">📂 الملفات المرفوعة سابقاً</h4>
-                <div id="uploadedFilesList" class="file-list"></div>
+            <!-- 4. الملفات المرفوعة -->
+            <div class="upload-accordion" data-color="gray" id="acc_files">
+                <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_files')">
+                    <span class="upload-acc-plus">+</span>
+                    <p class="upload-acc-title">📂 الملفات المرفوعة سابقاً</p>
+                </div>
+                <div class="upload-acc-body">
+                    <div id="uploadedFilesList" class="file-list"></div>
+                </div>
             </div>
-            <div style="background:#fff5f5; padding:12px; border-radius:10px; border:1px solid #f5c6cb; margin-bottom:15px;">
-                <h4 style="margin:0 0 8px 0; font-size:14px; color:#dc3545;">⚠️ تهيئة النظام (مسح شامل)</h4>
-                <button onclick="wipeAllData()" style="background:#dc3545; color:#fff; font-weight:bold; margin-bottom:0;">🗑 مسح جميع السيارات والرحلات بالكامل</button>
+
+            <!-- 5. مسح شامل -->
+            <div class="upload-accordion" data-color="red" id="acc_wipe">
+                <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_wipe')">
+                    <span class="upload-acc-plus">+</span>
+                    <p class="upload-acc-title">⚠️ تهيئة النظام (مسح شامل)</p>
+                </div>
+                <div class="upload-acc-body">
+                    <p style="font-size:12px; color:#721c24; margin:0 0 10px 0;">يحذف كل بيانات السيارات والرحلات والملفات المرتبطة. لا يمكن التراجع.</p>
+                    <div class="upload-acc-actions">
+                        <button type="button" class="btn-sm" onclick="wipeAllData()" style="background:#dc3545;">🗑 مسح الكل</button>
+                    </div>
+                </div>
             </div>
+
         </div>
 
         <div id="tab-suppliers" class="tab-content">
