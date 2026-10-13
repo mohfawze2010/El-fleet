@@ -1659,19 +1659,24 @@ async function uploadGroupedData(collectionName, groupedData) {
     if (docKeys.length === 0) return;
 
     // بناء قائمة أجزاء الكتابة: كل جزء = وثيقة واحدة
+    // المفتاح قد يكون رقم ساب (سيارات) أو اسم مكتب منظّف (رحلات/مستحقات)
     let writeJobs = [];
     for (let k = 0; k < docKeys.length; k++) {
-        let sapClean = docKeys[k];
-        let rows = groupedData[sapClean] || [];
+        let groupKey = docKeys[k];
+        let rows = groupedData[groupKey] || [];
         if (rows.length === 0) continue;
-        let sapOriginal = rows[0]["رقم المورد"] || "unknown";
+        let sapOriginal = normalizeValue(rows[0]["رقم المورد"]) || "unknown";
+        let officeRaw = rows[0]["اسم المكتب"] || rows[0]["اسم المورد"] || rows[0]["المورد"] || "";
+        let officeClean = officeStorageKey(officeRaw) || (groupKey.indexOf("off_") === 0 ? groupKey.slice(4) : "");
         let chunks = splitRowsIntoChunks(rows);
         for (let c = 0; c < chunks.length; c++) {
-            let docId = c === 0 ? sapClean : (sapClean + "__c" + c);
+            let docId = c === 0 ? groupKey : (groupKey + "__c" + c);
             writeJobs.push({
                 docId: docId,
-                sapNumberClean: sapClean,
+                groupKey: groupKey,
+                sapNumberClean: sapOriginal !== "unknown" ? sanitizeDocId(sapOriginal) : (groupKey.indexOf("off_") === 0 ? "" : sanitizeDocId(groupKey)),
                 sapNumber: sapOriginal,
+                officeNameClean: officeClean || "",
                 rows: chunks[c]
             });
         }
@@ -1686,17 +1691,19 @@ async function uploadGroupedData(collectionName, groupedData) {
         if (sizeBytes > 1048487) {
             throw new Error(
                 "FILE_TOO_LARGE|" +
-                "ملف كبير جداً: بيانات المورد (ساب: " + job.sapNumberClean +
-                ") تجاوزت الحد المسموح بعد التقسيم. قلّل عدد الصفوف لهذا المورد أو قسّم الملف يدوياً."
+                "ملف كبير جداً: بيانات المجموعة (" + job.groupKey +
+                ") تجاوزت الحد المسموح بعد التقسيم. قلّل عدد الصفوف أو قسّم الملف يدوياً (مثلاً حسب الفرع)."
             );
         }
 
-        await db.collection("data_" + collectionName).doc(job.docId).set({
+        let docPayload = {
             payload: jsonStr,
-            sapNumberClean: job.sapNumberClean,
+            sapNumberClean: job.sapNumberClean || "unknown",
             sapNumber: job.sapNumber,
+            officeNameClean: job.officeNameClean || "",
             chunkIndex: job.docId.indexOf("__c") >= 0 ? parseInt(job.docId.split("__c")[1], 10) || 0 : 0
-        });
+        };
+        await db.collection("data_" + collectionName).doc(job.docId).set(docPayload);
 
         let pct = Math.round(((i + 1) / totalJobs) * 100);
         let resultDiv = document.getElementById("adminResult");
@@ -1731,6 +1738,98 @@ async function downloadSupplierDataBySap(collectionName, sapNumber) {
         }
     });
     return fullArray;
+}
+
+/** مفتاح تخزين موحّد من اسم المكتب/المورد */
+function officeStorageKey(name) {
+    let c = deepCleanArabic(name || "");
+    if (!c) return "";
+    // جزء قبل الشرطة إن وُجد (اسم المكتب فقط)
+    let before = deepCleanArabic(String(name || "").split("/")[0] || "");
+    // نفضّل المفتاح الأطول الأدق عند التخزين لاحقاً؛ هنا نرجّع المفتاح الكامل
+    return sanitizeDocId(c);
+}
+
+function officeNameVariants(name) {
+    let variants = [];
+    let raw = String(name || "").trim();
+    if (!raw) return variants;
+    let full = officeStorageKey(raw);
+    if (full) variants.push(full);
+    let before = officeStorageKey(raw.split("/")[0] || "");
+    if (before && before !== full) variants.push(before);
+    // بدون الشرطات
+    let noSep = officeStorageKey(raw.replace(/[\/\-_]/g, " "));
+    if (noSep && !variants.includes(noSep)) variants.push(noSep);
+    return variants;
+}
+
+/** تحميل بيانات المورد باسم المكتب — قراءة مباشرة بالـ doc id + استعلام officeNameClean */
+async function downloadSupplierDataByOffice(collectionName, officeName) {
+    if (!officeName) return [];
+    let keys = officeNameVariants(officeName);
+    if (keys.length === 0) return [];
+    let fullArray = [];
+    let seenPayloads = new Set();
+
+    async function appendFromDoc(docSnap) {
+        if (!docSnap || !docSnap.exists) return;
+        let d = docSnap.data();
+        if (!d || !d.payload) return;
+        let sig = d.payload.substring(0, 80) + d.payload.length;
+        if (seenPayloads.has(sig)) return;
+        seenPayloads.add(sig);
+        try {
+            fullArray = fullArray.concat(JSON.parse(d.payload));
+        } catch (e) {}
+    }
+
+    try {
+        for (let clean of keys) {
+            // 1) قراءة مباشرة: off_{key} والأجزاء off_{key}__cN
+            let baseId = "off_" + clean;
+            let mainDoc = await db.collection("data_" + collectionName).doc(baseId).get();
+            await appendFromDoc(mainDoc);
+            for (let c = 1; c <= 30; c++) {
+                let chunkDoc = await db.collection("data_" + collectionName).doc(baseId + "__c" + c).get();
+                if (!chunkDoc.exists) break;
+                await appendFromDoc(chunkDoc);
+            }
+            // 2) استعلام بالحقل (بيانات قديمة أو مفاتيح مختلفة)
+            try {
+                let snap = await db.collection("data_" + collectionName).where("officeNameClean", "==", clean).get();
+                for (let doc of snap.docs) await appendFromDoc(doc);
+            } catch (e) {
+                console.warn("officeNameClean query:", e);
+            }
+        }
+    } catch (e) {
+        console.warn("downloadSupplierDataByOffice:", e);
+    }
+    return fullArray;
+}
+
+/** هل الصف يخص المورد النشط؟ (رقم ساب أو اسم المكتب الموحّد) */
+function rowMatchesActiveSupplier(row, activeSap, officeKeysSet) {
+    if (!row) return false;
+    if (activeSap && normalizeValue(row["رقم المورد"]) === activeSap) return true;
+    if (!officeKeysSet || officeKeysSet.size === 0) return false;
+    let raw = row["اسم المكتب"] || row["اسم المورد"] || row["المورد"] || "";
+    let keys = officeNameVariants(raw);
+    for (let k of keys) {
+        if (officeKeysSet.has(k)) return true;
+    }
+    // احتواء مرن على المفتاح المنظّف
+    let clean = deepCleanArabic(raw);
+    if (clean) {
+        for (let ok of officeKeysSet) {
+            if (ok.length >= 6 && (clean.includes(ok) || ok.includes(clean) ||
+                clean.replace(/[\/\-_]/g, "").includes(ok) || ok.includes(clean.replace(/[\/\-_]/g, "")))) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 async function updateSystemVersion() {
@@ -1810,9 +1909,9 @@ async function safeUploadTest(inputId, label) {
             });
 
            if (collectionName === 'trips' || collectionName === 'dues') {
-                resultDiv.innerHTML = `⏳ جاري الربط برقم المورد (ساب) من الأسماء واللوحات والأكواد...`;
+                resultDiv.innerHTML = `⏳ جاري الربط باسم المكتب الموحّد (مع رقم المورد إن وُجد)...`;
 
-                // خرائط الربط: اسم منظّف → ساب | لوحة → ساب | كود → ساب
+                // خرائط: اسم مكتب منظّف → ساب | لوحة → ساب | كود → ساب
                 let nameToSapMap = new Map();
                 let plateToSapMap = new Map();
                 let codeToSapMap = new Map();
@@ -1820,13 +1919,11 @@ async function safeUploadTest(inputId, label) {
                 function registerName(name, sap) {
                     let n = deepCleanArabic(name);
                     if (n && sap && n.length >= 3) {
-                        // لا نستبدل ساباً معروفاً بـ unknown
                         if (!nameToSapMap.has(n) || nameToSapMap.get(n) === "unknown") {
                             nameToSapMap.set(n, sap);
                         }
                     }
-                    // نسخة بدون فواصل شائعة (/ - _)
-                    let n2 = n.replace(/[\/\-_]/g, "");
+                    let n2 = n ? n.replace(/[\/\-_]/g, "") : "";
                     if (n2 && n2 !== n && n2.length >= 3) {
                         if (!nameToSapMap.has(n2) || nameToSapMap.get(n2) === "unknown") {
                             nameToSapMap.set(n2, sap);
@@ -1834,43 +1931,55 @@ async function safeUploadTest(inputId, label) {
                     }
                 }
 
-                // 1) من حسابات الموردين المسجّلين (اسم المالك + اسم المكتب)
-                globalSupplierDataMap.forEach((d, sap) => {
-                    let normSap = normalizeValue(sap);
-                    if (!normSap) return;
-                    registerName(d.officeName, normSap);
-                    registerName(d.ownerName, normSap);
-                    // جزء قبل الشرطة المائلة إن وُجد (مثل: الزياد للرحلات/نادر ...)
-                    if (d.officeName && String(d.officeName).includes("/")) {
-                        registerName(String(d.officeName).split("/")[0], normSap);
-                    }
-                    if (d.ownerName && String(d.ownerName).includes("/")) {
-                        registerName(String(d.ownerName).split("/")[0], normSap);
-                    }
-                });
+                // 1) تحميل حي لحسابات الموردين من Firestore (لا نعتمد على الكاش فقط)
+                try {
+                    const liveSupSnap = await db.collection("suppliers").get();
+                    liveSupSnap.forEach(doc => {
+                        let d = doc.data();
+                        let normSap = normalizeValue(d.sapNumber);
+                        if (!normSap) return;
+                        // الأولوية لاسم المكتب — المفتاح الموحّد في كل الملفات
+                        registerName(d.officeName, normSap);
+                        registerName(d.ownerName, normSap);
+                        if (d.officeName && String(d.officeName).includes("/")) {
+                            registerName(String(d.officeName).split("/")[0], normSap);
+                        }
+                        if (d.ownerName && String(d.ownerName).includes("/")) {
+                            registerName(String(d.ownerName).split("/")[0], normSap);
+                        }
+                        d.uid = doc.id;
+                        globalSupplierDataMap.set(normSap, d);
+                    });
+                } catch (e) {
+                    console.warn("live suppliers fetch:", e);
+                    globalSupplierDataMap.forEach((d, sap) => {
+                        let normSap = normalizeValue(sap);
+                        if (!normSap) return;
+                        registerName(d.officeName, normSap);
+                        registerName(d.ownerName, normSap);
+                    });
+                }
 
-                // 2) من ملف السيارات (مرجع الأسطول) — الاسم + اللوحة + الكود
+                // 2) من ملف السيارات — اسم المورد (غالباً = اسم المكتب) + لوحة + كود
                 let existingVeh = await downloadAllData('vehicles');
                 existingVeh.forEach(v => {
                     let sap = normalizeValue(v["رقم المورد"]);
                     if (!sap || sap === "unknown") return;
                     registerName(v["اسم المورد"], sap);
                     registerName(v["المورد"], sap);
+                    registerName(v["اسم المكتب"], sap);
                     let plate = normalizeValue(v["رقم اللوحة"] || v["رقم اللوحات"]);
                     let code = normalizeValue(v["كود الحافلة"] || v["كود"]);
                     if (plate) plateToSapMap.set(plate, sap);
                     if (code) codeToSapMap.set(code, sap);
                 });
 
-                /** مطابقة اسم مرنة: تطابق كامل ثم احتواء ثم تشابه رموز */
                 function resolveSapByName(rawName) {
                     let clean = deepCleanArabic(rawName);
                     if (!clean) return "";
                     if (nameToSapMap.has(clean)) return nameToSapMap.get(clean);
                     let clean2 = clean.replace(/[\/\-_]/g, "");
                     if (nameToSapMap.has(clean2)) return nameToSapMap.get(clean2);
-
-                    // جزء قبل /
                     let beforeSlash = deepCleanArabic(String(rawName).split("/")[0] || "");
                     if (beforeSlash && nameToSapMap.has(beforeSlash)) return nameToSapMap.get(beforeSlash);
 
@@ -1880,7 +1989,6 @@ async function safeUploadTest(inputId, label) {
                         if (!stored || stored.length < 5) continue;
                         if (clean.includes(stored) || stored.includes(clean) ||
                             clean2.includes(stored) || stored.includes(clean2)) {
-                            // تفضيل الأطول (أدق)
                             let score = Math.min(stored.length, clean.length);
                             if (score > bestScore) {
                                 bestScore = score;
@@ -1888,8 +1996,7 @@ async function safeUploadTest(inputId, label) {
                             }
                         }
                     }
-                    // قبول الاحتواء فقط إذا كان الجزء المشترك معقولاً
-                    if (bestScore >= 8) return bestSap;
+                    if (bestScore >= 6) return bestSap;
                     return "";
                 }
 
@@ -1898,17 +2005,15 @@ async function safeUploadTest(inputId, label) {
 
                 data = data.map(row => {
                     let rowSap = normalizeValue(row["رقم المورد"] || row["SAP"] || row["Sap"] || row["رقم ساب"] || row["ساب"]);
-                    let rawName = row["المورد"] || row["اسم المورد"] || row["اسم المورد / المورد"] || row["اسم المكتب"] || "";
+                    // اسم المكتب هو الحقل الموحّد في ملفات الرحلات (غالباً تحت «اسم المورد»)
+                    let rawName = row["اسم المكتب"] || row["المورد"] || row["اسم المورد"] || row["اسم المورد / المورد"] || "";
 
-                    // أ) لوحة أو كود الحافلة من صف الرحلة → ساب من السيارات
                     if (!rowSap) {
                         let tripPlate = normalizeValue(row["رقم اللوحة"] || row["رقم اللوحات"]);
                         let tripCode = normalizeValue(row["كود الحافلة"] || row["كود"] || row["Bus Trip Code"]);
                         if (tripPlate && plateToSapMap.has(tripPlate)) rowSap = plateToSapMap.get(tripPlate);
                         else if (tripCode && codeToSapMap.has(tripCode)) rowSap = codeToSapMap.get(tripCode);
                     }
-
-                    // ب) مطابقة الاسم
                     if (!rowSap && rawName) {
                         rowSap = resolveSapByName(rawName);
                     }
@@ -1916,15 +2021,16 @@ async function safeUploadTest(inputId, label) {
                     if (rowSap && rowSap !== "unknown") {
                         matchedCount++;
                     } else {
-                        unmatchedNames.add(String(rawName || "بدون اسم").trim() || "بدون اسم");
+                        unmatchedNames.add(String(rawName || "بدون اسم مكتب").trim() || "بدون اسم مكتب");
                         rowSap = "unknown";
                     }
 
                     row["رقم المورد"] = rowSap;
+                    // توحيد حقل اسم المكتب للتخزين والفلترة لاحقاً
+                    if (!row["اسم المكتب"] && rawName) row["اسم المكتب"] = rawName;
                     return row;
                 });
 
-                // حفظ ملخص المطابقة لإظهاره بعد الرفع
                 window.__lastUploadMatchInfo = {
                     total: data.length,
                     matched: matchedCount,
@@ -1938,10 +2044,23 @@ async function safeUploadTest(inputId, label) {
             let existingData = await downloadAllData(collectionName);
             let combinedData = (existingData || []).concat(data || []);
 
+            // التجميع: السيارات برقم المورد | الرحلات والمستحقات باسم المكتب الموحّد
             let groupedData = {};
             combinedData.forEach(row => {
-                let sap = normalizeValue(row["رقم المورد"]) || "unknown";
-                let docId = sanitizeDocId(sap);
+                let docId;
+                if (collectionName === "trips" || collectionName === "dues") {
+                    let officeName = row["اسم المكتب"] || row["اسم المورد"] || row["المورد"] || "";
+                    let oKey = officeStorageKey(officeName);
+                    if (oKey) {
+                        docId = "off_" + oKey;
+                    } else {
+                        let sap = normalizeValue(row["رقم المورد"]) || "unknown";
+                        docId = sanitizeDocId(sap);
+                    }
+                } else {
+                    let sap = normalizeValue(row["رقم المورد"]) || "unknown";
+                    docId = sanitizeDocId(sap);
+                }
                 if (!groupedData[docId]) groupedData[docId] = [];
                 groupedData[docId].push(row);
             });
@@ -1965,9 +2084,9 @@ async function safeUploadTest(inputId, label) {
             if (window.__lastUploadMatchInfo) {
                 let m = window.__lastUploadMatchInfo;
                 if (m.unmatched > 0) {
-                    matchNote = `<br><span style="color:#856404;font-size:12px;">⚠️ تم ربط ${m.matched} من ${m.total} سجل برقم مورد. لم يُربط ${m.unmatched} سجل (ستُحفظ تحت unknown ولن تظهر لحساب المورد).<br>أسماء غير مطابقة: ${m.unmatchedNames.map(n => sanitizeHTML(n)).join(" | ")}<br>تأكد أن أسماء الموردين في الشيت مطابقة لأسماء السيارات/حسابات الموردين، أو أضف عمود «رقم المورد».</span>`;
+                    matchNote = `<br><span style="color:#856404;font-size:12px;">⚠️ التخزين يتم باسم المكتب الموحّد. رُبط ${m.matched}/${m.total} برقم ساب أيضاً. بدون ساب مطابق: ${m.unmatched}.<br>أسماء مكاتب بدون ساب: ${m.unmatchedNames.map(n => sanitizeHTML(n)).join(" | ")}<br>ملاحظة: الرحلات تظهر للمورد إذا طابق <b>اسم المكتب</b> في حسابه نفس الاسم في الشيت — حتى بدون رقم ساب.</span>`;
                 } else {
-                    matchNote = `<br><span style="color:#155724;font-size:12px;">✓ تم ربط جميع السجلات (${m.matched}) برقم المورد بنجاح.</span>`;
+                    matchNote = `<br><span style="color:#155724;font-size:12px;">✓ تم تخزين السجلات باسم المكتب وربط ${m.matched} برقم المورد.</span>`;
                 }
             }
             resultDiv.innerHTML = `✅ تم رفع وتحديث ${label} بنجاح (${data.length} سجل)!` + matchNote;
@@ -2018,8 +2137,14 @@ async function deleteUploadedFile(fileId, collectionName, fileName) {
 
         let groupedData = {};
         filteredData.forEach(row => {
-            let sap = normalizeValue(row["رقم المورد"]) || "unknown";
-            let docId = sanitizeDocId(sap);
+            let docId;
+            if (collectionName === "trips" || collectionName === "dues") {
+                let officeName = row["اسم المكتب"] || row["اسم المورد"] || row["المورد"] || "";
+                let oKey = officeStorageKey(officeName);
+                docId = oKey ? ("off_" + oKey) : sanitizeDocId(normalizeValue(row["رقم المورد"]) || "unknown");
+            } else {
+                docId = sanitizeDocId(normalizeValue(row["رقم المورد"]) || "unknown");
+            }
             if (!groupedData[docId]) groupedData[docId] = [];
             groupedData[docId].push(row);
         });
@@ -3777,8 +3902,8 @@ async function loadSupplierData(){
        } catch(e) {}
 
        let isAdmin = (currentRole === "admin" || currentRole === "super_admin");
-       // v2: يتضمن استرداد رحلات unknown + تحسين الربط — لتفادي كاش قديم ناقص
-       let cachePrefix = isAdmin ? "elaraby_admin_v2_" : "elaraby_supplier_v2_" + loggedInSupplierSapGlobal + "_";
+       // v4: فلترة وربط باسم المكتب في العرض + تحميل مباشر off_*
+       let cachePrefix = isAdmin ? "elaraby_admin_v4_" : "elaraby_supplier_v4_" + loggedInSupplierSapGlobal + "_";
        let localVersion = localStorage.getItem("elaraby_data_version") || 0;
 
        clearOldLocalStorage();
@@ -3806,19 +3931,62 @@ async function loadSupplierData(){
                globalDues = dData || [];
            } else {
                if(loggedInSupplierSapGlobal) {
-                   const [vData, tData, dData, orphanTrips, orphanDues] = await Promise.all([
+                   let officeNameVal = supplierDoc.exists ? (supplierDoc.data().officeName || "") : "";
+                   let ownerNameVal = supplierDoc.exists ? (supplierDoc.data().ownerName || "") : "";
+
+                   // التحميل الأساسي: بالساب + باسم المكتب الموحّد + باسم المالك
+                   const [vData, tBySap, dBySap, tByOffice, dByOffice, tByOwner, dByOwner, orphanTrips, orphanDues] = await Promise.all([
                        downloadSupplierDataBySap("vehicles", loggedInSupplierSapGlobal),
                        downloadSupplierDataBySap("trips", loggedInSupplierSapGlobal),
                        downloadSupplierDataBySap("dues", loggedInSupplierSapGlobal),
-                       // رحلات محفوظة بدون رقم مورد (unknown) — نحاول استردادها
+                       downloadSupplierDataByOffice("trips", officeNameVal),
+                       downloadSupplierDataByOffice("dues", officeNameVal),
+                       downloadSupplierDataByOffice("trips", ownerNameVal),
+                       downloadSupplierDataByOffice("dues", ownerNameVal),
                        downloadSupplierDataBySap("trips", "unknown"),
                        downloadSupplierDataBySap("dues", "unknown")
                    ]);
                    globalVehicles = vData || [];
-                   globalTrips = tData || [];
-                   globalDues = dData || [];
 
-                   // بناء مفاتيح هذا المورد للتعرف على رحلاته اليتيمة
+                   function mergeUniqueRows(arrays, keyFn) {
+                       let out = [];
+                       let seen = new Set();
+                       arrays.forEach(arr => {
+                           (arr || []).forEach(row => {
+                               let k = keyFn(row);
+                               if (!seen.has(k)) {
+                                   seen.add(k);
+                                   out.push(row);
+                               }
+                           });
+                       });
+                       return out;
+                   }
+                   let tripKeyFn = t => [
+                       onlyDate(t["وقت الوردية"] || t["التاريخ"] || ""),
+                       normalizeValue(t["رقم اللوحة"] || t["رقم اللوحات"] || ""),
+                       normalizeValue(t["كود الحافلة"] || t["كود"] || ""),
+                       String(t["حالة الرحلة"] || t["الحالة"] || ""),
+                       String(t["الوردية"] || t["وردية"] || "")
+                   ].join("|");
+                   let dueKeyFn = d => [
+                       String(d["الفترة"] || d["فترة"] || ""),
+                       normalizeValue(d["كود الحافلة"] || d["كود"] || d["Bus Trip Code"] || ""),
+                       String(d["مبلغ الرحلات"] || d["المبلغ"] || "")
+                   ].join("|");
+
+                   globalTrips = mergeUniqueRows([tBySap, tByOffice, tByOwner], tripKeyFn);
+                   globalDues = mergeUniqueRows([dBySap, dByOffice, dByOwner], dueKeyFn);
+
+                   // نسب الساب على الصفوف القادمة من اسم المكتب
+                   globalTrips.forEach(t => {
+                       if (!t["رقم المورد"] || t["رقم المورد"] === "unknown") t["رقم المورد"] = loggedInSupplierSapGlobal;
+                   });
+                   globalDues.forEach(d => {
+                       if (!d["رقم المورد"] || d["رقم المورد"] === "unknown") d["رقم المورد"] = loggedInSupplierSapGlobal;
+                   });
+
+                   // استرداد إضافي من unknown باللوحة/الكود/اسم المكتب
                    let myPlates = new Set();
                    let myCodes = new Set();
                    let myNames = new Set();
@@ -3830,46 +3998,41 @@ async function loadSupplierData(){
                        let vn = deepCleanArabic(v["اسم المورد"] || "");
                        if (vn) myNames.add(vn);
                    });
-                   try {
-                       let off = deepCleanArabic(supplierDoc.data()?.officeName || "");
-                       let own = deepCleanArabic(supplierDoc.data()?.ownerName || "");
-                       if (off) myNames.add(off);
-                       if (own) myNames.add(own);
-                       if (off.includes("/")) myNames.add(deepCleanArabic(off.split("/")[0]));
-                       if (own.includes("/")) myNames.add(deepCleanArabic(own.split("/")[0]));
-                   } catch (e) {}
+                   let off = deepCleanArabic(officeNameVal);
+                   let own = deepCleanArabic(ownerNameVal);
+                   if (off) myNames.add(off);
+                   if (own) myNames.add(own);
+                   if (officeNameVal && String(officeNameVal).includes("/")) myNames.add(deepCleanArabic(String(officeNameVal).split("/")[0]));
+                   if (ownerNameVal && String(ownerNameVal).includes("/")) myNames.add(deepCleanArabic(String(ownerNameVal).split("/")[0]));
 
                    function belongsToMe(row) {
                        let p = normalizeValue(row["رقم اللوحة"] || row["رقم اللوحات"]);
                        let c = normalizeValue(row["كود الحافلة"] || row["كود"] || row["Bus Trip Code"]);
                        if (p && myPlates.has(p)) return true;
                        if (c && myCodes.has(c)) return true;
-                       let n = deepCleanArabic(row["اسم المورد"] || row["المورد"] || "");
+                       let n = deepCleanArabic(row["اسم المكتب"] || row["اسم المورد"] || row["المورد"] || "");
                        if (n) {
                            if (myNames.has(n)) return true;
                            for (let mn of myNames) {
-                               if (mn.length >= 6 && (n.includes(mn) || mn.includes(n))) return true;
+                               if (mn.length >= 5 && (n.includes(mn) || mn.includes(n))) return true;
                            }
                        }
                        return false;
                    }
 
-                   let seenTripKeys = new Set(globalTrips.map(t =>
-                       [onlyDate(t["وقت الوردية"] || t["التاريخ"] || ""), normalizeValue(t["رقم اللوحة"] || ""), normalizeValue(t["كود الحافلة"] || t["كود"] || ""), String(t["حالة الرحلة"] || t["الحالة"] || "")].join("|")
-                   ));
+                   let seenT = new Set(globalTrips.map(tripKeyFn));
                    (orphanTrips || []).forEach(t => {
                        if (!belongsToMe(t)) return;
                        t["رقم المورد"] = loggedInSupplierSapGlobal;
-                       let key = [onlyDate(t["وقت الوردية"] || t["التاريخ"] || ""), normalizeValue(t["رقم اللوحة"] || ""), normalizeValue(t["كود الحافلة"] || t["كود"] || ""), String(t["حالة الرحلة"] || t["الحالة"] || "")].join("|");
-                       if (!seenTripKeys.has(key)) {
-                           seenTripKeys.add(key);
-                           globalTrips.push(t);
-                       }
+                       let k = tripKeyFn(t);
+                       if (!seenT.has(k)) { seenT.add(k); globalTrips.push(t); }
                    });
+                   let seenD = new Set(globalDues.map(dueKeyFn));
                    (orphanDues || []).forEach(d => {
                        if (!belongsToMe(d)) return;
                        d["رقم المورد"] = loggedInSupplierSapGlobal;
-                       globalDues.push(d);
+                       let k = dueKeyFn(d);
+                       if (!seenD.has(k)) { seenD.add(k); globalDues.push(d); }
                    });
                } else {
                    globalVehicles = [];
@@ -3961,12 +4124,44 @@ async function loadSupplierData(){
        else { showAll = true; } 
    }
 
+   // مفاتيح اسم المكتب للمورد النشط (الفلترة الموحّدة بدل الاعتماد على الساب فقط)
+   let activeOfficeKeys = new Set();
+   function addOfficeKeysFrom(name) {
+       officeNameVariants(name).forEach(k => activeOfficeKeys.add(k));
+       let dc = deepCleanArabic(name || "");
+       if (dc) activeOfficeKeys.add(dc);
+   }
+   if (!showAll) {
+       if (currentRole === "supplier") {
+           try {
+               let od = document.getElementById("showOffice")?.innerText || "";
+               let own = document.getElementById("showOwner")?.innerText || "";
+               addOfficeKeysFrom(od.replace(/^المكتب:\s*/, ""));
+               addOfficeKeysFrom(own.replace(/^المورد:\s*/, ""));
+           } catch (e) {}
+       }
+       if (activeSap && globalSupplierDataMap.has(activeSap)) {
+           let sd = globalSupplierDataMap.get(activeSap);
+           addOfficeKeysFrom(sd.officeName);
+           addOfficeKeysFrom(sd.ownerName);
+       }
+       globalVehicles.forEach(v => {
+           if (normalizeValue(v["رقم المورد"]) === activeSap) {
+               addOfficeKeysFrom(v["اسم المورد"]);
+               addOfficeKeysFrom(v["اسم المكتب"]);
+               addOfficeKeysFrom(v["المورد"]);
+           }
+       });
+   }
+   window.__activeOfficeKeys = activeOfficeKeys;
+   window.__activeSap = activeSap;
+
    globalVehicleToServiceType.clear();
    let branchSet = new Set();
    let serviceTypeSet = new Set();
    
    globalVehicles.forEach(d => { 
-       if(showAll || normalizeValue(d["رقم المورد"])===activeSap){ 
+       if(showAll || normalizeValue(d["رقم المورد"])===activeSap || rowMatchesActiveSupplier(d, activeSap, activeOfficeKeys)){ 
            if(d["الفرع"]) branchSet.add(String(d["الفرع"]).trim()); 
            let sType = String(d["نوع الخدمة"] || d["الخدمة"] || "").trim();
            if(sType) {
@@ -3980,7 +4175,7 @@ async function loadSupplierData(){
    });
    
    globalTrips.forEach(d => { 
-       if(showAll || normalizeValue(d["رقم المورد"])===activeSap){ 
+       if(showAll || rowMatchesActiveSupplier(d, activeSap, activeOfficeKeys)){ 
            if(d["الفرع"]) branchSet.add(String(d["الفرع"]).trim()); 
        } 
    });
@@ -4018,7 +4213,7 @@ async function loadSupplierData(){
    let success=0, failed=0, totalTrips=0;
 
    globalVehicles.forEach(d=>{
-      if(showAll || normalizeValue(d["رقم المورد"])===activeSap){
+      if(showAll || rowMatchesActiveSupplier(d, activeSap, activeOfficeKeys) || normalizeValue(d["رقم المورد"])===activeSap){
          let b = String(d["الفرع"] || "").trim();
          let sType = String(d["نوع الخدمة"] || d["الخدمة"] || "").trim();
          if((!activeBranch || b === activeBranch) && (!activeServiceType || sType === activeServiceType)) {
@@ -4030,7 +4225,7 @@ async function loadSupplierData(){
    });
 
    globalTrips.forEach(d=>{
-      if(showAll || normalizeValue(d["رقم المورد"])===activeSap){
+      if(showAll || rowMatchesActiveSupplier(d, activeSap, activeOfficeKeys)){
         let b = String(d["الفرع"] || "").trim();
         let sType = String(d["نوع الخدمة"] || d["الخدمة"] || "").trim();
         if(!sType) {
@@ -4065,7 +4260,7 @@ async function loadSupplierData(){
    ];
 
    globalDues.forEach(d => {
-       if (showAll || normalizeValue(d["رقم المورد"]) === activeSap) {
+       if (showAll || rowMatchesActiveSupplier(d, activeSap, activeOfficeKeys)) {
            let rawPeriod = d["الفترة"] || d["فترة"] || "";
            let periodLabel = "";
            let periodSortKey = 0;
@@ -4390,8 +4585,9 @@ function renderDuesByPeriod(showAll, activeSap) {
         ];
         let duesPeriodsMap = new Map();
 
+        let officeKeysForDues = window.__activeOfficeKeys || new Set();
         (globalDues || []).forEach(d => {
-            if (showAll || normalizeValue(d["رقم المورد"]) === activeSap) {
+            if (showAll || rowMatchesActiveSupplier(d, activeSap, officeKeysForDues)) {
                 let rawPeriod = d["الفترة"] || d["فترة"] || "";
                 let periodLabel = "";
                 let periodSortKey = 0;
@@ -4477,15 +4673,16 @@ function buildDuesPeriodUI(selectedPeriod) {
         </select>
     </div>`;
 
-    // تحديد SAP الحالي (نفس منطق الكارت)
+    // تحديد المورد الحالي (ساب أو اسم المكتب)
     let isAdmin = (currentRole === "admin" || currentRole === "super_admin");
     let activeSap = isAdmin ? (adminDashFilteredSap ? adminDashFilteredSap : null) : loggedInSupplierSapGlobal;
     let showAll = isAdmin && !adminDashFilteredSap;
+    let officeKeysDetail = window.__activeOfficeKeys || new Set();
 
     // جمع السجلات التفصيلية (كود + مبلغ) حسب الفترة المختارة
     let detailRows = [];
     (globalDues || []).forEach(d => {
-        if (!(showAll || normalizeValue(d["رقم المورد"]) === activeSap)) return;
+        if (!(showAll || rowMatchesActiveSupplier(d, activeSap, officeKeysDetail))) return;
         let periodLabel = getDuesPeriodLabel(d);
         if (selectedPeriod && periodLabel !== selectedPeriod) return;
 
@@ -4629,9 +4826,11 @@ function showData(){
  let arr = []; 
  let seen = new Set();
  
+ let officeKeys = window.__activeOfficeKeys || new Set();
+
  if(activePanel === "السيارات" || activePanel === "الأكواد"){
   globalVehicles.forEach(x=>{
-   if(showAll || normalizeValue(x["رقم المورد"])===activeSap){
+   if(showAll || rowMatchesActiveSupplier(x, activeSap, officeKeys) || normalizeValue(x["رقم المورد"])===activeSap){
     let b = String(x["الفرع"] || "").trim();
     let sType = String(x["نوع الخدمة"] || x["الخدمة"] || "").trim();
     if((!activeBranch || b === activeBranch) && (!activeServiceType || sType === activeServiceType)) {
@@ -4660,7 +4859,7 @@ function showData(){
 
  } else {
   globalTrips.forEach(x=>{
-   if(showAll || normalizeValue(x["رقم المورد"])===activeSap){
+   if(showAll || rowMatchesActiveSupplier(x, activeSap, officeKeys)){
     let b = String(x["الفرع"] || "").trim();
     let sType = String(x["نوع الخدمة"] || x["الخدمة"] || "").trim();
     if(!sType) {
