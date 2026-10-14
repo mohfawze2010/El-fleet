@@ -4647,124 +4647,115 @@ function openAdminNotificationsPanel() {
     history.pushState(null, null, "#notifications");
     document.getElementById("popupTitle").innerHTML = "🔔 طلبات استعادة الرقم السري";
     document.getElementById("searchInput").style.display = "none";
-    document.getElementById("popupCount").style.display = "none"; 
-    document.getElementById("failedTripsHint").style.display = "none"; 
-    document.getElementById("loadMoreBtn").classList.add("hide"); 
-    
+    document.getElementById("popupCount").style.display = "none";
+    document.getElementById("failedTripsHint").style.display = "none";
+    document.getElementById("loadMoreBtn").classList.add("hide");
+
     let html = "<div style='padding:5px;'>";
-    
-    let visibleReqs = globalPasswordRequests.filter(r => {
-        let adminFound = globalAdminsMap.get(r.phone);
-        let isRealAdmin = r.isAdminRequest || !!adminFound;
-        if (isRealAdmin) {
-            return currentRole === "super_admin";
-        }
-        return true;
-    });
-
-    if(!visibleReqs || visibleReqs.length === 0) {
-        html += "<p style='text-align:center; font-size:13px;'>لا توجد طلبات تغيير رقم سري حالياً.</p>";
-    } else {
-        visibleReqs.forEach(req => {
-            let dateStr = new Date(req.date).toLocaleDateString('ar-EG') + " - " + new Date(req.date).toLocaleTimeString('ar-EG', {hour:'numeric', minute:'numeric'});
-            
-            let adminFound = globalAdminsMap.get(req.phone);
-            let isRealAdmin = req.isAdminRequest || !!adminFound;
-
-            let reportedInfoHtml = "";
-            if (req.isReported) {
-                reportedInfoHtml = `
-                <div style="margin-top:8px; margin-bottom:8px; background:#d4edda; border:1px solid #c3e6cb; color:#155724; padding:6px 10px; border-radius:6px; font-size:12px; font-weight:bold;">
-                    ✅ تم الإبلاغ بواسطة: ${sanitizeHTML(req.reportedBy)} | 🕒 ${sanitizeHTML(req.reportedAt)}
-                </div>`;
-            }
-
-            let reportButtonHtml = `
-            <button onclick="markPasswordRequestReported('${req.id}', event)" style="flex:1; padding:8px 12px; font-size:12px; background:${req.isReported ? '#198754' : '#0d6efd'}; color:#fff; border-radius:6px; border:none; cursor:pointer; font-weight:bold;">
-                ${req.isReported ? '✓ تم الإبلاغ (تحديث)' : '📞 تم الإبلاغ'}
-            </button>`;
-
-            let deleteButtonHtml = canDeletePasswordRequests() ? `
-                <button onclick="deletePasswordRequest('${req.id}', event)" style="padding:8px 12px; font-size:12px; background:#e47377; color:#fff; border-radius:6px; border:none; cursor:pointer;">مسح الطلب من الإشعارات 🗑️</button>
-            ` : '';
-
-            if (isRealAdmin) {
-                let adminName = (adminFound && adminFound.ownerName) ? adminFound.ownerName : (req.adminName || "مشرف مسجل");
-                let currentPass = (adminFound && adminFound.assignedPassword) ? adminFound.assignedPassword : (req.assignedPassword || "غير مسجل");
-                
-                html += `
-                <div style="background:#fff0f3; padding:15px; border-radius:10px; margin-bottom:12px; border:2px solid #e63946;">
-                    <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-                        <span style="font-size:12px; color:#d90429; font-weight:bold;">👑 طلب خاص بمشرف | 📅 ${dateStr}</span>
-                    </div>
-                    <div style="font-size:14px; color:#333; margin-bottom:12px;">
-                        اسم المشرف: <b style="color:#d90429; font-size:15px;">${sanitizeHTML(adminName)}</b><br>
-                        رقم هاتف المشرف: <b style="color:#075bb5; font-size:16px;">${sanitizeHTML(req.phone)}</b><br><br>
-                        <span style="background:#ffe3e3; padding:5px 10px; border-radius:5px; border:1px solid #ffc9c9; display:inline-block;">
-                            كلمة المرور المسجلة: 
-                            <b id="req_pass_${req.id}" style="color:#b7094c; font-size:16px; display:none;">${sanitizeHTML(currentPass)}</b>
-                            <button onclick="togglePassVisibility('req_pass_${req.id}', this)" style="border:none; background:none; color:#075bb5; font-size:12px; cursor:pointer; text-decoration:underline;">إظهار 👁</button>
-                        <button type="button" onclick="event.stopPropagation(); openWhatsAppWithPassword('${String(req.phone||'').replace(/'/g,"")}', (document.getElementById('req_pass_${req.id}')||{}).innerText||'', '')" style="margin-right:6px; width:auto !important; padding:4px 10px; font-size:11px; background:#25D366; color:#fff; border:none; border-radius:6px; cursor:pointer;">💬 واتساب</button>
-                            <button type="button" onclick="event.stopPropagation(); openWhatsAppWithPassword('${sanitizeHTML(req.phone)}', document.getElementById('req_pass_${req.id}') ? document.getElementById('req_pass_${req.id}').innerText : '', '${sanitizeHTML((supplierFound && supplierFound.ownerName) || req.ownerName || '')}')" style="margin-right:8px; width:auto; padding:4px 10px; font-size:11px; background:#25D366; color:#fff; border:none; border-radius:6px; cursor:pointer;">💬 واتساب</button>
-                        </span>
-                    </div>
-                    ${reportedInfoHtml}
-                    <div style="display:flex; gap:6px; margin-top:8px;">
-                        ${reportButtonHtml}
-                        ${deleteButtonHtml}
-                    </div>
-                </div>`;
-                return;
-            }
-
-            let supplierFound = null;
-            globalSupplierDataMap.forEach((data, sap) => {
-                if(data.phone === req.phone) supplierFound = data;
-            });
-            
-            if(supplierFound) {
-                let currentPass = sanitizeHTML(supplierFound.assignedPassword) || "غير مسجلة (حساب قديم)";
-                html += `
-                <div style="background:#fff3cd; padding:15px; border-radius:10px; margin-bottom:12px; border:2px solid #ffc107;">
-                    <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-                        <span style="font-size:12px; color:#856404; font-weight:bold;">📅 ${dateStr}</span>
-                    </div>
-                    <div style="font-size:14px; color:#333; margin-bottom:12px;">
-                        طلب من: <b style="color:#075bb5;">${sanitizeHTML(supplierFound.ownerName)}</b><br>
-                        ساب: <b>${sanitizeHTML(supplierFound.sapNumber)}</b> | مكتب: <b>${sanitizeHTML(supplierFound.officeName)}</b><br>
-                        هاتف للتواصل: <b style="color:#28a745; font-size:16px;">${sanitizeHTML(req.phone)}</b><br><br>
-                        <span style="background:#d4edda; padding:5px 10px; border-radius:5px; border:1px solid #c3e6cb; display:inline-block;">
-                            كلمة المرور: 
-                            <b id="req_pass_${req.id}" style="color:#155724; font-size:16px; display:none;">${currentPass}</b>
-                            <button onclick="togglePassVisibility('req_pass_${req.id}', this)" style="border:none; background:none; color:#075bb5; font-size:12px; cursor:pointer; text-decoration:underline;">إظهار 👁</button>
-                        <button type="button" onclick="event.stopPropagation(); openWhatsAppWithPassword('${String(req.phone||'').replace(/'/g,"")}', (document.getElementById('req_pass_${req.id}')||{}).innerText||'', '')" style="margin-right:6px; width:auto !important; padding:4px 10px; font-size:11px; background:#25D366; color:#fff; border:none; border-radius:6px; cursor:pointer;">💬 واتساب</button>
-                            <button type="button" onclick="event.stopPropagation(); openWhatsAppWithPassword('${sanitizeHTML(req.phone)}', document.getElementById('req_pass_${req.id}') ? document.getElementById('req_pass_${req.id}').innerText : '', '${sanitizeHTML((supplierFound && supplierFound.ownerName) || req.ownerName || '')}')" style="margin-right:8px; width:auto; padding:4px 10px; font-size:11px; background:#25D366; color:#fff; border:none; border-radius:6px; cursor:pointer;">💬 واتساب</button>
-                        </span>
-                    </div>
-                    ${reportedInfoHtml}
-                    <div style="display:flex; gap:6px; margin-top:8px;">
-                        ${reportButtonHtml}
-                        ${deleteButtonHtml}
-                    </div>
-                </div>`;
-            } else {
-                html += `
-                <div style="background:#f8d7da; padding:15px; border-radius:10px; margin-bottom:12px; border:2px solid #f5c6cb;">
-                    <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-                        <span style="font-size:12px; color:#721c24; font-weight:bold;">📅 ${dateStr}</span>
-                    </div>
-                    <div style="font-size:14px; color:#721c24; margin-bottom:8px;">
-                        ⚠️ طلب استعادة من رقم هاتف <b>غير مسجل</b> في قاعدة البيانات: <br>
-                        هاتف للتواصل: <b style="font-size:16px;">${sanitizeHTML(req.phone)}</b>
-                    </div>
-                    ${reportedInfoHtml}
-                    <div style="display:flex; gap:6px; margin-top:8px;">
-                        ${reportButtonHtml}
-                        ${deleteButtonHtml}
-                    </div>
-                </div>`;
-            }
+    try {
+        let visibleReqs = (globalPasswordRequests || []).filter(r => {
+            if (!r) return false;
+            let adminFound = globalAdminsMap.get(r.phone);
+            let isRealAdmin = r.isAdminRequest || !!adminFound;
+            if (isRealAdmin) return currentRole === "super_admin";
+            return true;
         });
+
+        if (!visibleReqs.length) {
+            html += "<p style='text-align:center; font-size:13px;'>لا توجد طلبات تغيير رقم سري حالياً.</p>";
+        } else {
+            visibleReqs.forEach(req => {
+                let dateStr = "";
+                try {
+                    dateStr = new Date(req.date).toLocaleDateString('ar-EG') + " - " + new Date(req.date).toLocaleTimeString('ar-EG', {hour:'numeric', minute:'numeric'});
+                } catch (e) { dateStr = String(req.date || ""); }
+
+                let adminFound = globalAdminsMap.get(req.phone);
+                let isRealAdmin = req.isAdminRequest || !!adminFound;
+
+                let reportedInfoHtml = "";
+                if (req.isReported) {
+                    reportedInfoHtml = `
+                    <div style="margin-top:8px; margin-bottom:8px; background:#d4edda; border:1px solid #c3e6cb; color:#155724; padding:6px 10px; border-radius:6px; font-size:12px; font-weight:bold;">
+                        ✅ تم الإبلاغ بواسطة: ${sanitizeHTML(req.reportedBy)} | 🕒 ${sanitizeHTML(req.reportedAt)}
+                    </div>`;
+                }
+
+                let reportButtonHtml = `
+                <button type="button" onclick="markPasswordRequestReported('${req.id}', event)" style="flex:1; padding:8px 12px; font-size:12px; background:${req.isReported ? '#198754' : '#0d6efd'}; color:#fff; border-radius:6px; border:none; cursor:pointer; font-weight:bold;">
+                    ${req.isReported ? '✓ تم الإبلاغ (تحديث)' : '📞 تم الإبلاغ'}
+                </button>`;
+
+                let deleteButtonHtml = canDeletePasswordRequests() ? `
+                    <button type="button" onclick="deletePasswordRequest('${req.id}', event)" style="padding:8px 12px; font-size:12px; background:#e47377; color:#fff; border-radius:6px; border:none; cursor:pointer;">مسح الطلب 🗑️</button>
+                ` : '';
+
+                let phoneSafe = String(req.phone || "").replace(/'/g, "");
+
+                if (isRealAdmin) {
+                    let adminName = (adminFound && adminFound.ownerName) ? adminFound.ownerName : (req.adminName || req.ownerName || "مشرف مسجل");
+                    let currentPass = (adminFound && adminFound.assignedPassword) ? adminFound.assignedPassword : (req.assignedPassword || "غير مسجل");
+                    html += `
+                    <div style="background:#fff0f3; padding:15px; border-radius:10px; margin-bottom:12px; border:2px solid #e63946;">
+                        <div style="margin-bottom:8px;"><span style="font-size:12px; color:#d90429; font-weight:bold;">👑 طلب خاص بمشرف | 📅 ${dateStr}</span></div>
+                        <div style="font-size:14px; color:#333; margin-bottom:12px;">
+                            اسم المشرف: <b style="color:#d90429;">${sanitizeHTML(adminName)}</b><br>
+                            هاتف: <b style="color:#075bb5; font-size:16px;">${sanitizeHTML(req.phone)}</b><br><br>
+                            <span style="background:#ffe3e3; padding:5px 10px; border-radius:5px; border:1px solid #ffc9c9; display:inline-block;">
+                                كلمة المرور:
+                                <b id="req_pass_${req.id}" style="color:#b7094c; font-size:16px; display:none;">${sanitizeHTML(currentPass)}</b>
+                                <button type="button" onclick="togglePassVisibility('req_pass_${req.id}', this)" style="border:none; background:none; color:#075bb5; font-size:12px; cursor:pointer; text-decoration:underline;">إظهار 👁</button>
+                                <button type="button" onclick="event.stopPropagation(); openWhatsAppWithPassword('${phoneSafe}', (document.getElementById('req_pass_${req.id}')||{}).innerText||'', '${sanitizeHTML(adminName).replace(/'/g, '')}')" style="margin-right:6px; width:auto !important; padding:4px 10px; font-size:11px; background:#25D366; color:#fff; border:none; border-radius:6px; cursor:pointer;">💬 واتساب</button>
+                            </span>
+                        </div>
+                        ${reportedInfoHtml}
+                        <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">${reportButtonHtml}${deleteButtonHtml}</div>
+                    </div>`;
+                } else {
+                    let supplierFound = null;
+                    if (globalSupplierDataMap) {
+                        globalSupplierDataMap.forEach((data) => {
+                            if (data && data.phone === req.phone) supplierFound = data;
+                        });
+                    }
+                    if (supplierFound) {
+                        let currentPass = sanitizeHTML(supplierFound.assignedPassword) || "غير مسجلة (حساب قديم)";
+                        let sName = supplierFound.ownerName || "";
+                        html += `
+                        <div style="background:#fff8e6; padding:15px; border-radius:10px; margin-bottom:12px; border:2px solid #ffc107;">
+                            <div style="margin-bottom:8px;"><span style="font-size:12px; color:#856404; font-weight:bold;">👤 طلب مورد | 📅 ${dateStr}</span></div>
+                            <div style="font-size:14px; color:#333; margin-bottom:12px;">
+                                طلب من: <b style="color:#075bb5;">${sanitizeHTML(sName)}</b><br>
+                                ساب: <b>${sanitizeHTML(supplierFound.sapNumber)}</b> | مكتب: <b>${sanitizeHTML(supplierFound.officeName)}</b><br>
+                                هاتف: <b style="color:#28a745; font-size:16px;">${sanitizeHTML(req.phone)}</b><br><br>
+                                <span style="background:#d4edda; padding:5px 10px; border-radius:5px; border:1px solid #c3e6cb; display:inline-block;">
+                                    كلمة المرور:
+                                    <b id="req_pass_${req.id}" style="color:#155724; font-size:16px; display:none;">${currentPass}</b>
+                                    <button type="button" onclick="togglePassVisibility('req_pass_${req.id}', this)" style="border:none; background:none; color:#075bb5; font-size:12px; cursor:pointer; text-decoration:underline;">إظهار 👁</button>
+                                    <button type="button" onclick="event.stopPropagation(); openWhatsAppWithPassword('${phoneSafe}', (document.getElementById('req_pass_${req.id}')||{}).innerText||'', '${sanitizeHTML(sName).replace(/'/g, '')}')" style="margin-right:6px; width:auto !important; padding:4px 10px; font-size:11px; background:#25D366; color:#fff; border:none; border-radius:6px; cursor:pointer;">💬 واتساب</button>
+                                </span>
+                            </div>
+                            ${reportedInfoHtml}
+                            <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">${reportButtonHtml}${deleteButtonHtml}</div>
+                        </div>`;
+                    } else {
+                        html += `
+                        <div style="background:#f8d7da; padding:15px; border-radius:10px; margin-bottom:12px; border:2px solid #f5c6cb;">
+                            <div style="margin-bottom:8px;"><span style="font-size:12px; color:#721c24; font-weight:bold;">📅 ${dateStr}</span></div>
+                            <div style="font-size:14px; color:#721c24; margin-bottom:8px;">
+                                ⚠️ طلب من رقم <b>غير مسجل</b>:<br>
+                                هاتف: <b style="font-size:16px;">${sanitizeHTML(req.phone)}</b>
+                            </div>
+                            ${reportedInfoHtml}
+                            <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">${reportButtonHtml}${deleteButtonHtml}</div>
+                        </div>`;
+                    }
+                }
+            });
+        }
+    } catch (err) {
+        console.error("openAdminNotificationsPanel", err);
+        html += "<p style='color:red; text-align:center;'>تعذر عرض الطلبات. حاول مرة أخرى.</p>";
     }
     html += "</div>";
     document.getElementById("popupResult").innerHTML = html;
@@ -5825,8 +5816,12 @@ firebase.auth().onAuthStateChanged(async function(user){
             db.collection("uploadedFiles").doc("PASSWORD_RESET_REQUESTS").onSnapshot(doc => {
                 if(doc.exists) {
                     let allReqs = doc.data().requests || [];
-                    globalPasswordRequests = allReqs.filter(r => r.isPasswordRequest === true);
+                    // كل عناصر المستند طلبات باسورد؛ نتجاهل أي عنصر بلا هاتف
+                    globalPasswordRequests = allReqs.filter(r => r && (r.isPasswordRequest === true || r.phone));
                     globalPasswordRequests.sort((a,b) => new Date(b.date) - new Date(a.date));
+                    if (activePanel === "الاشعارات" && document.getElementById("popupBox") && document.getElementById("popupBox").style.display === "flex") {
+                        openAdminNotificationsPanel();
+                    }
                     if(currentRole === "super_admin" || adminPermissions.suppliers) {
                         updateAdminNotificationsBadge();
                     }
