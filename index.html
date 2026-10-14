@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>ELARABY Transportation</title>
+<title>بوابة الموردين</title>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script>
@@ -289,9 +289,89 @@ button:disabled {background:#999 !important; cursor:not-allowed;}
 .dash-dropdown div { padding:10px; border-bottom:1px solid #eee; cursor:pointer; font-size:13px;}
 .dash-dropdown div:hover { background:#e9f5ff;}
 
-.admin-tabs { display: flex; gap: 5px; margin-bottom: 10px; border-bottom: 2px solid #ddd; overflow-x: auto; padding-bottom: 0px; }
-.tab-btn { flex: 1; background: #f3f6fb; color: #555; border: 1px solid #ddd; border-bottom: none; padding: 10px 5px; font-size: 12px; border-radius: 8px 8px 0 0; cursor: pointer; transition: 0.3s; white-space: nowrap; margin:0;}
-.tab-btn.active { background: #075bb5; color: #fff; border-color: #075bb5; font-weight: bold; }
+.admin-tabs {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 5px;
+    margin-bottom: 10px;
+    padding-bottom: 0;
+    border-bottom: 2px solid #ddd;
+    background: transparent;
+}
+.tab-btn {
+    /* تجاوز width:100% العام على button */
+    width: auto !important;
+    flex: 1 1 0;
+    min-width: 88px;
+    max-width: none;
+    background: #f3f6fb;
+    color: #555;
+    border: 1px solid #ddd;
+    border-bottom: none;
+    padding: 10px 6px;
+    font-size: 11px;
+    border-radius: 8px 8px 0 0;
+    cursor: pointer;
+    transition: 0.2s;
+    white-space: nowrap;
+    margin: 0 !important;
+    text-align: center;
+    box-shadow: none;
+}
+.tab-btn:hover { border-color: #075bb5; color: #075bb5; background: #eef4fb; }
+.tab-btn.active {
+    background: #075bb5;
+    color: #fff;
+    border-color: #075bb5;
+    font-weight: bold;
+}
+.tab-btn.hide { display: none !important; }
+
+.lic-actions-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 10px;
+}
+.lic-action-btn {
+    width: auto !important;
+    min-width: 0 !important;
+    flex: 0 0 auto !important;
+    display: inline-flex !important;
+    align-items: center;
+    gap: 4px;
+    margin: 0 !important;
+    padding: 8px 12px !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-size: 12px !important;
+    font-weight: bold !important;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.12);
+    white-space: nowrap;
+}
+.lic-action-btn:hover { filter: brightness(1.05); }
+.lic-del-btn {
+    width: auto !important;
+    min-width: 0 !important;
+    flex: 0 0 auto !important;
+    display: inline-flex !important;
+    margin: 0 !important;
+    padding: 8px 14px !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-size: 12px !important;
+    font-weight: bold !important;
+    cursor: pointer;
+    background: #dc3545 !important;
+    color: #fff !important;
+    box-shadow: 0 2px 4px rgba(220,53,69,0.3);
+}
+
 .tab-content { display: none; animation: fadeIn 0.3s; padding: 5px; }
 .tab-content.active { display: block; }
 @keyframes fadeIn { from {opacity:0;} to {opacity:1;} }
@@ -364,6 +444,44 @@ button:disabled {background:#999 !important; cursor:not-allowed;}
 }
 .upload-accordion.open .upload-acc-body { display: block; }
 
+/* صلاحيات المشرفين - شبكة مدمجة */
+.perm-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+    gap: 8px;
+    margin-top: 6px;
+}
+.perm-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    background: #fff;
+    border: 1px solid #d0d7de;
+    border-radius: 8px;
+    padding: 8px 4px 6px;
+    font-size: 11px;
+    color: #333;
+    cursor: pointer;
+    user-select: none;
+    line-height: 1.3;
+    min-height: 58px;
+}
+.perm-item:hover { border-color: #075bb5; background: #f5f9ff; }
+.perm-item input[type="checkbox"] {
+    margin: 6px 0 0 0;
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: #075bb5;
+}
+.perm-item input[type="checkbox"]:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+
 .upload-cols-hint {
     background: #f0f6fc;
     padding: 8px 10px;
@@ -416,6 +534,29 @@ button:disabled {background:#999 !important; cursor:not-allowed;}
 .comp-open { border-color: #f0ad4e; }
 .comp-replied { border-color: #28a745; background: #f9fff9; }
 .comp-closed { border-color: #6c757d; opacity: 0.85; background: #fdfdfd; }
+
+.msg-del-btn {
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    flex: 0 0 auto !important;
+    display: inline-flex !important;
+    align-items: center;
+    gap: 4px;
+    background: #dc3545 !important;
+    color: #fff !important;
+    border: none !important;
+    border-radius: 8px !important;
+    padding: 6px 12px !important;
+    font-size: 12px !important;
+    font-weight: bold !important;
+    cursor: pointer;
+    margin: 0 !important;
+    box-shadow: 0 2px 4px rgba(220,53,69,0.35);
+    white-space: nowrap;
+}
+.msg-del-btn:hover { background: #c82333 !important; }
+
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
@@ -467,7 +608,8 @@ button:disabled {background:#999 !important; cursor:not-allowed;}
 <div id="login" class="auth-card">
     <div class="login-card">
         <div class="login-header">
-            <div class="bus-graphic" aria-hidden="true">
+            <img id="appLogoLogin" alt="logo" style="display:none; max-height:90px; max-width:180px; margin:0 auto 8px; object-fit:contain;">
+            <div class="bus-graphic" id="defaultBusGraphic" aria-hidden="true">
                 <svg viewBox="0 0 160 100" xmlns="http://www.w3.org/2000/svg">
                     <!-- ظل الأرض -->
                     <ellipse cx="80" cy="92" rx="55" ry="6" fill="rgba(7,91,181,0.12)"/>
@@ -501,10 +643,11 @@ button:disabled {background:#999 !important; cursor:not-allowed;}
                     <rect x="14" y="40" width="5" height="8" rx="1.5" fill="#334155"/>
                     <!-- لافتة ELARABY -->
                     <rect x="55" y="18" width="50" height="12" rx="3" fill="#fff" stroke="#075bb5" stroke-width="1.5"/>
-                    <text x="80" y="27" text-anchor="middle" font-size="7" font-weight="bold" fill="#075bb5" font-family="tahoma,Arial">ELARABY</text>
+                    <text id="svgBrandLabel" x="80" y="27" text-anchor="middle" font-size="7" font-weight="bold" fill="#075bb5" font-family="tahoma,Arial"></text>
                 </svg>
             </div>
-            <div class="app-title">ELARABY Transportation</div>
+            <div class="app-title" id="appTitleLogin"></div>
+            <div id="appNoteLogin" style="display:none; font-size:11px; color:#666; font-weight:normal; margin-top:4px; line-height:1.4;"></div>
         </div>
         <p class="login-subtitle">أهلاً بك، يرجى تسجيل الدخول بحسابك المعتمد.</p>
         <input id="loginPhone" type="text" placeholder="رقم الهاتف المحمول (أو البريد الإلكتروني)">
@@ -516,9 +659,10 @@ button:disabled {background:#999 !important; cursor:not-allowed;}
         <a href="#" class="login-forgot" onclick="handleForgotPassword()">نسيت كلمة المرور؟</a>
     </div>
     <div class="footer-info">
-        <b>اعداد وتنفيذ ا/محمد فوزى</b><br>
-        تخطيط اسطول السيارات<br>
-        الميل: <a href="mailto:mnasse01@elarabygroup.com">mnasse01@elarabygroup.com</a>
+        <b id="creditName" style="display:none;"></b><br>
+        <span id="creditOrg" style="display:none;"></span><br>
+        <span id="creditMail" style="display:none;"></span>
+        <div style="margin-top:6px; font-size:11px; color:#888;">الإصدار: <span id="appVersionLabel">V1.1</span></div>
     </div>
 </div>
 
@@ -526,7 +670,11 @@ button:disabled {background:#999 !important; cursor:not-allowed;}
 
 <div class="header" id="mainHeader">
     <div class="provider-info-right">
-        <div class="portal-title">ELARABY Transportation</div>
+        <div class="portal-title" id="appTitlePortal" style="display:flex; align-items:center; gap:6px; justify-content:flex-start;">
+            <img id="appLogoHeader" alt="" style="display:none; height:22px; width:auto; max-width:56px; object-fit:contain; border-radius:4px; background:#fff; flex-shrink:0;">
+            <span id="appTitlePortalText"></span>
+        </div>
+        <div id="appNotePortal" style="display:none; font-size:10px; font-weight:normal; opacity:0.85; margin:2px 0 4px 0; line-height:1.3;"></div>
         <div class="provider-details">
             <span id="showOwner"></span><br>
             <span id="showOffice"></span><br>
@@ -585,8 +733,11 @@ button:disabled {background:#999 !important; cursor:not-allowed;}
     </div>
 </div>
 
-<div style="text-align:center; margin-top:10px; background:#e9ecef; padding:8px; border-radius:10px; color:#555; font-size:12px; font-weight:bold; border:1px solid #ddd; box-shadow:0 1px 3px rgba(0,0,0,0.05);">
-    🔄 أحدث نسخة من البيانات المعروضة: <span id="globalLastUpdateTxt" style="color:#075bb5;">جاري التحقق...</span>
+<div id="tripsPeriodBar" style="text-align:center; margin-top:10px; background:#e8f7f9; padding:10px 12px; border-radius:10px; color:#0f6674; font-size:13px; font-weight:bold; border:1px solid #7ec8d4; box-shadow:0 1px 3px rgba(0,0,0,0.05); display:none;">
+    📅 بيانات الرحلات المعروضة عن الفترة: <span id="globalLastUpdateTxt" style="color:#075bb5;"></span>
+</div>
+<div id="tripsPeriodBarEmpty" style="text-align:center; margin-top:10px; background:#f8f9fa; padding:8px; border-radius:10px; color:#888; font-size:12px; border:1px dashed #ccc; display:none;">
+    📅 لم تُحدَّد بعد فترة بيانات الرحلات من الإدارة
 </div>
 
 <div id="adminDashFilter" class="hide">
@@ -757,8 +908,432 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
 const storage = firebase.storage();
+// تحميل إعدادات الهوية عند الإقلاع
+setTimeout(function(){ if (typeof loadAppSettings === "function") loadAppSettings(); }, 400);
 let currentRole="supplier";
-let adminPermissions = {}; 
+let adminPermissions = {};
+let appSettings = {
+    appName: "",
+    appShortName: "",
+    logoDataUrl: "",
+    companyNote: "",
+    designerName: "",
+    designerEmail: "",
+    designerOrg: "",
+    displayVersion: "V1.1",
+    tripsPeriodNote: "",
+    tripsPeriodFrom: "",
+    tripsPeriodTo: ""
+};
+function formatPeriodDateAr(iso) {
+    if (!iso) return "";
+    try {
+        let p = String(iso).split("-");
+        if (p.length === 3) return p[2] + "/" + p[1] + "/" + p[0];
+        let d = new Date(iso);
+        if (!isNaN(d.getTime())) return d.toLocaleDateString("ar-EG");
+    } catch (e) {}
+    return String(iso);
+}
+function canAdminWrite() {
+    if (currentRole === "super_admin") return true;
+    if (currentRole === "admin" && adminPermissions && adminPermissions.readonly) return false;
+    return currentRole === "admin";
+}
+function canViewAudit() {
+    if (currentRole === "super_admin") return true;
+    return currentRole === "admin" && adminPermissions && adminPermissions.audit === true;
+}
+async function logAudit(action, details, extra) {
+    try {
+        if (!firebase.auth().currentUser) return;
+        extra = extra || {};
+        let roleLabel = currentRole === "super_admin" ? "مدير نظام" : (currentRole === "admin" ? "مشرف" : "مورد");
+        await db.collection("auditLog").add({
+            action: String(action || "").slice(0, 120),
+            details: String(details || "").slice(0, 800),
+            before: String(extra.before || "").slice(0, 400),
+            after: String(extra.after || "").slice(0, 400),
+            byUid: firebase.auth().currentUser.uid,
+            byName: (currentUserName || "غير معروف").replace(/^👑\s*مدير النظام:\s*/u, "").replace(/^🛡️\s*مشرف:\s*/u, "").replace(/^المورد:\s*/u, "").trim(),
+            role: currentRole || "",
+            roleLabel: roleLabel,
+            at: Date.now(),
+            atIso: new Date().toISOString()
+        });
+    } catch (e) { console.warn("audit", e); }
+}
+let _auditLogCache = [];
+function filterAuditLogList() {
+    let q = robustNormalize((document.getElementById("auditSearchInput") || {}).value || "");
+    let box = document.getElementById("auditLogList");
+    if (!box) return;
+    let terms = q.split(" ").filter(Boolean);
+    let rows = _auditLogCache || [];
+    if (terms.length) {
+        rows = rows.filter(d => {
+            let blob = robustNormalize([d.action, d.details, d.before, d.after, d.byName, d.roleLabel, d.role].join(" "));
+            return terms.every(t => blob.includes(t));
+        });
+    }
+    if (!rows.length) {
+        box.innerHTML = "<span style='color:#666;'>لا نتائج مطابقة للبحث.</span>";
+        return;
+    }
+    let html = "";
+    rows.forEach(d => {
+        let when = d.at ? new Date(d.at).toLocaleString("ar-EG") : (d.atIso || "");
+        let who = d.byName || "—";
+        let roleL = d.roleLabel || (d.role === "super_admin" ? "مدير نظام" : d.role === "admin" ? "مشرف" : d.role || "");
+        let change = "";
+        if (d.before || d.after) {
+            change = `<div style="font-size:11px; margin-top:4px; background:#f8f9fa; padding:6px 8px; border-radius:6px; border:1px solid #eee;">
+                <span style="color:#888;">كان:</span> ${sanitizeHTML(d.before || "—")}<br>
+                <span style="color:#155724;">أصبح:</span> ${sanitizeHTML(d.after || "—")}
+            </div>`;
+        }
+        html += `<div class="audit-row" style="border:1px solid #e2e8f0; border-radius:8px; padding:10px; margin-bottom:8px; background:#fff;">
+            <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+                <b style="color:#075bb5; font-size:13px;">${sanitizeHTML(d.action||"إجراء")}</b>
+                <span style="font-size:11px; color:#666;">🕒 ${sanitizeHTML(when)}</span>
+            </div>
+            <div style="font-size:12px; color:#333; margin-top:4px;">👤 <b>${sanitizeHTML(who)}</b> <span style="color:#888;">(${sanitizeHTML(roleL)})</span></div>
+            ${d.details ? `<div style="font-size:12px; color:#444; margin-top:4px;">📌 ${sanitizeHTML(d.details)}</div>` : ""}
+            ${change}
+        </div>`;
+    });
+    box.innerHTML = html;
+}
+
+function canManageLicenses() {
+    if (currentRole === "super_admin") return true;
+    return currentRole === "admin" && adminPermissions && adminPermissions.licenses === true;
+}
+function canDeletePasswordRequests() {
+    if (currentRole === "super_admin") return true;
+    // تُمنح مع صلاحية الموردين أو صلاحية منفصلة pwdDelete
+    return currentRole === "admin" && adminPermissions && (adminPermissions.pwdDelete === true || adminPermissions.suppliers === true);
+}
+async function loadAppSettings() {
+    try {
+        let doc = await db.collection("system").doc("appSettings").get();
+        if (doc.exists) {
+            let d = doc.data() || {};
+            appSettings = {
+                appName: d.appName || "",
+                appShortName: d.appShortName || "",
+                logoDataUrl: d.logoDataUrl || "",
+                companyNote: d.companyNote || "",
+                designerName: d.designerName || "",
+                designerEmail: d.designerEmail || "",
+                designerOrg: d.designerOrg || "",
+                displayVersion: d.displayVersion || "V1.1",
+                tripsPeriodNote: d.tripsPeriodNote || "",
+                tripsPeriodFrom: d.tripsPeriodFrom || "",
+                tripsPeriodTo: d.tripsPeriodTo || ""
+            };
+        }
+    } catch (e) { console.warn("loadAppSettings", e); }
+    applyAppBranding();
+}
+function flashAdminResult(msg, ms) {
+    let ar = document.getElementById("adminResult");
+    if (!ar) return;
+    ar.innerHTML = msg;
+    if (window._adminResultTimer) clearTimeout(window._adminResultTimer);
+    window._adminResultTimer = setTimeout(function() {
+        if (ar.innerHTML === msg) ar.innerHTML = "مرحباً بك في لوحة الإدارة";
+    }, ms || 3500);
+}
+function applyAppBranding() {
+    try {
+        // فارغ = قالب جاهز لشركة أخرى (بدون فرض اسم قديم)
+        let name = (appSettings.appName || "").trim();
+        let shortN = (appSettings.appShortName || "").trim();
+        let note = (appSettings.companyNote || "").trim();
+        document.title = name || "بوابة الموردين";
+        let t1 = document.getElementById("appTitleLogin");
+        let t2 = document.getElementById("appTitlePortalText") || document.getElementById("appTitlePortal");
+        let t3 = document.getElementById("appTitleAdmin");
+        if (t1) t1.textContent = name;
+        if (t2) t2.textContent = name;
+        if (t3) t3.textContent = "⚙️ لوحة الإدارة";
+        let nLogin = document.getElementById("appNoteLogin");
+        let nPortal = document.getElementById("appNotePortal");
+        if (nLogin) {
+            if (note) { nLogin.textContent = note; nLogin.style.display = "block"; }
+            else { nLogin.textContent = ""; nLogin.style.display = "none"; }
+        }
+        if (nPortal) {
+            if (note) { nPortal.textContent = note; nPortal.style.display = "block"; }
+            else { nPortal.textContent = ""; nPortal.style.display = "none"; }
+        }
+        let logoLogin = document.getElementById("appLogoLogin");
+        let logoBus = document.getElementById("defaultBusGraphic");
+        if (logoLogin) {
+            if (appSettings.logoDataUrl) {
+                logoLogin.src = appSettings.logoDataUrl;
+                logoLogin.style.display = "block";
+                if (logoBus) logoBus.style.display = "none";
+            } else {
+                logoLogin.style.display = "none";
+                if (logoBus) logoBus.style.display = "block";
+            }
+        }
+        let logoHeader = document.getElementById("appLogoHeader");
+        if (logoHeader) {
+            if (appSettings.logoDataUrl) {
+                logoHeader.src = appSettings.logoDataUrl;
+                logoHeader.style.display = "inline-block";
+            } else {
+                logoHeader.style.display = "none";
+            }
+        }
+        // لافتة الأتوبيس: فارغة إذا لم يُكتب اسم مختصر
+        let svgLabel = document.getElementById("svgBrandLabel");
+        if (svgLabel) {
+            svgLabel.textContent = shortN.length > 12 ? shortN.slice(0, 12) : shortN;
+        }
+        // بيانات الإعداد والتنفيذ
+        let dn = (appSettings.designerName || "").trim();
+        let de = (appSettings.designerEmail || "").trim();
+        let dorg = (appSettings.designerOrg || "").trim();
+        let elName = document.getElementById("creditName");
+        let elOrg = document.getElementById("creditOrg");
+        let elMail = document.getElementById("creditMail");
+        let elVer = document.getElementById("appVersionLabel");
+        if (elName) {
+            if (dn) { elName.textContent = "اعداد وتنفيذ: " + dn; elName.style.display = ""; }
+            else { elName.textContent = ""; elName.style.display = "none"; }
+        }
+        if (elOrg) {
+            if (dorg) { elOrg.textContent = dorg; elOrg.style.display = ""; }
+            else { elOrg.textContent = ""; elOrg.style.display = "none"; }
+        }
+        if (elMail) {
+            if (de) {
+                elMail.innerHTML = 'الميل: <a href="mailto:' + de.replace(/"/g,'') + '">' + de.replace(/</g,'') + '</a>';
+                elMail.style.display = "";
+            } else { elMail.innerHTML = ""; elMail.style.display = "none"; }
+        }
+        let ver = (appSettings.displayVersion || "").trim() || (typeof APP_DISPLAY_VERSION !== "undefined" ? APP_DISPLAY_VERSION : "V1.1");
+        if (elVer) elVer.textContent = ver;
+        let elVerAdmin = document.getElementById("appVersionAdmin");
+        if (elVerAdmin) elVerAdmin.textContent = ver;
+        let elVerSet = document.getElementById("setDisplayVersion");
+        if (elVerSet && document.activeElement !== elVerSet) elVerSet.value = ver;
+        // فترة الرحلات (من/إلى) — تظهر في واجهة البيانات
+        let pf = (appSettings.tripsPeriodFrom || "").trim();
+        let pt = (appSettings.tripsPeriodTo || "").trim();
+        let periodTxt = "";
+        if (pf && pt) periodTxt = formatPeriodDateAr(pf) + "  إلى  " + formatPeriodDateAr(pt);
+        else if (pf) periodTxt = "من " + formatPeriodDateAr(pf);
+        else if (pt) periodTxt = "حتى " + formatPeriodDateAr(pt);
+        else if ((appSettings.tripsPeriodNote || "").trim()) periodTxt = (appSettings.tripsPeriodNote || "").trim();
+        let bar = document.getElementById("tripsPeriodBar");
+        let barEmpty = document.getElementById("tripsPeriodBarEmpty");
+        let span = document.getElementById("globalLastUpdateTxt");
+        if (periodTxt) {
+            if (span) span.textContent = periodTxt;
+            if (bar) bar.style.display = "block";
+            if (barEmpty) barEmpty.style.display = "none";
+        } else {
+            if (span) span.textContent = "";
+            if (bar) bar.style.display = "none";
+            if (barEmpty) barEmpty.style.display = "block";
+        }
+        let fromEl = document.getElementById("setTripsPeriodFrom");
+        let toEl = document.getElementById("setTripsPeriodTo");
+        if (fromEl && document.activeElement !== fromEl) fromEl.value = pf;
+        if (toEl && document.activeElement !== toEl) toEl.value = pt;
+    } catch (e) {}
+}
+async function saveAppSettings() {
+    if (currentRole !== "super_admin") {
+        showAlert("🚫 إعدادات الهوية متاحة لمدير النظام فقط.");
+        return;
+    }
+    let name = ((document.getElementById("setAppName") || {}).value || "").trim();
+    let shortN = ((document.getElementById("setAppShort") || {}).value || "").trim();
+    let note = ((document.getElementById("setCompanyNote") || {}).value || "").trim();
+    let dName = ((document.getElementById("setDesignerName") || {}).value || "").trim();
+    let dEmail = ((document.getElementById("setDesignerEmail") || {}).value || "").trim();
+    let dOrg = ((document.getElementById("setDesignerOrg") || {}).value || "").trim();
+    let dVer = ((document.getElementById("setDisplayVersion") || {}).value || "").trim() || "V1.1";
+    let fromP = ((document.getElementById("setTripsPeriodFrom") || {}).value || "").trim();
+    let toP = ((document.getElementById("setTripsPeriodTo") || {}).value || "").trim();
+    let tPeriod = "";
+    if (fromP && toP) tPeriod = "من " + formatPeriodDateAr(fromP) + " إلى " + formatPeriodDateAr(toP);
+    else if (fromP) tPeriod = "من " + formatPeriodDateAr(fromP);
+    else if (toP) tPeriod = "حتى " + formatPeriodDateAr(toP);
+    let beforeVer = appSettings.displayVersion || "";
+    let beforePeriod = appSettings.tripsPeriodNote || "";
+    appSettings.appName = name;
+    appSettings.appShortName = shortN;
+    appSettings.companyNote = note;
+    appSettings.designerName = dName;
+    appSettings.designerEmail = dEmail;
+    appSettings.designerOrg = dOrg;
+    appSettings.displayVersion = dVer;
+    appSettings.tripsPeriodFrom = fromP;
+    appSettings.tripsPeriodTo = toP;
+    appSettings.tripsPeriodNote = tPeriod;
+    try {
+        await db.collection("system").doc("appSettings").set({
+            appName: appSettings.appName,
+            appShortName: appSettings.appShortName,
+            logoDataUrl: appSettings.logoDataUrl || "",
+            companyNote: appSettings.companyNote || "",
+            designerName: appSettings.designerName || "",
+            designerEmail: appSettings.designerEmail || "",
+            designerOrg: appSettings.designerOrg || "",
+            displayVersion: appSettings.displayVersion || "V1.1",
+            tripsPeriodNote: appSettings.tripsPeriodNote || "",
+            tripsPeriodFrom: appSettings.tripsPeriodFrom || "",
+            tripsPeriodTo: appSettings.tripsPeriodTo || "",
+            updatedAt: Date.now(),
+            updatedBy: currentUserName || "super_admin"
+        }, { merge: true });
+        applyAppBranding();
+        if (typeof logAudit === "function") logAudit("حفظ الإعدادات", "تم تحديث هوية التطبيق / التنفيذ / الإصدار أو فترة الرحلات", { before: "إصدار: " + beforeVer + " | فترة: " + (beforePeriod||"—"), after: "إصدار: " + dVer + " | فترة: " + (tPeriod||"—") });
+        showAlert("✅ تم حفظ الإعدادات الأساسية.");
+        flashAdminResult("✅ تم حفظ الإعدادات.", 3500);
+    } catch (e) {
+        console.error(e);
+        showAlert("❌ فشل حفظ الإعدادات: " + e.message);
+        flashAdminResult("❌ فشل الحفظ", 5000);
+    }
+}
+function onAppLogoSelected(input) {
+    let f = input.files && input.files[0];
+    if (!f) return;
+    if (f.size > 900 * 1024) {
+        showAlert("حجم الشعار كبير. يُفضّل أقل من 900 كيلوبايت.");
+        input.value = "";
+        return;
+    }
+    let reader = new FileReader();
+    reader.onload = function(ev) {
+        appSettings.logoDataUrl = ev.target.result;
+        let prev = document.getElementById("setLogoPreview");
+        if (prev) { prev.src = appSettings.logoDataUrl; prev.style.display = "block"; }
+        applyAppBranding();
+    };
+    reader.readAsDataURL(f);
+}
+function clearAppLogo() {
+    appSettings.logoDataUrl = "";
+    let prev = document.getElementById("setLogoPreview");
+    if (prev) { prev.removeAttribute("src"); prev.style.display = "none"; }
+    let inp = document.getElementById("setLogoFile");
+    if (inp) inp.value = "";
+    applyAppBranding();
+    flashAdminResult("ℹ️ تم إرجاع شعار الأتوبيس (اضغط حفظ لتثبيت التغيير).", 4000);
+}
+async function resetAppSettingsDefaults() {
+    if (currentRole !== "super_admin") {
+        showAlert("🚫 متاح لمدير النظام فقط.");
+        return;
+    }
+    if (!confirm("إعادة الإعدادات الافتراضية؟\n- اسم التطبيق / المختصر / الملاحظات: فارغة\n- الشعار: رسم الأتوبيس الافتراضي")) return;
+    appSettings.appName = "";
+    appSettings.appShortName = "";
+    appSettings.companyNote = "";
+    appSettings.logoDataUrl = "";
+    appSettings.designerName = "";
+    appSettings.designerEmail = "";
+    appSettings.designerOrg = "";
+    appSettings.displayVersion = "V1.1";
+    appSettings.tripsPeriodNote = "";
+    appSettings.tripsPeriodFrom = "";
+    appSettings.tripsPeriodTo = "";
+    ["setAppName","setAppShort","setCompanyNote","setDesignerName","setDesignerEmail","setDesignerOrg","setDisplayVersion","setTripsPeriodFrom","setTripsPeriodTo"].forEach(id => {
+        let el = document.getElementById(id); if (el) el.value = (id === "setDisplayVersion" ? "V1.1" : "");
+    });
+    let prev = document.getElementById("setLogoPreview");
+    if (prev) { prev.removeAttribute("src"); prev.style.display = "none"; }
+    let inp = document.getElementById("setLogoFile");
+    if (inp) inp.value = "";
+    try {
+        await db.collection("system").doc("appSettings").set({
+            appName: "", appShortName: "", logoDataUrl: "", companyNote: "",
+            designerName: "", designerEmail: "", designerOrg: "",
+            displayVersion: "V1.1", tripsPeriodNote: "", tripsPeriodFrom: "", tripsPeriodTo: "",
+            updatedAt: Date.now(),
+            updatedBy: currentUserName || "super_admin"
+        }, { merge: true });
+        applyAppBranding();
+        if (typeof logAudit === "function") logAudit("استعادة هوية افتراضية", "تم تفريغ الاسم والشعار", { before: "إعدادات سابقة", after: "قالب فارغ" });
+        showAlert("✅ تم استعادة القالب الافتراضي (أتوبيس + حقول فارغة).");
+        flashAdminResult("✅ تم استعادة الإعدادات الافتراضية.", 3500);
+    } catch (e) {
+        console.error(e);
+        showAlert("❌ فشل الاستعادة: " + e.message);
+    }
+}
+async function promoteAdminToSuper(uid, name) {
+    if (currentRole !== "super_admin") {
+        showAlert("🚫 ترقية المشرفين متاحة لمدير النظام فقط.");
+        return;
+    }
+    if (!confirm("⚠️ سيتم ترقية «" + (name || "") + "» إلى سوبر أدمن بكامل الصلاحيات.\nهل أنت متأكد؟")) return;
+    try {
+        await db.collection("users").doc(uid).update({
+            role: "super_admin",
+            permissions: { data: true, suppliers: true, msgs: true, reports: true, complaints: true, wipe: true, licenses: true, pwdDelete: true },
+            promotedAt: Date.now(),
+            promotedBy: currentUserName || "super_admin"
+        });
+        if (typeof logAudit === "function") logAudit("ترقية إلى سوبر أدمن", "تم ترقية مشرف", { before: "مشرف: " + (name||uid), after: "سوبر أدمن" });
+        showAlert("✅ تمت الترقية إلى سوبر أدمن. سيظهر التغيير عند إعادة تسجيل دخوله.");
+        if (typeof loadAdminsList === "function") loadAdminsList();
+    } catch (e) {
+        console.error(e);
+        showAlert("❌ فشل الترقية: " + e.message);
+    }
+}
+async function demoteSuperToAdmin(uid, name) {
+    if (currentRole !== "super_admin") {
+        showAlert("🚫 تخفيض الصلاحية متاح لمدير النظام فقط.");
+        return;
+    }
+    let me = firebase.auth().currentUser ? firebase.auth().currentUser.uid : "";
+    if (uid === me) {
+        showAlert("لا يمكنك تخفيض حسابك الحالي.");
+        return;
+    }
+    if (!confirm("⚠️ سيتم تخفيض «" + (name || "") + "» من سوبر أدمن إلى مشرف عادي.\nستُعاد صلاحيات المشرف الافتراضية. هل أنت متأكد؟")) return;
+    try {
+        await db.collection("users").doc(uid).update({
+            role: "admin",
+            permissions: {
+                data: true, suppliers: true, msgs: true, reports: true, complaints: true,
+                wipe: false, licenses: false, pwdDelete: false
+            },
+            demotedAt: Date.now(),
+            demotedBy: currentUserName || "super_admin"
+        });
+        if (typeof logAudit === "function") logAudit("تخفيض إلى مشرف", "تم تخفيض صلاحيات", { before: "سوبر أدمن: " + (name||uid), after: "مشرف عادي" });
+        showAlert("✅ تم التخفيض إلى مشرف عادي. يظهر التغيير بعد إعادة تسجيل دخوله.");
+        if (typeof loadAdminsList === "function") loadAdminsList();
+    } catch (e) {
+        console.error(e);
+        showAlert("❌ فشل التخفيض: " + e.message);
+    }
+}
+function togglePassVisibility(spanId, btn) {
+    let el = document.getElementById(spanId);
+    if (!el || !btn) return;
+    let hidden = (el.style.display === "none" || !el.style.display);
+    if (hidden) {
+        el.style.display = "inline";
+        btn.innerText = "إخفاء 🙈";
+    } else {
+        el.style.display = "none";
+        btn.innerText = "إظهار 👁";
+    }
+}
+ 
 
 let globalVehicles = [];
 let globalTrips = [];
@@ -777,7 +1352,8 @@ let dataLoaded = false;
 let adminDashFilteredSap = null; 
 let activeBranch = "";
 /** غيّر هذا الرقم مع كل إصدار منطق جديد لإبطال كاش IndexedDB تلقائياً */
-const APP_LOGIC_VERSION = "9.5";
+const APP_LOGIC_VERSION = "9.7";
+const APP_DISPLAY_VERSION = "V1.1";
 (function invalidateStaleAppCache() {
     try {
         let prev = localStorage.getItem("elaraby_app_logic_ver");
@@ -1004,20 +1580,17 @@ function renderLicenseNotificationsContent() {
         document.getElementById("popupTitle").innerHTML = "🪪 صور الرخص المحدثة من الموردين";
         
         // أزرار تنظيف ذكي (سوبر أدمن فقط) - نظام مجاني Base64
-        if (currentRole === "super_admin") {
+        if (canManageLicenses()) {
             let approxSize = estimateLicenseDocSize(globalAdminLicenseUpdates);
             let sizeKb = Math.round(approxSize / 1024);
             html += `<div style="margin-bottom:12px; text-align:center;">
                 <div style="font-size:11px; color:#666; margin-bottom:8px;">📦 حجم بيانات الرخص التقريبي: <b style="color:#075bb5;">${sizeKb} KB</b> / ~1000 KB</div>
-                <button onclick="cleanupOldLicenseImages()" style="background:#6c757d; color:#fff; border:none; padding:10px 14px; border-radius:8px; font-size:12px; font-weight:bold; cursor:pointer; margin:4px;">
-                    🧹 تنظيف الصور (أكثر من 30 يوم + معتمدة)
-                </button>
-                <button onclick="bulkDeleteOldLicenseRecords()" style="background:#dc3545; color:#fff; border:none; padding:10px 14px; border-radius:8px; font-size:12px; font-weight:bold; cursor:pointer; margin:4px;">
-                    🗑️ حذف مجمع للسجلات القديمة نهائياً
-                </button>
-                <button onclick="smartCleanupLicenseSpaceIfNeeded(globalAdminLicenseUpdates).then(()=>{renderLicenseNotificationsContent();updateAdminLicenseBadge();showAlert('✅ تم فحص المساحة وتنظيفها إن لزم.');})" style="background:#17a2b8; color:#fff; border:none; padding:10px 14px; border-radius:8px; font-size:12px; font-weight:bold; cursor:pointer; margin:4px;">
-                    📉 تحرير المساحة الآن (عند الامتلاء)
-                </button>
+                <div class="lic-actions-bar">
+                    <button type="button" class="lic-action-btn" style="background:#6c757d; color:#fff;" onclick="cleanupOldLicenseImages()">🧹 تنظيف (30 يوم + معتمدة)</button>
+                    <button type="button" class="lic-action-btn" style="background:#dc3545; color:#fff;" onclick="bulkDeleteOldLicenseRecords()">🗑️ حذف السجلات القديمة</button>
+                    <button type="button" class="lic-action-btn" style="background:#17a2b8; color:#fff;" onclick="forceFreeAllLicenseImages()">📉 تحرير المساحة فوراً</button>
+                </div>
+                <p style="font-size:10px; color:#666; margin:4px 0 0 0;">تحرير المساحة يحذف <b>الصور فقط</b> ويبقي سجل السيارة ومن قام بالرفع.</p>
             </div>`;
         }
 
@@ -1073,8 +1646,8 @@ function renderLicenseNotificationsContent() {
                         ${!isUpdated ? `
                             <button onclick="markLicenseUpdated('${update.id}')" style="flex:1; background:#28a745; color:#fff; border:none; padding:8px; border-radius:6px; font-weight:bold; cursor:pointer; font-size:12px;">✅ تم التحديث</button>
                         ` : ''}
-                        ${currentRole === "super_admin" ? `
-                            <button onclick="deleteLicenseUpdateRecord('${update.id}')" style="background:#dc3545; color:#fff; border:none; padding:8px 12px; border-radius:6px; font-weight:bold; cursor:pointer; font-size:12px;">🗑️ حذف السجل نهائياً</button>
+                        ${canManageLicenses() ? `
+                            <button type="button" class="lic-del-btn" onclick="deleteLicenseUpdateRecord('${update.id}')">🗑️ حذف السجل</button>
                         ` : ''}
                     </div>
                 </div>`;
@@ -1194,8 +1767,8 @@ async function markLicenseUpdated(updateId) {
 }
 
 async function deleteLicenseUpdateRecord(updateId) {
-    if(currentRole !== "super_admin") {
-        showAlert("🚫 عذراً، حذف سجلات الرخص مقتصر على مدير النظام (Super Admin) فقط.");
+    if(!canManageLicenses()) {
+        showAlert("🚫 عذراً، حذف سجلات الرخص يتطلب صلاحية إدارة الرخص أو حساب مدير النظام.");
         return;
     }
     if(!confirm("هل أنت متأكد من حذف هذا السجل وصوره نهائياً من النظام لتوفير المساحة؟")) return;
@@ -1231,8 +1804,8 @@ function updateAdminLicenseBadge() {
 
 // تنظيف الصور القديمة (أكثر من 30 يوم + تم اعتمادها) - سوبر أدمن فقط | النظام المجاني Base64
 async function cleanupOldLicenseImages() {
-    if (currentRole !== "super_admin") {
-        showAlert("🚫 هذه الخاصية متاحة لمدير النظام فقط.");
+    if (!canManageLicenses()) {
+        showAlert("🚫 هذه الخاصية تتطلب صلاحية إدارة الرخص أو حساب مدير النظام.");
         return;
     }
     if (!confirm("هل تريد حذف صور الرخص التي مر عليها أكثر من 30 يوماً وتم اعتمادها؟\n(الصور غير المعتمدة لن تُحذف)\n\nيمكن أيضاً حذف السجلات القديمة بالكامل من الزر أدناه.")) return;
@@ -1279,8 +1852,8 @@ async function cleanupOldLicenseImages() {
 
 // حذف مجمع للسجلات القديمة بالكامل (معتمدة + أكثر من 30 يوم) - سوبر أدمن
 async function bulkDeleteOldLicenseRecords() {
-    if (currentRole !== "super_admin") {
-        showAlert("🚫 هذه الخاصية متاحة لمدير النظام فقط.");
+    if (!canManageLicenses()) {
+        showAlert("🚫 هذه الخاصية تتطلب صلاحية إدارة الرخص أو حساب مدير النظام.");
         return;
     }
     if (!confirm("⚠️ سيتم حذف السجلات القديمة (أكثر من 30 يوم ومعتمدة) نهائياً من النظام.\nهل أنت متأكد؟")) return;
@@ -1716,11 +2289,54 @@ async function submitSupplierReplyModal(compId, event) {
     }
 }
 
+async function clearTripsPeriodNote() {
+    let f = document.getElementById("setTripsPeriodFrom");
+    let t = document.getElementById("setTripsPeriodTo");
+    if (f) f.value = "";
+    if (t) t.value = "";
+    await saveTripsPeriodNote();
+}
+async function saveTripsPeriodNote() {
+    if (currentRole !== "super_admin" && currentRole !== "admin") return;
+    if (!canAdminWrite()) { showAlert("🚫 حساب مشاهدة فقط."); return; }
+    let from = ((document.getElementById("setTripsPeriodFrom") || {}).value || "").trim();
+    let to = ((document.getElementById("setTripsPeriodTo") || {}).value || "").trim();
+    if (from && to && from > to) {
+        showAlert("تاريخ البداية يجب أن يكون قبل أو يساوي تاريخ النهاية.");
+        return;
+    }
+    let before = ((appSettings.tripsPeriodFrom || "") + " → " + (appSettings.tripsPeriodTo || "")).trim();
+    let note = "";
+    if (from && to) note = "من " + formatPeriodDateAr(from) + " إلى " + formatPeriodDateAr(to);
+    else if (from) note = "من " + formatPeriodDateAr(from);
+    else if (to) note = "حتى " + formatPeriodDateAr(to);
+    appSettings.tripsPeriodFrom = from;
+    appSettings.tripsPeriodTo = to;
+    appSettings.tripsPeriodNote = note;
+    try {
+        await db.collection("system").doc("appSettings").set({
+            tripsPeriodFrom: from,
+            tripsPeriodTo: to,
+            tripsPeriodNote: note,
+            updatedAt: Date.now(),
+            updatedBy: currentUserName || ""
+        }, { merge: true });
+        applyAppBranding();
+        if (typeof logAudit === "function") logAudit("تحديث فترة بيانات الرحلات", "الفترة الظاهرة للموردين في واجهة البيانات", { before: before || "—", after: note || "(فارغة)" });
+        showAlert("✅ تم حفظ فترة بيانات الرحلات.");
+        flashAdminResult("✅ تم حفظ فترة الرحلات.", 3000);
+    } catch (e) {
+        showAlert("❌ " + e.message);
+    }
+}
 async function loadUploadedFiles() {
     let listDiv = document.getElementById("uploadedFilesList");
     listDiv.innerHTML = "⏳ جاري تحميل الملفات...";
     try {
         let snap = await db.collection("systemFiles").orderBy("date", "desc").get();
+        let count = snap.size || 0;
+        let badge = document.getElementById("uploadedFilesCountBadge");
+        if (badge) badge.textContent = "(" + count + " ملف)";
         if(snap.empty) {
             listDiv.innerHTML = `<span style="font-size:12px; color:#666;">لا توجد بيانات مرفوعة حالياً.</span>`;
             return;
@@ -1742,6 +2358,8 @@ async function loadUploadedFiles() {
     } catch(e) {
         console.error(e);
         listDiv.innerHTML = "❌ خطأ في تحميل الملفات المرفوعة.";
+        let badge = document.getElementById("uploadedFilesCountBadge");
+        if (badge) badge.textContent = "(—)";
     }
 }
 
@@ -2231,7 +2849,8 @@ async function safeUploadTest(inputId, label) {
                     matchNote = `<br><span style="color:#155724;font-size:12px;">✓ تم تخزين السجلات باسم المكتب وربط ${m.matched} برقم المورد.</span>`;
                 }
             }
-            resultDiv.innerHTML = `✅ تم رفع وتحديث ${label} بنجاح (${data.length} سجل)!` + matchNote;
+            if (typeof logAudit === "function") logAudit("رفع ملف بيانات", label || inputId || "ملف");
+                resultDiv.innerHTML = `✅ تم رفع وتحديث ${label} بنجاح (${data.length} سجل)!` + matchNote;
             fileInput.value = "";
             
             loadUploadedFiles();
@@ -2296,6 +2915,7 @@ async function deleteUploadedFile(fileId, collectionName, fileName) {
         await updateSystemVersion();
 
         document.getElementById("adminResult").innerHTML = `✅ تم حذف الملف "${fileName}" واستبعاد ${removedCount} سجل بنجاح.`;
+        if (typeof logAudit === "function") logAudit("حذف ملف مرفوع", "تم حذف الملف واستبعاد سجلاته", { before: fileName, after: "محذوف" });
         loadUploadedFiles();
         dataLoaded = false;
         loadSupplierData();
@@ -2313,7 +2933,207 @@ async function deleteUploadedFile(fileId, collectionName, fileName) {
     }
 }
 
+async function deleteCollectionInBatches(colName, filterFn) {
+    let snap = await db.collection(colName).get();
+    let docs = snap.docs;
+    if (typeof filterFn === "function") docs = docs.filter(filterFn);
+    for (let i = 0; i < docs.length; i += 400) {
+        let batch = db.batch();
+        docs.slice(i, i + 400).forEach(d => batch.delete(d.ref));
+        await batch.commit();
+    }
+    return docs.length;
+}
+
+
+async function loadAuditLog() {
+    let box = document.getElementById("auditLogList");
+    if (!box) return;
+    if (!canViewAudit()) { box.innerHTML = "🚫 لا صلاحية لعرض السجل."; return; }
+    box.innerHTML = "⏳ جاري التحميل...";
+    try {
+        let snap = await db.collection("auditLog").orderBy("at", "desc").limit(150).get();
+        _auditLogCache = [];
+        snap.forEach(doc => {
+            let d = doc.data() || {};
+            d._id = doc.id;
+            _auditLogCache.push(d);
+        });
+        if (!_auditLogCache.length) {
+            box.innerHTML = "<span style='color:#666;'>لا توجد عمليات مسجّلة بعد. ستظهر هنا بعد أي إجراء من الإدارة.</span>";
+            return;
+        }
+        filterAuditLogList();
+    } catch (e) {
+        console.error(e);
+        // بدون فهرس: جلب بدون orderBy وترتيب محلي
+        try {
+            let snap2 = await db.collection("auditLog").limit(150).get();
+            _auditLogCache = [];
+            snap2.forEach(doc => { let d = doc.data()||{}; d._id = doc.id; _auditLogCache.push(d); });
+            _auditLogCache.sort((a,b) => (b.at||0) - (a.at||0));
+            filterAuditLogList();
+        } catch (e2) {
+            box.innerHTML = "❌ تعذر تحميل السجل: " + (e.message || e2.message);
+        }
+    }
+}
+
+async function downloadSystemBackup() {
+    if (currentRole !== "super_admin" && !(adminPermissions && adminPermissions.data)) {
+        showAlert("🚫 النسخة الاحتياطية للمشرفين المخوّلين أو السوبر.");
+        return;
+    }
+    showAlert("⏳ جاري تجهيز النسخة الاحتياطية...");
+    try {
+        let backup = {
+            version: (typeof APP_DISPLAY_VERSION !== "undefined" ? APP_DISPLAY_VERSION : "V1.1"),
+            exportedAt: new Date().toISOString(),
+            exportedBy: currentUserName || "",
+            appSettings: Object.assign({}, appSettings, { logoDataUrl: appSettings.logoDataUrl ? "[logo omitted in text backup — re-upload if needed]" : "" }),
+            systemFiles: [],
+            suppliers: [],
+            admins: [],
+            messages: globalMessages || [],
+            complaints: [],
+            notes: [],
+            licensesMeta: []
+        };
+        let sf = await db.collection("systemFiles").get();
+        sf.forEach(doc => backup.systemFiles.push(Object.assign({ id: doc.id }, doc.data())));
+        let sup = await db.collection("suppliers").get();
+        sup.forEach(doc => {
+            let d = doc.data() || {};
+            backup.suppliers.push({ id: doc.id, ownerName: d.ownerName, sapNumber: d.sapNumber, officeName: d.officeName, phone: d.phone, isActive: d.isActive });
+        });
+        let us = await db.collection("users").get();
+        us.forEach(doc => {
+            let d = doc.data() || {};
+            if (d.role === "admin" || d.role === "super_admin")
+                backup.admins.push({ id: doc.id, ownerName: d.ownerName, phone: d.phone, role: d.role, permissions: d.permissions });
+        });
+        let comps = await db.collection("complaints").limit(500).get();
+        comps.forEach(doc => backup.complaints.push(Object.assign({ id: doc.id }, doc.data())));
+        let notes = await db.collection("notes").get();
+        notes.forEach(doc => backup.notes.push(Object.assign({ id: doc.id }, doc.data())));
+        let lic = await db.collection("uploadedFiles").doc("ALL_LICENSE_UPDATES").get();
+        if (lic.exists) {
+            let updates = (lic.data().updates || []).map(u => ({
+                id: u.id, plate: u.plate, code: u.code, supplierSap: u.supplierSap, supplierName: u.supplierName,
+                isUpdated: u.isUpdated, timestamp: u.timestamp, imagesCount: (u.images && u.images.length) || 0
+            }));
+            backup.licensesMeta = updates;
+        }
+        let blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+        let a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "backup_fleet_" + new Date().toISOString().slice(0,10) + ".json";
+        a.click();
+        URL.revokeObjectURL(a.href);
+        if (typeof logAudit === "function") logAudit("تحميل نسخة احتياطية", "تم تنزيل ملف JSON للأرشفة");
+        showAlert("✅ تم تحميل النسخة الاحتياطية.");
+    } catch (e) {
+        console.error(e);
+        showAlert("❌ فشل النسخة الاحتياطية: " + e.message);
+    }
+}
+
+function openWhatsAppWithPassword(phone, pass, name) {
+    let raw = String(phone || "").replace(/\D/g, "");
+    if (!raw) { showAlert("لا يوجد رقم هاتف."); return; }
+    if (raw.startsWith("00")) raw = raw.slice(2);
+    if (raw.startsWith("0")) raw = "20" + raw.slice(1);
+    if (!raw.startsWith("20") && raw.length === 10) raw = "20" + raw;
+    let msg = "مرحباً" + (name ? " " + name : "") + "\\nكلمة المرور الخاصة بحسابك في بوابة الموردين:\\n" + (pass || "") + "\\nيرجى تغييرها بعد الدخول إن أمكن.";
+    let url = "https://wa.me/" + raw + "?text=" + encodeURIComponent(msg.replace(/\\n/g, "\n"));
+    window.open(url, "_blank");
+    if (typeof logAudit === "function") logAudit("إرسال باسورد واتساب", "فتح واتساب لرقم: " + phone);
+}
+
+async function factoryResetSection(section) {
+    if (currentRole !== "super_admin") {
+        showAlert("🚫 تهيئة الأقسام متاحة لمدير النظام (سوبر أدمن) فقط.");
+        return;
+    }
+    if (!canAdminWrite()) { showAlert("🚫 حساب مشاهدة فقط."); return; }
+    if (confirm("يُنصح بنسخة احتياطية أولاً.\nموافق = تحميل نسخة احتياطية الآن\nإلغاء = المتابعة بدون نسخة")) {
+        try { await downloadSystemBackup(); } catch (e) {}
+    }
+    const labels = {
+        complaints: "كل المقترحات والشكاوى",
+        messages: "كل الرسائل العامة",
+        suppliers: "كل حسابات الموردين",
+        admins: "كل المشرفين (عدا حسابك الحالي)",
+        notes: "كل ملاحظات الرحلات الفاشلة",
+        licenses: "كل سجلات وصور الرخص",
+        full: "تهيئة كاملة: بيانات السيارات/الرحلات/المستحقات + الملاحظات + الرخص + الرسائل + الشكاوى (بدون حذف المشرفين والموردين والإعدادات)"
+    };
+    let label = labels[section] || section;
+    if (!confirm("⚠️ تأكيد أول: هل تريد مسح «" + label + "» نهائياً؟")) return;
+    let typed = prompt("للتأكيد اكتب كلمة: مسح");
+    if (typed !== "مسح") { showAlert("تم الإلغاء."); return; }
+    flashAdminResult("⏳ جاري التهيئة...", 60000);
+    try {
+        let n = 0;
+        if (section === "complaints") {
+            n = await deleteCollectionInBatches("complaints");
+            showAlert("✅ تم حذف " + n + " شكوى/مقترح.");
+        } else if (section === "messages") {
+            await db.collection("uploadedFiles").doc("GLOBAL_MESSAGES").set({ messages: [] });
+            globalMessages = [];
+            showAlert("✅ تم تفريغ الرسائل.");
+        } else if (section === "suppliers") {
+            n = await deleteCollectionInBatches("suppliers");
+            showAlert("✅ تم حذف " + n + " مورد. أعد إنشاء الموردين عند الحاجة.");
+        } else if (section === "admins") {
+            let me = firebase.auth().currentUser && firebase.auth().currentUser.uid;
+            n = await deleteCollectionInBatches("users", doc => {
+                let d = doc.data() || {};
+                if (doc.id === me) return false;
+                if (d.role === "super_admin" && doc.id === me) return false;
+                return d.role === "admin" || d.role === "super_admin";
+            });
+            // لا نحذف حساب السوبر الحالي
+            showAlert("✅ تم حذف " + n + " مشرف (تم الإبقاء على حسابك).");
+            if (typeof loadAdminsList === "function") loadAdminsList();
+        } else if (section === "notes") {
+            n = await deleteCollectionInBatches("notes");
+            if (globalTrips) globalTrips.forEach(t => { delete t.note; });
+            showAlert("✅ تم حذف " + n + " ملاحظة رحلة.");
+            if (typeof refreshFailedTripsStats === "function") refreshFailedTripsStats();
+        } else if (section === "licenses") {
+            await db.collection("uploadedFiles").doc("ALL_LICENSE_UPDATES").set({ updates: [] });
+            globalAdminLicenseUpdates = [];
+            showAlert("✅ تم تفريغ سجلات الرخص.");
+        } else if (section === "full") {
+            if (typeof wipeAllData === "function") await wipeAllData();
+            n = await deleteCollectionInBatches("notes");
+            await db.collection("uploadedFiles").doc("ALL_LICENSE_UPDATES").set({ updates: [] });
+            globalAdminLicenseUpdates = [];
+            await db.collection("uploadedFiles").doc("GLOBAL_MESSAGES").set({ messages: [] });
+            globalMessages = [];
+            let cn = await deleteCollectionInBatches("complaints");
+            showAlert("✅ تهيئة كاملة: بيانات التشغيل + ملاحظات + رخص + رسائل + شكاوى (" + cn + "). المشرفون والموردون والإعدادات لم تُحذف.");
+        }
+        if (typeof logAudit === "function") logAudit("تهيئة قسم", label, { before: "بيانات موجودة", after: "تم المسح: " + section });
+        flashAdminResult("✅ اكتملت التهيئة.", 4000);
+    } catch (e) {
+        console.error(e);
+        showAlert("❌ فشل التهيئة: " + e.message);
+        flashAdminResult("❌ فشل التهيئة", 5000);
+    }
+}
+
 async function wipeAllData() {
+    let canWipe = (currentRole === "super_admin") || (currentRole === "admin" && adminPermissions && adminPermissions.wipe);
+    if (!canWipe) {
+        showAlert("🚫 ليس لديك صلاحية المسح الشامل لقاعدة البيانات. اطلب تفعيلها من مدير النظام.");
+        return;
+    }
+    if (!canAdminWrite()) { showAlert("🚫 حساب مشاهدة فقط."); return; }
+    if (confirm("تحميل نسخة احتياطية قبل المسح؟")) {
+        try { await downloadSystemBackup(); } catch (e) {}
+    }
     if(!confirm("⚠️ تحذير: هل أنت متأكد من مسح كافة بيانات السيارات والرحلات؟")) return;
     let pwd = prompt("لتأكيد المسح الشامل، اكتب كلمة 'مسح':");
     if (pwd !== "مسح") { showAlert("تم إلغاء عملية المسح."); return; }
@@ -2473,15 +3293,13 @@ async function exportSupplierDataToExcel() {
 }
 function applyAdminPermissionsUI() {
     if(currentRole === "super_admin") {
-        document.getElementById("btn-tab-admins").classList.remove("hide");
-        document.getElementById("btn-tab-data").classList.remove("hide");
-        document.getElementById("btn-tab-suppliers").classList.remove("hide");
-        document.getElementById("btn-tab-msgs").classList.remove("hide");
-        document.getElementById("btn-tab-reports").classList.remove("hide");
-        document.getElementById("btn-tab-complaints").classList.remove("hide");
-        
+        ["btn-tab-admins","btn-tab-data","btn-tab-suppliers","btn-tab-msgs","btn-tab-reports","btn-tab-complaints","btn-tab-settings","btn-tab-audit"].forEach(id => {
+            let el = document.getElementById(id); if (el) el.classList.remove("hide");
+        });
         document.getElementById("adminNotificationBtn").classList.remove("hide");
         document.getElementById("msgIconWrap").classList.remove("hide");
+        let wipeEl = document.getElementById("acc_wipe");
+        if (wipeEl) wipeEl.style.display = "";
     } else if (currentRole === "admin") {
         document.getElementById("btn-tab-admins").classList.add("hide"); 
         
@@ -2509,6 +3327,36 @@ function applyAdminPermissionsUI() {
         
         if(adminPermissions.complaints) document.getElementById("btn-tab-complaints").classList.remove("hide");
         else document.getElementById("btn-tab-complaints").classList.add("hide");
+
+        let btnSet = document.getElementById("btn-tab-settings");
+        if (btnSet) btnSet.classList.add("hide");
+        let btnAud = document.getElementById("btn-tab-audit");
+        if (btnAud) {
+            if (adminPermissions && adminPermissions.audit) btnAud.classList.remove("hide");
+            else btnAud.classList.add("hide");
+        }
+        // مشاهدة فقط: تعطيل أقسام الكتابة الظاهرة
+        if (adminPermissions && adminPermissions.readonly) {
+            document.querySelectorAll("#adminPanel button.btn-sm, #adminPanel .lic-action-btn, #adminPanel .lic-del-btn").forEach(b => {
+                if (b.closest("#tab-reports")) return;
+                if (b.getAttribute("onclick") && b.getAttribute("onclick").indexOf("export") >= 0) return;
+            });
+        }
+
+        // قسم المسح الشامل: سوبر أدمن دائماً، أو أدمن بصلاحية wipe فقط
+        let wipeEl = document.getElementById("acc_wipe");
+        if (wipeEl) {
+            if (adminPermissions && adminPermissions.wipe) wipeEl.style.display = "";
+            else wipeEl.style.display = "none";
+        }
+
+        // إن مُنعت صلاحية البيانات: أخفِ محتوى التبويب ولا تتركه نشطاً
+        let tabData = document.getElementById("tab-data");
+        let btnData = document.getElementById("btn-tab-data");
+        if (tabData && !(adminPermissions && adminPermissions.data)) {
+            tabData.classList.remove("active");
+            if (btnData) btnData.classList.remove("active");
+        }
     }
 }
 
@@ -2524,12 +3372,18 @@ function listenAdminComps() {
             let unreadAdmin = globalComplaints.filter(c => c.status === 'open').length;
             let adminBadge = document.getElementById("adminCompBadge");
             if(adminBadge) {
+                let prev = parseInt(adminBadge.innerText || "0", 10) || 0;
                 if(unreadAdmin > 0) {
                     adminBadge.style.display = 'inline-block';
                     adminBadge.innerText = unreadAdmin;
+                    if (unreadAdmin > prev && (currentRole === "admin" || currentRole === "super_admin") && prev >= 0 && window._compBadgeInit) {
+                        if (typeof showAlert === "function") { /* soft: badge only */ }
+                        adminBadge.classList.add("pulse-badge-anim");
+                    }
                 } else {
                     adminBadge.style.display = 'none';
                 }
+                window._compBadgeInit = true;
             }
             if(document.getElementById("adminPanel").style.display === "block") {
                 renderAdminComplaints();
@@ -2600,7 +3454,7 @@ let roleDoc = await db.collection("users").doc(user.user.uid).get();
 
 if (user.user.email === "mohfawze2010@gmail.com") {
     currentRole = "super_admin";
-    adminPermissions = {data: true, suppliers: true, msgs: true, reports: true, complaints: true};
+    adminPermissions = {data: true, suppliers: true, msgs: true, reports: true, complaints: true, wipe: false};
     db.collection("users").doc(user.user.uid).set({
         ownerName: "محمد فوزي",
         role: "super_admin", 
@@ -2612,7 +3466,7 @@ if (user.user.email === "mohfawze2010@gmail.com") {
     let rData = roleDoc.data();
     if(rData.role === "super_admin") {
         currentRole = "super_admin";
-        adminPermissions = {data: true, suppliers: true, msgs: true, reports: true, complaints: true};
+        adminPermissions = {data: true, suppliers: true, msgs: true, reports: true, complaints: true, wipe: false};
     } else {
         currentRole = "admin";
         adminPermissions = rData.permissions || {data: true, suppliers: true, msgs: true, reports: true, complaints: true};
@@ -2715,20 +3569,99 @@ function toggleUploadAccordion(id) {
 }
 
 function switchAdminTab(tabId, btnElement) {
+    // منع فتح تبويب غير مسموح (حتى لو استُدعي من الكود)
+    if (currentRole === "admin") {
+        const map = {
+            "tab-data": "data",
+            "tab-suppliers": "suppliers",
+            "tab-msgs": "msgs",
+            "tab-complaints": "complaints",
+            "tab-reports": "reports"
+        };
+        let need = map[tabId];
+        if (need && !(adminPermissions && adminPermissions[need])) {
+            return;
+        }
+        if (tabId === "tab-admins" || tabId === "tab-settings") return;
+        if (tabId === "tab-audit" && !(adminPermissions && adminPermissions.audit)) return;
+    }
     document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.getElementById(tabId).classList.add('active');
-    if(btnElement) btnElement.classList.add('active');
+    let tabEl = document.getElementById(tabId);
+    if (tabEl) tabEl.classList.add('active');
+    if (btnElement) btnElement.classList.add('active');
+    if (tabId === 'tab-settings') {
+        let n = document.getElementById('setAppName');
+        let s = document.getElementById('setAppShort');
+        let c = document.getElementById('setCompanyNote');
+        let prev = document.getElementById('setLogoPreview');
+        if (n) n.value = appSettings.appName || '';
+        if (s) s.value = appSettings.appShortName || '';
+        if (c) c.value = appSettings.companyNote || '';
+        if (prev && appSettings.logoDataUrl) { prev.src = appSettings.logoDataUrl; prev.style.display = 'block'; }
+        else if (prev) { prev.style.display = 'none'; }
+    }
+    if (tabId === 'tab-reports' && typeof refreshFailedTripsStats === 'function') {
+        refreshFailedTripsStats();
+    }
+    if (tabId === 'tab-audit' && typeof loadAuditLog === 'function') loadAuditLog();
+    if (tabId === 'tab-settings') {
+        let dn = document.getElementById('setDesignerName');
+        let de = document.getElementById('setDesignerEmail');
+        let dog = document.getElementById('setDesignerOrg');
+        if (dn) dn.value = appSettings.designerName || '';
+        if (de) de.value = appSettings.designerEmail || '';
+        if (dog) dog.value = appSettings.designerOrg || '';
+        let dv = document.getElementById('setDisplayVersion');
+        if (dv) dv.value = appSettings.displayVersion || 'V1.1';
+        let pf = document.getElementById('setTripsPeriodFrom');
+        let pt = document.getElementById('setTripsPeriodTo');
+        if (pf) pf.value = appSettings.tripsPeriodFrom || '';
+        if (pt) pt.value = appSettings.tripsPeriodTo || '';
+    }
 }
 
 function openAdmin(){
  document.getElementById("adminPanel").style.display="block";
  history.pushState(null, null, "#admin");
- loadUploadedFiles(); 
- renderAdminComplaints(); 
- 
- switchAdminTab('tab-data', document.getElementById('btn-tab-data'));
- loadAdminsList(); 
+ if (typeof applyAdminPermissionsUI === "function") applyAdminPermissionsUI();
+
+ // افتح أول تبويب مسموح فقط (لا تُظهر البيانات إن مُنعت)
+ let tabOrder = [
+   { perm: "data", btn: "btn-tab-data", tab: "tab-data", needLoadFiles: true },
+   { perm: "suppliers", btn: "btn-tab-suppliers", tab: "tab-suppliers" },
+   { perm: "msgs", btn: "btn-tab-msgs", tab: "tab-msgs" },
+   { perm: "complaints", btn: "btn-tab-complaints", tab: "tab-complaints", needComps: true },
+   { perm: "reports", btn: "btn-tab-reports", tab: "tab-reports" },
+   { perm: "audit", btn: "btn-tab-audit", tab: "tab-audit" },
+   { perm: "admins", btn: "btn-tab-admins", tab: "tab-admins", needAdmins: true, superOnly: true },
+   { perm: "settings", btn: "btn-tab-settings", tab: "tab-settings", superOnly: true, needSettings: true }
+ ];
+ let chosen = null;
+ for (let t of tabOrder) {
+   if (currentRole === "super_admin") { chosen = t; break; }
+   if (t.superOnly) continue;
+   if (adminPermissions && adminPermissions[t.perm]) { chosen = t; break; }
+ }
+ // إخفاء محتوى كل التبويبات أولاً
+ document.querySelectorAll("#adminPanel .tab-content").forEach(el => el.classList.remove("active"));
+ document.querySelectorAll("#adminPanel .tab-btn").forEach(el => el.classList.remove("active"));
+ if (chosen) {
+   if (chosen.needLoadFiles && typeof loadUploadedFiles === "function") loadUploadedFiles();
+   if (chosen.needComps && typeof renderAdminComplaints === "function") renderAdminComplaints();
+   if (chosen.needAdmins && typeof loadAdminsList === "function") loadAdminsList();
+   // super_admin: حمّل الملفات والشكاوى والمشرفين كالسابق
+   if (currentRole === "super_admin") {
+     if (typeof loadUploadedFiles === "function") loadUploadedFiles();
+     if (typeof renderAdminComplaints === "function") renderAdminComplaints();
+     if (typeof loadAdminsList === "function") loadAdminsList();
+   }
+   switchAdminTab(chosen.tab, document.getElementById(chosen.btn));
+ } else {
+   let ar = document.getElementById("adminResult");
+   if (ar) ar.innerHTML = "لا توجد تبويبات مفعّلة لهذا الحساب. راجع الصلاحيات مع مدير النظام.";
+ }
+ if (currentRole === "super_admin" && typeof loadAdminsList === "function") loadAdminsList();
 }
 
 function closeAdmin(){ history.back(); }
@@ -2802,38 +3735,54 @@ function selectMsgSupplier(sap, name) {
 
 <div id="adminPanel" class="popup-box">
 <div class="card container" style="display:flex; flex-direction:column; height:95vh; padding:10px;">
-    <h3 style="color:#075bb5; font-size:16px; text-align:center; margin-top:5px; margin-bottom:15px;">⚙️ لوحة الإدارة الشاملة</h3>
+    <h3 id="appTitleAdmin" style="color:#075bb5; font-size:16px; text-align:center; margin-top:5px; margin-bottom:15px;">⚙️ لوحة الإدارة الشاملة</h3>
     
     <div class="admin-tabs">
       <button id="btn-tab-data" class="tab-btn active hide" onclick="switchAdminTab('tab-data', this)">📂 البيانات</button>
       <button id="btn-tab-admins" class="tab-btn hide" onclick="switchAdminTab('tab-admins', this)">👑 المشرفين</button>
       <button id="btn-tab-suppliers" class="tab-btn hide" onclick="switchAdminTab('tab-suppliers', this)">👥 الموردين</button>
       <button id="btn-tab-msgs" class="tab-btn hide" onclick="switchAdminTab('tab-msgs', this)">✉️ الرسائل</button>
-      <button id="btn-tab-complaints" class="tab-btn hide" onclick="switchAdminTab('tab-complaints', this)">💡 المقترحات والشكاوى <span id="adminCompBadge" style="background:#dc3545;color:white;border-radius:10px;padding:2px 6px;font-size:10px;display:none;margin-right:5px;">0</span></button>
-      <button id="btn-tab-reports" class="tab-btn hide" onclick="switchAdminTab('tab-reports', this)">📊 التقارير</button>
+      <button id="btn-tab-complaints" class="tab-btn hide" onclick="switchAdminTab('tab-complaints', this)">💡 الشكاوى <span id="adminCompBadge" style="background:#dc3545;color:white;border-radius:10px;padding:2px 6px;font-size:10px;display:none;margin-right:5px;">0</span></button>
+      <button id="btn-tab-reports" class="tab-btn hide" onclick="switchAdminTab('tab-reports', this)">📊 رحلات فاشلة</button>
+      <button id="btn-tab-audit" class="tab-btn hide" onclick="switchAdminTab('tab-audit', this)">📋 سجل العمليات</button>
+      <button id="btn-tab-settings" class="tab-btn hide" onclick="switchAdminTab('tab-settings', this)">⚙️ الإعدادات</button>
     </div>
+    <div style="text-align:center; font-size:10px; color:#888; margin:-6px 0 8px 0;">الإصدار <span id="appVersionAdmin">V1.1</span></div>
 
     <div id="adminResult" style="font-weight: bold; font-size:12px; color: #075bb5; background:#e9f5ff; padding:10px; border-radius:8px; text-align:center; margin-bottom:10px; border:1px solid #cce5ff;">مرحباً بك في لوحة الإدارة</div>
 
     <div style="flex:1; overflow-y:auto; padding-right:5px; padding-left:5px;">
         
         <div id="tab-admins" class="tab-content">
-            <div style="background:#fdfdfd; padding:12px; border-radius:10px; border:1px solid #007bff; margin-bottom:15px;">
-                <h4 style="margin:0 0 8px 0; font-size:14px; color:#004085;">➕ إنشاء مشرف جديد</h4>
-                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px; margin-bottom:10px;">
-                    <input type="text" id="newAdminName" placeholder="اسم المشرف" style="margin:0; padding:8px; font-size:12px;">
-                    <input type="text" id="newAdminPhone" placeholder="رقم الهاتف (للدخول)" style="margin:0; padding:8px; font-size:12px;">
-                    <input type="text" id="newAdminPass" placeholder="كلمة المرور" style="margin:0; padding:8px; font-size:12px; grid-column: 1 / -1;">
+            <div class="upload-accordion" data-color="blue" id="acc_new_admin" style="margin-bottom:12px;">
+                <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_new_admin')">
+                    <span class="upload-acc-plus">+</span>
+                    <p class="upload-acc-title">➕ إضافة مشرف جديد</p>
                 </div>
-                <div style="background:#e9ecef; padding:10px; border-radius:8px; font-size:12px; line-height:1.8;">
-                    <b style="color:#333;">صلاحيات المشرف:</b><br>
-                    <label><input type="checkbox" id="chk_data"> 📂 رفع البيانات والمسح الشامل</label><br>
-                    <label><input type="checkbox" id="chk_suppliers"> 👥 إدارة الموردين (وعرض الباسورد والطلبات)</label><br>
-                    <label><input type="checkbox" id="chk_msgs"> ✉️ إرسال وحذف الرسائل العامة</label><br>
-                    <label><input type="checkbox" id="chk_complaints"> 💡 إدارة المقترحات والشكاوى</label><br>
-                    <label><input type="checkbox" id="chk_reports"> 📊 تحميل تقرير الملاحظات</label>
+                <div class="upload-acc-body">
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px; margin-bottom:10px;">
+                        <input type="text" id="newAdminName" placeholder="اسم المشرف" style="margin:0; padding:8px; font-size:12px;">
+                        <input type="text" id="newAdminPhone" placeholder="رقم الهاتف (للدخول)" style="margin:0; padding:8px; font-size:12px;">
+                        <input type="text" id="newAdminPass" placeholder="كلمة المرور" style="margin:0; padding:8px; font-size:12px; grid-column: 1 / -1;">
+                    </div>
+                    <div style="background:#f0f4f8; padding:10px; border-radius:8px; border:1px solid #d0d7de;">
+                        <b style="color:#333; font-size:12px;">صلاحيات المشرف:</b>
+                        <div class="perm-grid">
+                            <label class="perm-item">📂 بيانات<input type="checkbox" id="chk_data"></label>
+                            <label class="perm-item">👥 موردين<input type="checkbox" id="chk_suppliers"></label>
+                            <label class="perm-item">✉️ رسائل<input type="checkbox" id="chk_msgs"></label>
+                            <label class="perm-item">💡 شكاوى<input type="checkbox" id="chk_complaints"></label>
+                            <label class="perm-item">📊 تقارير<input type="checkbox" id="chk_reports"></label>
+                            <label class="perm-item" style="border-color:#f5c6cb; color:#842029;">🗑 مسح شامل<input type="checkbox" id="chk_wipe"></label>
+                            <label class="perm-item">🪪 الرخص<input type="checkbox" id="chk_licenses"></label>
+                            <label class="perm-item">🔑 حذف طلبات<input type="checkbox" id="chk_pwdDelete"></label>
+                            <label class="perm-item">📋 سجل عمليات<input type="checkbox" id="chk_audit"></label>
+                            <label class="perm-item" style="border-color:#ffc107; color:#856404;">👁 مشاهدة فقط<input type="checkbox" id="chk_readonly"></label>
+                        </div>
+                        <p style="font-size:10px; color:#842029; margin:8px 0 0 0; line-height:1.4;">⚠️ مسح شامل / الرخص / حذف طلبات — بحذر. «مشاهدة فقط» تمنع أي تعديل.</p>
+                    </div>
+                    <button type="button" onclick="createNewAdmin()" style="background:#007bff; font-weight:bold; margin-top:10px; padding:10px; width:100%; border:none; border-radius:8px; color:#fff; cursor:pointer;">إضافة المشرف</button>
                 </div>
-                <button onclick="createNewAdmin()" style="background:#007bff; font-weight:bold; margin-top:8px; padding:10px;">إضافة المشرف</button>
             </div>
             
             <div style="background:#fdfdfd; padding:12px; border-radius:10px; border:1px solid #cce5ff;">
@@ -2883,6 +3832,29 @@ function selectMsgSupplier(sap, name) {
                 </div>
             </div>
 
+            <!-- 2ب. ملاحظة فترة الرحلات -->
+            <div class="upload-accordion" data-color="teal" id="acc_trips_period" style="margin-bottom:8px;">
+                <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_trips_period')">
+                    <span class="upload-acc-plus">+</span>
+                    <p class="upload-acc-title">📅 ملاحظة فترة بيانات الرحلات (للموردين)</p>
+                </div>
+                <div class="upload-acc-body">
+                    <p style="font-size:11px; color:#666; margin:0 0 10px 0; line-height:1.5;">تظهر للمورد في واجهة البيانات الجملة الثابتة:<br><b>بيانات الرحلات المعروضة عن الفترة:</b> من … إلى …<br>(خاصة بالرحلات وليست المستحقات). اختر التواريخ من التقويم لتوحيد الصيغة.</p>
+                    <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end;">
+                        <div style="flex:1; min-width:140px;">
+                            <label style="font-size:12px; font-weight:bold; display:block; margin-bottom:4px;">من تاريخ</label>
+                            <input type="date" id="setTripsPeriodFrom" style="width:100%; padding:10px; border-radius:8px; border:1px solid #7ec8d4; box-sizing:border-box; font-family:tahoma; font-size:14px;">
+                        </div>
+                        <div style="flex:1; min-width:140px;">
+                            <label style="font-size:12px; font-weight:bold; display:block; margin-bottom:4px;">إلى تاريخ</label>
+                            <input type="date" id="setTripsPeriodTo" style="width:100%; padding:10px; border-radius:8px; border:1px solid #7ec8d4; box-sizing:border-box; font-family:tahoma; font-size:14px;">
+                        </div>
+                        <button type="button" class="btn-sm" onclick="saveTripsPeriodNote()" style="background:#17a2b8; width:auto !important; margin:0;">💾 حفظ الفترة</button>
+                        <button type="button" class="btn-sm" onclick="clearTripsPeriodNote()" style="background:#6c757d; width:auto !important; margin:0;">مسح</button>
+                    </div>
+                </div>
+            </div>
+
             <!-- 3. المستحقات -->
             <div class="upload-accordion" data-color="green" id="acc_dues">
                 <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_dues')">
@@ -2906,7 +3878,7 @@ function selectMsgSupplier(sap, name) {
             <div class="upload-accordion" data-color="gray" id="acc_files">
                 <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_files')">
                     <span class="upload-acc-plus">+</span>
-                    <p class="upload-acc-title">📂 الملفات المرفوعة سابقاً</p>
+                    <p class="upload-acc-title">📂 الملفات المرفوعة سابقاً <span id="uploadedFilesCountBadge" style="font-size:11px; font-weight:normal; color:#075bb5;">(0 ملف)</span></p>
                 </div>
                 <div class="upload-acc-body">
                     <div id="uploadedFilesList" class="file-list"></div>
@@ -2917,12 +3889,12 @@ function selectMsgSupplier(sap, name) {
             <div class="upload-accordion" data-color="red" id="acc_wipe">
                 <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_wipe')">
                     <span class="upload-acc-plus">+</span>
-                    <p class="upload-acc-title">⚠️ تهيئة النظام (مسح شامل)</p>
+                    <p class="upload-acc-title">⚠️ تهيئة النظام — مسح البيانات المرفوعة</p>
                 </div>
                 <div class="upload-acc-body">
-                    <p style="font-size:12px; color:#721c24; margin:0 0 10px 0;">يحذف كل بيانات السيارات والرحلات والملفات المرتبطة. لا يمكن التراجع.</p>
+                    <p style="font-size:12px; color:#721c24; margin:0 0 10px 0;">يمسح كافة بيانات السيارات والرحلات والمستحقات والملفات المرفوعة. لا يمكن التراجع.</p>
                     <div class="upload-acc-actions">
-                        <button type="button" class="btn-sm" onclick="wipeAllData()" style="background:#dc3545;">🗑 مسح الكل</button>
+                        <button type="button" class="btn-sm" onclick="wipeAllData()" style="background:#dc3545; width:auto !important;">🗑 مسح كافة البيانات المرفوعة</button>
                     </div>
                 </div>
             </div>
@@ -2930,35 +3902,52 @@ function selectMsgSupplier(sap, name) {
         </div>
 
         <div id="tab-suppliers" class="tab-content">
-            <div style="background:#fdfdfd; padding:12px; border-radius:10px; border:1px solid #17a2b8; margin-bottom:15px;">
-                <h4 style="margin:0 0 8px 0; font-size:14px; color:#004085;">➕ إنشاء مورد جديد (يدوي)</h4>
-                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px;">
-                    <input type="text" id="manualSupName" placeholder="اسم المورد" style="margin:0; font-size:12px; padding:8px;">
-                    <input type="text" id="manualSupSap" placeholder="رقم ساب" style="margin:0; font-size:12px; padding:8px;">
-                    <input type="text" id="manualSupOffice" placeholder="اسم المكتب" style="margin:0; font-size:12px; padding:8px;">
-                    <input type="text" id="manualSupPhone" placeholder="رقم الهاتف (للدخول)" style="margin:0; font-size:12px; padding:8px;">
-                    <input type="text" id="manualSupPass" placeholder="كلمة المرور الافتراضية" style="margin:0; font-size:12px; padding:8px; grid-column: 1 / -1;">
+            <div class="upload-accordion" data-color="green" id="acc_sup_create" style="margin-bottom:10px;">
+                <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_sup_create')">
+                    <span class="upload-acc-plus">+</span>
+                    <p class="upload-acc-title">➕ إنشاء مورد جديد (يدوي)</p>
                 </div>
-                <button onclick="createManualSupplier()" style="background:#28a745; font-weight:bold; margin-top:8px; padding:10px;">إضافة المورد</button>
+                <div class="upload-acc-body">
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px;">
+                        <input type="text" id="manualSupName" placeholder="اسم المورد" style="margin:0; font-size:12px; padding:8px;">
+                        <input type="text" id="manualSupSap" placeholder="رقم ساب" style="margin:0; font-size:12px; padding:8px;">
+                        <input type="text" id="manualSupOffice" placeholder="اسم المكتب" style="margin:0; font-size:12px; padding:8px;">
+                        <input type="text" id="manualSupPhone" placeholder="رقم الهاتف (للدخول)" style="margin:0; font-size:12px; padding:8px;">
+                        <input type="text" id="manualSupPass" placeholder="كلمة المرور الافتراضية" style="margin:0; font-size:12px; padding:8px; grid-column: 1 / -1;">
+                    </div>
+                    <div class="upload-acc-actions" style="margin-top:8px;">
+                        <button type="button" class="btn-sm" onclick="createManualSupplier()" style="background:#28a745; width:auto !important;">إضافة المورد</button>
+                    </div>
+                </div>
             </div>
 
-            <div style="background:#fdfdfd; padding:12px; border-radius:10px; border:1px solid #6c757d; margin-bottom:15px;">
-                <h4 style="margin:0 0 8px 0; font-size:14px; color:#333;">📁 إنشاء حسابات مجمعة (إكسيل)</h4>
-                <p style="font-size:11px; color:#666; margin-top:0;">ارفع ملف إكسيل يحتوي على: (رقم ساب، اسم المورد، اسم المكتب، رقم الهاتف، كلمة المرور).</p>
-                <button onclick="downloadExcelTemplate('suppliers')" style="background:#17a2b8; font-size:12px; padding:8px; margin-bottom:6px;">📄 تحميل شيت فارغ (قالب الموردين)</button>
-                <input type="file" id="suppliersFile" accept=".xlsx,.xls">
-                <button onclick="bulkUploadSuppliers('suppliersFile')" style="background:#6c757d; font-weight:bold; margin-top:8px;">📥 رفع وإنشاء الحسابات</button>
+            <div class="upload-accordion" data-color="blue" id="acc_sup_bulk" style="margin-bottom:10px;">
+                <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_sup_bulk')">
+                    <span class="upload-acc-plus">+</span>
+                    <p class="upload-acc-title">📁 إنشاء حسابات مجمعة (إكسيل)</p>
+                </div>
+                <div class="upload-acc-body">
+                    <p style="font-size:11px; color:#666; margin-top:0;">ارفع ملف إكسيل: رقم ساب، اسم المورد، اسم المكتب، رقم الهاتف، كلمة المرور.</p>
+                    <div class="upload-acc-actions" style="flex-wrap:wrap; gap:8px;">
+                        <button type="button" class="btn-sm" onclick="downloadExcelTemplate('suppliers')" style="background:#17a2b8; width:auto !important;">📄 تحميل قالب</button>
+                        <button type="button" class="btn-sm" onclick="bulkUploadSuppliers('suppliersFile')" style="background:#6c757d; width:auto !important;">📥 رفع وإنشاء</button>
+                    </div>
+                    <input type="file" id="suppliersFile" accept=".xlsx,.xls" style="margin-top:8px;">
+                </div>
             </div>
 
-            <div style="background:#fdfdfd; padding:12px; border-radius:10px; border:1px solid #cce5ff; margin-bottom:15px;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                    <h4 style="margin:0; font-size:14px; color:#004085;">🔑 إدارة الموردين (عرض الباسورد)</h4>
-                    <button onclick="exportSuppliersToExcel()" style="margin:0; width:auto; padding:6px 12px; font-size:11px; background:#17a2b8;">📥 تحميل الكشف (Excel)</button>
+            <div class="upload-accordion" data-color="blue" id="acc_sup_manage" style="margin-bottom:10px;">
+                <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_sup_manage')">
+                    <span class="upload-acc-plus">+</span>
+                    <p class="upload-acc-title">🔑 إدارة الموردين</p>
                 </div>
-                <div style="display:flex; gap:6px; margin-bottom:8px;">
-                    <input type="text" id="adminSupplierSearchInput" placeholder="ابحث برقم الهاتف، ساب، أو الاسم..." onkeyup="searchSupplierForPasswordReset()" style="margin:0; padding:8px; font-size:12px; flex:1;">
+                <div class="upload-acc-body">
+                    <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px;">
+                        <input type="text" id="adminSupplierSearchInput" placeholder="ابحث برقم الهاتف، ساب، أو الاسم..." onkeyup="searchSupplierForPasswordReset()" style="margin:0; padding:8px; font-size:12px; flex:1; min-width:160px;">
+                        <button type="button" class="btn-sm" onclick="exportSuppliersToExcel()" style="margin:0; width:auto !important; background:#17a2b8;">📥 تحميل الكشف</button>
+                    </div>
+                    <div id="supplierSearchResult" style="font-size:12px; color:#333; max-height:250px; overflow-y:auto;"></div>
                 </div>
-                <div id="supplierSearchResult" style="font-size:12px; color:#333; max-height:250px; overflow-y:auto;"></div>
             </div>
         </div>
 
@@ -2999,10 +3988,95 @@ function selectMsgSupplier(sap, name) {
         </div>
 
         <div id="tab-reports" class="tab-content">
-            <div style="background:#fdfdfd; padding:12px; border-radius:10px; border:1px solid #eee;">
-                <h4 style="margin:0 0 8px 0; font-size:14px; color:#333;">📊 تقارير الأعطال والملاحظات</h4>
-                <p style="font-size:12px; color:#666; margin-top:0;">يقوم هذا التقرير بتجميع كافة الملاحظات التي كتبها الموردون على الرحلات الفاشلة في ملف إكسيل واحد.</p>
-                <button onclick="exportNotesReport()" style="background:#28a745; font-weight:bold; margin-bottom:0;">📥 تحميل تقرير الملاحظات المجمعة</button>
+            <div style="background:#fdfdfd; padding:12px; border-radius:10px; border:1px solid #dc3545;">
+                <h4 style="margin:0 0 8px 0; font-size:14px; color:#c0392b;">📊 تقرير الرحلات الفاشلة</h4>
+                <div id="failedTripsStatsBox" style="background:#fff5f5; border:1px solid #f5c6cb; border-radius:8px; padding:10px 12px; margin-bottom:12px; font-size:12px; line-height:1.7; color:#333;">
+                    <div>📝 عدد الرحلات بملاحظة: <b id="failedNotesCount" style="color:#c0392b;">—</b></div>
+                    <div>🕒 آخر تسجيل/تحديث: <b id="failedNotesLastAt" style="color:#075bb5;">—</b></div>
+                    <div>👤 آخر مورد: <b id="failedNotesLastSupplier" style="color:#333;">—</b></div>
+                </div>
+                <p style="font-size:12px; color:#666; margin-top:0; line-height:1.6;">تجميع ملاحظات الموردين على <b>الرحلات الفاشلة</b> في ملف إكسيل واحد للمتابعة والمراجعة.</p>
+                <button type="button" onclick="exportNotesReport()" style="background:#dc3545; color:#fff; font-weight:bold; margin-bottom:0; border:none; border-radius:8px; padding:12px; width:100%; cursor:pointer;">📥 تحميل تقرير الرحلات الفاشلة</button>
+            </div>
+        </div>
+
+        <div id="tab-audit" class="tab-content">
+            <div style="background:#fdfdfd; padding:12px; border-radius:10px; border:1px solid #6c757d;">
+                <h4 style="margin:0 0 8px 0; font-size:14px; color:#333;">📋 سجل العمليات</h4>
+                <p style="font-size:11px; color:#666; margin:0 0 10px 0;">الأحدث أولاً — من نفّذ الإجراء، ماذا تغيّر (كان / أصبح)، والوقت.</p>
+                <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; align-items:center;">
+                    <input type="text" id="auditSearchInput" placeholder="🔍 ابحث بالمشرف أو العملية أو التفاصيل..." onkeyup="filterAuditLogList()" style="flex:1; min-width:180px; padding:8px 10px; border-radius:8px; border:1px solid #ccc; font-family:tahoma; font-size:12px; margin:0;">
+                    <button type="button" onclick="loadAuditLog()" style="width:auto; background:#6c757d; color:#fff; border:none; border-radius:8px; padding:8px 12px; font-size:12px; cursor:pointer;">🔄 تحديث</button>
+                </div>
+                <div id="auditLogList" style="max-height:420px; overflow-y:auto; font-size:12px;"></div>
+            </div>
+        </div>
+
+        <div id="tab-settings" class="tab-content">
+            <div class="upload-accordion" data-color="blue" id="acc_set_brand" style="margin-bottom:10px;">
+                <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_set_brand')">
+                    <span class="upload-acc-plus">+</span>
+                    <p class="upload-acc-title">🏷️ هوية التطبيق (اسم / شعار)</p>
+                </div>
+                <div class="upload-acc-body">
+                    <p style="font-size:11px; color:#666; margin:0 0 10px 0;">اترك الحقول فارغة = قالب جاهز لشركة أخرى.</p>
+                    <label style="font-size:12px; font-weight:bold; display:block; margin-bottom:4px;">اسم التطبيق</label>
+                    <input type="text" id="setAppName" placeholder="اكتب اسم الشركة أو التطبيق" style="width:100%; padding:10px; margin-bottom:8px; border-radius:8px; border:1px solid #ccd; box-sizing:border-box; font-family:tahoma;">
+                    <label style="font-size:12px; font-weight:bold; display:block; margin-bottom:4px;">الاسم المختصر (لافتة الأتوبيس)</label>
+                    <input type="text" id="setAppShort" placeholder="اسم مختصر على اللافتة" style="width:100%; padding:10px; margin-bottom:8px; border-radius:8px; border:1px solid #ccd; box-sizing:border-box; font-family:tahoma;">
+                    <label style="font-size:12px; font-weight:bold; display:block; margin-bottom:4px;">ملاحظة تحت الاسم</label>
+                    <input type="text" id="setCompanyNote" placeholder="ملاحظات تظهر أسفل الاسم" style="width:100%; padding:10px; margin-bottom:8px; border-radius:8px; border:1px solid #ccd; box-sizing:border-box; font-family:tahoma;">
+                    <label style="font-size:12px; font-weight:bold; display:block; margin-bottom:4px;">رقم الإصدار (يظهر للمستخدمين)</label>
+                    <input type="text" id="setDisplayVersion" placeholder="مثال: V1.1" style="width:100%; padding:10px; margin-bottom:8px; border-radius:8px; border:1px solid #ccd; box-sizing:border-box; font-family:tahoma;">
+                    <label style="font-size:12px; font-weight:bold; display:block; margin-bottom:4px;">الشعار</label>
+                    <p style="font-size:10px; color:#666; margin:0 0 6px 0; background:#f0f4f8; padding:8px; border-radius:6px;">📐 تقريباً 180×90 أو 200×80 — أقل من 900 ك.ب</p>
+                    <input type="file" id="setLogoFile" accept="image/*" onchange="onAppLogoSelected(this)" style="width:100%; margin-bottom:8px;">
+                    <div style="text-align:center; margin-bottom:8px;"><img id="setLogoPreview" alt="" style="display:none; max-height:80px; max-width:160px; object-fit:contain; border:1px solid #eee; border-radius:8px; padding:4px;"></div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <button type="button" onclick="saveAppSettings()" class="btn-sm" style="background:#075bb5; width:auto !important;">💾 حفظ الهوية</button>
+                        <button type="button" onclick="clearAppLogo()" class="btn-sm" style="background:#6c757d; width:auto !important;">🗑️ إزالة الشعار</button>
+                        <button type="button" onclick="resetAppSettingsDefaults()" class="btn-sm" style="background:#fd7e14; width:auto !important;">↺ هوية افتراضية</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="upload-accordion" data-color="blue" id="acc_set_credits" style="margin-bottom:10px;">
+                <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_set_credits')">
+                    <span class="upload-acc-plus">+</span>
+                    <p class="upload-acc-title">🛠️ بيانات الإعداد والتنفيذ</p>
+                </div>
+                <div class="upload-acc-body">
+                    <p style="font-size:10px; color:#666; margin:0 0 8px 0;">تظهر أسفل شاشة الدخول فقط إن وُجدت قيم.</p>
+                    <label style="font-size:12px; font-weight:bold; display:block; margin-bottom:4px;">اسم المعد / المنفذ</label>
+                    <input type="text" id="setDesignerName" placeholder="اسم المعد أو جهة التنفيذ" style="width:100%; padding:10px; margin-bottom:8px; border-radius:8px; border:1px solid #ccd; box-sizing:border-box; font-family:tahoma;">
+                    <label style="font-size:12px; font-weight:bold; display:block; margin-bottom:4px;">جهة أو نشاط (اختياري)</label>
+                    <input type="text" id="setDesignerOrg" placeholder="اكتب الجهة أو النشاط إن رغبت" style="width:100%; padding:10px; margin-bottom:8px; border-radius:8px; border:1px solid #ccd; box-sizing:border-box; font-family:tahoma;">
+                    <label style="font-size:12px; font-weight:bold; display:block; margin-bottom:4px;">البريد</label>
+                    <input type="text" id="setDesignerEmail" placeholder="name@example.com" style="width:100%; padding:10px; margin-bottom:8px; border-radius:8px; border:1px solid #ccd; box-sizing:border-box; font-family:tahoma;">
+                    <button type="button" onclick="saveAppSettings()" class="btn-sm" style="background:#075bb5; width:auto !important;">💾 حفظ بيانات التنفيذ</button>
+                </div>
+            </div>
+
+
+            <div class="upload-accordion" data-color="red" id="acc_set_factory" style="margin-bottom:10px;">
+                <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_set_factory')">
+                    <span class="upload-acc-plus">+</span>
+                    <p class="upload-acc-title">🧨 تهيئة النظام + نسخة احتياطية</p>
+                </div>
+                <div class="upload-acc-body">
+                    <p style="font-size:10px; color:#666; margin:0 0 8px 0; line-height:1.5;">النسخة الاحتياطية ملف JSON للمراجعة والأرشفة. <b>ليست استرجاعاً تلقائياً</b> داخل البرنامج — لاستعادة بيانات التشغيل أعد رفع ملفات الإكسيل من تبويب البيانات. يمكن الرجوع لقائمة الموردين/المشرفين يدوياً من الملف إن لزم.</p>
+                    <button type="button" onclick="downloadSystemBackup()" style="width:auto; background:#075bb5; color:#fff; border:none; border-radius:8px; padding:10px 12px; font-size:12px; cursor:pointer; margin-bottom:10px;">📦 تحميل نسخة احتياطية</button>
+                    <p style="font-size:10px; color:#666; margin:0 0 10px 0; line-height:1.5;">كل زر يطلب تأكيداً. استخدمها عند نقل التطبيق لشركة أخرى أو تنظيف قسم محدد.</p>
+                    <div style="display:flex; flex-wrap:wrap; gap:8px;">
+                        <button type="button" onclick="factoryResetSection('complaints')" style="width:auto; background:#6f42c1; color:#fff; border:none; border-radius:8px; padding:10px 12px; font-size:12px; cursor:pointer;">💡 تهيئة الشكاوى</button>
+                        <button type="button" onclick="factoryResetSection('messages')" style="width:auto; background:#f0ad4e; color:#fff; border:none; border-radius:8px; padding:10px 12px; font-size:12px; cursor:pointer;">✉️ تهيئة الرسائل</button>
+                        <button type="button" onclick="factoryResetSection('suppliers')" style="width:auto; background:#20c997; color:#fff; border:none; border-radius:8px; padding:10px 12px; font-size:12px; cursor:pointer;">👥 تهيئة الموردين</button>
+                        <button type="button" onclick="factoryResetSection('admins')" style="width:auto; background:#6610f2; color:#fff; border:none; border-radius:8px; padding:10px 12px; font-size:12px; cursor:pointer;">👑 تهيئة المشرفين</button>
+                        <button type="button" onclick="factoryResetSection('notes')" style="width:auto; background:#e83e8c; color:#fff; border:none; border-radius:8px; padding:10px 12px; font-size:12px; cursor:pointer;">📝 تهيئة ملاحظات الرحلات</button>
+                        <button type="button" onclick="factoryResetSection('licenses')" style="width:auto; background:#17a2b8; color:#fff; border:none; border-radius:8px; padding:10px 12px; font-size:12px; cursor:pointer;">🪪 تهيئة الرخص</button>
+                        <button type="button" onclick="factoryResetSection('full')" style="width:auto; background:#dc3545; color:#fff; border:none; border-radius:8px; padding:10px 12px; font-size:12px; font-weight:bold; cursor:pointer;">⚠️ تهيئة كاملة للنظام</button>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -3084,6 +4158,7 @@ function filterPopupResults() {
 function generateFileId() { return 'file_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now(); }
 
 async function createNewAdmin() {
+    if (!canAdminWrite()) { showAlert("🚫 حساب مشاهدة فقط — لا يمكن الإنشاء."); return; }
     let name = document.getElementById("newAdminName").value.trim();
     let phone = document.getElementById("newAdminPhone").value.trim().replace(/[^0-9]/g, "");
     let pass = document.getElementById("newAdminPass").value.trim();
@@ -3093,6 +4168,11 @@ async function createNewAdmin() {
     let p_msgs = document.getElementById("chk_msgs").checked;
     let p_reports = document.getElementById("chk_reports").checked;
     let p_complaints = document.getElementById("chk_complaints").checked;
+    let p_wipe = document.getElementById("chk_wipe") ? document.getElementById("chk_wipe").checked : false;
+    let p_licenses = document.getElementById("chk_licenses") ? document.getElementById("chk_licenses").checked : false;
+    let p_pwdDelete = document.getElementById("chk_pwdDelete") ? document.getElementById("chk_pwdDelete").checked : false;
+    let p_audit = document.getElementById("chk_audit") ? document.getElementById("chk_audit").checked : false;
+    let p_readonly = document.getElementById("chk_readonly") ? document.getElementById("chk_readonly").checked : false;
 
     if(!name || !phone || !pass || pass.length < 6) { showAlert("يرجى ملء جميع الحقول بشكل صحيح. الباسورد 6 أحرف على الأقل."); return; }
     
@@ -3122,10 +4202,11 @@ async function createNewAdmin() {
                 phone: phone, 
                 role: "admin",
                 assignedPassword: pass,
-                permissions: { data: p_data, suppliers: p_suppliers, msgs: p_msgs, reports: p_reports, complaints: p_complaints },
+                permissions: { data: p_data, suppliers: p_suppliers, msgs: p_msgs, reports: p_reports, complaints: p_complaints, wipe: p_wipe, licenses: p_licenses, pwdDelete: p_pwdDelete, audit: p_audit, readonly: p_readonly },
                 createdAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             document.getElementById("adminResult").innerHTML = "✅ تم إضافة المشرف بنجاح!";
+            if (typeof logAudit === "function") logAudit("إضافة مشرف جديد", "تم إنشاء حساب مشرف");
             document.getElementById("newAdminName").value = ""; 
             document.getElementById("newAdminPhone").value = ""; 
             document.getElementById("newAdminPass").value = "";
@@ -3152,7 +4233,12 @@ async function loadAdminsList() {
             if(d.phone) globalAdminsMap.set(d.phone, d);
             if(d.role !== "admin" && d.role !== "super_admin") return;
             
-            let p = d.permissions || {data:true, suppliers:true, msgs:true, reports:true, complaints:true};
+            let p = d.permissions || {data:true, suppliers:true, msgs:true, reports:true, complaints:true, wipe:false, licenses:false, pwdDelete:false, audit:false, readonly:false};
+            if (p.wipe === undefined) p.wipe = false;
+            if (p.licenses === undefined) p.licenses = false;
+            if (p.pwdDelete === undefined) p.pwdDelete = false;
+            if (p.audit === undefined) p.audit = false;
+            if (p.readonly === undefined) p.readonly = false;
             let isMe = (doc.id === myUid);
             let roleBadge = d.role === "super_admin" ? "👑 مدير نظام" : "🛡️ مشرف";
             let searchTarget = (d.ownerName || "") + " " + (d.phone || "");
@@ -3164,31 +4250,44 @@ async function loadAdminsList() {
                     <b style="color:#075bb5;">${roleBadge} ${sanitizeHTML(d.ownerName) || "غير مسجل"}</b>
                     <span style="font-size:10px; background:#cce5ff; padding:2px 6px; border-radius:4px; color:#004085;">${sanitizeHTML(d.phone) || "غير مسجل"}</span>
                 </div>
-                <div style="font-size:11px; color:#333; margin-top:5px; background:#fff; padding:6px; border-radius:5px; border:1px solid #eee;">
-                    <div style="margin-bottom:6px;">
-                        <b>صلاحياته الحالية:</b><br>
-                        <label><input type="checkbox" id="edit_p_data_${doc.id}" ${p.data?'checked':''} ${d.role==='super_admin'?'disabled':''}> بيانات</label> | 
-                        <label><input type="checkbox" id="edit_p_sup_${doc.id}" ${p.suppliers?'checked':''} ${d.role==='super_admin'?'disabled':''}> موردين</label> | 
-                        <label><input type="checkbox" id="edit_p_msg_${doc.id}" ${p.msgs?'checked':''} ${d.role==='super_admin'?'disabled':''}> رسائل</label> | 
-                        <label><input type="checkbox" id="edit_p_comp_${doc.id}" ${p.complaints?'checked':''} ${d.role==='super_admin'?'disabled':''}> شكاوى</label> | 
-                        <label><input type="checkbox" id="edit_p_rep_${doc.id}" ${p.reports?'checked':''} ${d.role==='super_admin'?'disabled':''}> تقارير</label>
+                <div style="font-size:11px; color:#333; margin-top:8px; background:#fff; padding:8px; border-radius:8px; border:1px solid #eee;">
+                    <b style="display:block; margin-bottom:4px;">صلاحياته الحالية:</b>
+                    <div class="perm-grid">
+                        <label class="perm-item">بيانات<input type="checkbox" id="edit_p_data_${doc.id}" ${p.data?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                        <label class="perm-item">موردين<input type="checkbox" id="edit_p_sup_${doc.id}" ${p.suppliers?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                        <label class="perm-item">رسائل<input type="checkbox" id="edit_p_msg_${doc.id}" ${p.msgs?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                        <label class="perm-item">شكاوى<input type="checkbox" id="edit_p_comp_${doc.id}" ${p.complaints?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                        <label class="perm-item">تقارير<input type="checkbox" id="edit_p_rep_${doc.id}" ${p.reports?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                        <label class="perm-item" style="border-color:#f5c6cb; color:#842029;">مسح شامل<input type="checkbox" id="edit_p_wipe_${doc.id}" ${p.wipe?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                        <label class="perm-item">الرخص<input type="checkbox" id="edit_p_lic_${doc.id}" ${p.licenses?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                        <label class="perm-item">حذف طلبات<input type="checkbox" id="edit_p_pwd_${doc.id}" ${p.pwdDelete?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                        <label class="perm-item">سجل عمليات<input type="checkbox" id="edit_p_audit_${doc.id}" ${p.audit?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                        <label class="perm-item" style="border-color:#ffc107; color:#856404;">مشاهدة فقط<input type="checkbox" id="edit_p_ro_${doc.id}" ${p.readonly?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
                     </div>
-                    <div style="border-top:1px dashed #ddd; padding-top:4px;">
+                    <div style="border-top:1px dashed #ddd; padding-top:6px; margin-top:8px;">
                         <b>كلمة المرور:</b>
                         <span id="admin_pass_${doc.id}" style="color:#d9534f; font-weight:bold; font-size:13px; display:none;">${currentAdminPass}</span>
-                        <button onclick="document.getElementById('admin_pass_${doc.id}').style.display='inline'; this.style.display='none';" style="border:none; background:none; color:#075bb5; font-size:11px; cursor:pointer; padding:0; margin:0 5px; text-decoration:underline;">إظهار 👁</button>
+                        <button type="button" onclick="togglePassVisibility('admin_pass_${doc.id}', this)" style="border:none; background:none; color:#075bb5; font-size:11px; cursor:pointer; padding:0; margin:0 5px; text-decoration:underline;">إظهار 👁</button>
                     </div>
                 </div>
-                <div style="display:flex; gap:6px; margin-top:8px;">
+                <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;">
                     ${d.role === 'super_admin' ? 
-                        `<button disabled style="margin:0; flex:1; padding:6px; font-size:11px; background:#6c757d; color:#fff; border-radius:4px; border:none;">صلاحيات كاملة</button>` 
+                        `<button disabled style="margin:0; width:auto; padding:6px 10px; font-size:11px; background:#6c757d; color:#fff; border-radius:4px; border:none;">صلاحيات كاملة (سوبر)</button>` 
                         : 
-                        `<button onclick="updateAdminPerms('${doc.id}')" style="margin:0; flex:1; padding:6px; font-size:11px; background:#28a745; color:#fff; border-radius:4px; border:none; cursor:pointer;">تحديث الصلاحيات</button>`
+                        `<button onclick="updateAdminPerms('${doc.id}')" style="margin:0; width:auto; padding:6px 10px; font-size:11px; background:#28a745; color:#fff; border-radius:4px; border:none; cursor:pointer;">تحديث الصلاحيات</button>`
+                    }
+                    ${(d.role !== 'super_admin' && currentRole === 'super_admin') ? 
+                        `<button onclick="promoteAdminToSuper('${doc.id}', '${sanitizeHTML(d.ownerName) || ''}')" style="margin:0; width:auto; padding:6px 10px; font-size:11px; background:#6f42c1; color:#fff; border-radius:4px; border:none; cursor:pointer;">👑 ترقية لسوبر</button>` 
+                        : ''
+                    }
+                    ${(d.role === 'super_admin' && currentRole === 'super_admin' && !isMe) ? 
+                        `<button onclick="demoteSuperToAdmin('${doc.id}', '${sanitizeHTML(d.ownerName) || ''}')" style="margin:0; width:auto; padding:6px 10px; font-size:11px; background:#fd7e14; color:#fff; border-radius:4px; border:none; cursor:pointer;">⬇️ تخفيض إلى أدمن</button>` 
+                        : ''
                     }
                     ${isMe ? 
-                        `<button disabled style="margin:0; flex:1; padding:6px; font-size:11px; background:#6c757d; color:#fff; border-radius:4px; border:none;">هذا حسابك</button>`
+                        `<button disabled style="margin:0; width:auto; padding:6px 10px; font-size:11px; background:#6c757d; color:#fff; border-radius:4px; border:none;">هذا حسابك</button>`
                         :
-                        `<button onclick="deleteAdminUser('${doc.id}', '${sanitizeHTML(d.ownerName) || ''}')" style="margin:0; flex:1; padding:6px; font-size:11px; background:#e47377; color:#fff; border-radius:4px; border:none; cursor:pointer;">حذف المشرف</button>`
+                        `<button onclick="deleteAdminUser('${doc.id}', '${sanitizeHTML(d.ownerName) || ''}')" style="margin:0; width:auto; padding:6px 10px; font-size:11px; background:#e47377; color:#fff; border-radius:4px; border:none; cursor:pointer;">حذف المشرف</button>`
                     }
                 </div>
             </div>`;
@@ -3236,9 +4335,15 @@ async function updateAdminPerms(uid) {
             suppliers: document.getElementById("edit_p_sup_" + uid).checked,
             msgs: document.getElementById("edit_p_msg_" + uid).checked,
             reports: document.getElementById("edit_p_rep_" + uid).checked,
-            complaints: document.getElementById("edit_p_comp_" + uid).checked
+            complaints: document.getElementById("edit_p_comp_" + uid).checked,
+            wipe: document.getElementById("edit_p_wipe_" + uid) ? document.getElementById("edit_p_wipe_" + uid).checked : false,
+            licenses: document.getElementById("edit_p_lic_" + uid) ? document.getElementById("edit_p_lic_" + uid).checked : false,
+            pwdDelete: document.getElementById("edit_p_pwd_" + uid) ? document.getElementById("edit_p_pwd_" + uid).checked : false,
+            audit: document.getElementById("edit_p_audit_" + uid) ? document.getElementById("edit_p_audit_" + uid).checked : false,
+            readonly: document.getElementById("edit_p_ro_" + uid) ? document.getElementById("edit_p_ro_" + uid).checked : false
         };
         await db.collection("users").doc(uid).update({ permissions: perms });
+        if (typeof logAudit === "function") logAudit("تحديث صلاحيات مشرف", "تعديل صلاحيات حساب", { before: "صلاحيات سابقة", after: "صلاحيات جديدة للحساب" });
         showAlert("✅ تم تحديث صلاحيات المشرف بنجاح.");
     } catch(e) { console.error(e); showAlert("❌ خطأ أثناء التحديث."); }
 }
@@ -3253,6 +4358,7 @@ async function deleteAdminUser(uid, name) {
 }
 
 async function createManualSupplier() {
+    if (!canAdminWrite()) { showAlert("🚫 حساب مشاهدة فقط."); return; }
     let name = document.getElementById("manualSupName").value.trim();
     let sap = document.getElementById("manualSupSap").value.trim();
     let office = document.getElementById("manualSupOffice").value.trim();
@@ -3399,7 +4505,7 @@ async function searchSupplierForPasswordReset() {
                 <span style="color:#555; font-size:11px; background:#e9ecef; padding:2px 5px; border-radius:4px; margin-top:4px; display:inline-block;">
                     <b>كلمة المرور:</b> 
                     <span id="pass_${s.uid}" style="color:#d9534f; font-weight:bold; font-size:13px; display:none;">${currentPass}</span>
-                    <button onclick="document.getElementById('pass_${s.uid}').style.display='inline'; this.style.display='none';" style="border:none; background:none; color:#075bb5; font-size:11px; cursor:pointer; padding:0; margin:0 5px; text-decoration:underline;">إظهار 👁</button>
+                    <button type="button" onclick="togglePassVisibility('pass_${s.uid}', this)" style="border:none; background:none; color:#075bb5; font-size:11px; cursor:pointer; padding:0; margin:0 5px; text-decoration:underline;">إظهار 👁</button>
                 </span><br>
                 <div style="display:flex; gap:6px; margin-top:8px;">
                     ${toggleBtn}
@@ -3492,6 +4598,7 @@ async function sendAdminMessage() {
         document.getElementById("selectedMsgSap").value = "";
         
         document.getElementById("adminResult").innerHTML = "✅ تم إرسال الرسالة بنجاح.";
+        if (typeof logAudit === "function") logAudit("إرسال رسالة عامة", "تم إرسال إشعار للموردين");
         showAlert("✅ تم إرسال الرسالة بنجاح.");
     } catch(e) { console.error(e); showAlert("❌ خطأ أثناء الإرسال."); }
 }
@@ -3505,6 +4612,7 @@ async function deleteAdminMessage(msgId, event) {
             let msgs = doc.data().messages || [];
             let updatedMsgs = msgs.filter(m => m.id !== msgId);
             await db.collection("uploadedFiles").doc("GLOBAL_MESSAGES").update({messages: updatedMsgs});
+            if (typeof logAudit === "function") logAudit("حذف رسالة عامة", "تم حذف رسالة من النظام");
             showAlert("✅ تم حذف الرسالة بنجاح.");
             openMessagesPanel(); 
         }
@@ -3576,7 +4684,7 @@ function openAdminNotificationsPanel() {
                 ${req.isReported ? '✓ تم الإبلاغ (تحديث)' : '📞 تم الإبلاغ'}
             </button>`;
 
-            let deleteButtonHtml = (currentRole === "super_admin") ? `
+            let deleteButtonHtml = canDeletePasswordRequests() ? `
                 <button onclick="deletePasswordRequest('${req.id}', event)" style="padding:8px 12px; font-size:12px; background:#e47377; color:#fff; border-radius:6px; border:none; cursor:pointer;">مسح الطلب من الإشعارات 🗑️</button>
             ` : '';
 
@@ -3595,7 +4703,9 @@ function openAdminNotificationsPanel() {
                         <span style="background:#ffe3e3; padding:5px 10px; border-radius:5px; border:1px solid #ffc9c9; display:inline-block;">
                             كلمة المرور المسجلة: 
                             <b id="req_pass_${req.id}" style="color:#b7094c; font-size:16px; display:none;">${sanitizeHTML(currentPass)}</b>
-                            <button onclick="document.getElementById('req_pass_${req.id}').style.display='inline'; this.style.display='none';" style="border:none; background:none; color:#075bb5; font-size:12px; cursor:pointer; text-decoration:underline;">إظهار 👁</button>
+                            <button onclick="togglePassVisibility('req_pass_${req.id}', this)" style="border:none; background:none; color:#075bb5; font-size:12px; cursor:pointer; text-decoration:underline;">إظهار 👁</button>
+                        <button type="button" onclick="event.stopPropagation(); openWhatsAppWithPassword('${String(req.phone||'').replace(/'/g,"")}', (document.getElementById('req_pass_${req.id}')||{}).innerText||'', '')" style="margin-right:6px; width:auto !important; padding:4px 10px; font-size:11px; background:#25D366; color:#fff; border:none; border-radius:6px; cursor:pointer;">💬 واتساب</button>
+                            <button type="button" onclick="event.stopPropagation(); openWhatsAppWithPassword('${sanitizeHTML(req.phone)}', document.getElementById('req_pass_${req.id}') ? document.getElementById('req_pass_${req.id}').innerText : '', '${sanitizeHTML((supplierFound && supplierFound.ownerName) || req.ownerName || '')}')" style="margin-right:8px; width:auto; padding:4px 10px; font-size:11px; background:#25D366; color:#fff; border:none; border-radius:6px; cursor:pointer;">💬 واتساب</button>
                         </span>
                     </div>
                     ${reportedInfoHtml}
@@ -3626,7 +4736,9 @@ function openAdminNotificationsPanel() {
                         <span style="background:#d4edda; padding:5px 10px; border-radius:5px; border:1px solid #c3e6cb; display:inline-block;">
                             كلمة المرور: 
                             <b id="req_pass_${req.id}" style="color:#155724; font-size:16px; display:none;">${currentPass}</b>
-                            <button onclick="document.getElementById('req_pass_${req.id}').style.display='inline'; this.style.display='none';" style="border:none; background:none; color:#075bb5; font-size:12px; cursor:pointer; text-decoration:underline;">إظهار 👁</button>
+                            <button onclick="togglePassVisibility('req_pass_${req.id}', this)" style="border:none; background:none; color:#075bb5; font-size:12px; cursor:pointer; text-decoration:underline;">إظهار 👁</button>
+                        <button type="button" onclick="event.stopPropagation(); openWhatsAppWithPassword('${String(req.phone||'').replace(/'/g,"")}', (document.getElementById('req_pass_${req.id}')||{}).innerText||'', '')" style="margin-right:6px; width:auto !important; padding:4px 10px; font-size:11px; background:#25D366; color:#fff; border:none; border-radius:6px; cursor:pointer;">💬 واتساب</button>
+                            <button type="button" onclick="event.stopPropagation(); openWhatsAppWithPassword('${sanitizeHTML(req.phone)}', document.getElementById('req_pass_${req.id}') ? document.getElementById('req_pass_${req.id}').innerText : '', '${sanitizeHTML((supplierFound && supplierFound.ownerName) || req.ownerName || '')}')" style="margin-right:8px; width:auto; padding:4px 10px; font-size:11px; background:#25D366; color:#fff; border:none; border-radius:6px; cursor:pointer;">💬 واتساب</button>
                         </span>
                     </div>
                     ${reportedInfoHtml}
@@ -3703,8 +4815,8 @@ async function markPasswordRequestReported(reqId, event) {
 
 async function deletePasswordRequest(reqId, event) {
     if(event) { event.stopPropagation(); event.preventDefault(); }
-    if(currentRole !== "super_admin") {
-        showAlert("🚫 عذراً، حذف طلبات كلمة المرور مقتصر على مدير النظام (Super Admin) فقط.");
+    if(!canDeletePasswordRequests()) {
+        showAlert("🚫 حذف طلبات كلمة المرور يتطلب صلاحية الموردين أو صلاحية حذف الطلبات.");
         return;
     }
     if(!confirm("هل أنت متأكد من إنهاء وحذف هذا الطلب من الإشعارات؟")) return;
@@ -3773,19 +4885,28 @@ function openMessagesPanel() {
             let border = isRead ? "1px solid #eee" : "2px solid #ffc107";
             let dateStr = new Date(m.date).toLocaleDateString('ar-EG') + " - " + new Date(m.date).toLocaleTimeString('ar-EG', {hour:'numeric', minute:'numeric'});
             
-            let delBtn = isAdmin ? `<button onclick="deleteAdminMessage('${m.id}', event)" style="background:#e47377; color:#fff; border:none; border-radius:4px; padding:4px 6px; float:left; cursor:pointer; font-size:10px;">حذف 🗑️</button>` : "";
+            let delBtn = isAdmin
+                ? `<button type="button" class="msg-del-btn" onclick="deleteAdminMessage('${m.id}', event)" title="حذف الرسالة">🗑️ حذف</button>`
+                : "";
             
             let targetLabel = "";
             if (isAdmin && m.target && m.target !== 'all') {
                 let targetText = m.target;
                 if (m.target !== "ايجار" && m.target !== "فرعي") targetText = "مورد: " + sanitizeHTML(m.target);
-                targetLabel = `<span style="background:#075bb5; color:#fff; padding:2px 6px; border-radius:4px; font-size:10px; margin-right:5px;">مخصصة: ${targetText}</span>`;
+                targetLabel = `<span style="background:#075bb5; color:#fff; padding:2px 6px; border-radius:4px; font-size:10px;">مخصصة: ${targetText}</span>`;
             }
 
             html += `
-            <div id="msg_${m.id}" style="background:${bg}; padding:15px; border-radius:10px; margin-bottom:12px; border:${border}; cursor:pointer; transition:0.3s;" onclick="markMessageRead('${m.id}')">
-                <div style="font-size:12px; color:#555; margin-bottom:8px; font-weight:bold;">📅 ${dateStr} ${isRead ? '✓ مقروءة' : '🔴 جديدة'} ${targetLabel} ${delBtn}</div>
-                <div style="font-weight:${weight}; color:#333; line-height:1.5; font-size:14px; clear:both; padding-top:5px; white-space: pre-wrap;">${sanitizeHTML(m.text)}</div>
+            <div id="msg_${m.id}" style="background:${bg}; padding:12px 14px; border-radius:10px; margin-bottom:12px; border:${border}; cursor:pointer; transition:0.3s;" onclick="markMessageRead('${m.id}')">
+                <div style="display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px;">
+                    <div style="font-size:12px; color:#555; font-weight:bold; display:flex; flex-wrap:wrap; align-items:center; gap:6px;">
+                        <span>📅 ${dateStr}</span>
+                        <span>${isRead ? '✓ مقروءة' : '🔴 جديدة'}</span>
+                        ${targetLabel}
+                    </div>
+                    ${delBtn}
+                </div>
+                <div style="font-weight:${weight}; color:#333; line-height:1.5; font-size:14px; white-space: pre-wrap;">${sanitizeHTML(m.text)}</div>
             </div>`;
         });
     }
@@ -4089,11 +5210,9 @@ async function loadSupplierData(){
            let metaDoc = await db.collection("system").doc("meta").get();
            if(metaDoc.exists) {
                serverVersion = metaDoc.data().version || 0;
-               let dt = new Date(serverVersion);
-               let timeString = dt.toLocaleDateString('ar-EG') + ' - ' + dt.toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit'});
-               let el = document.getElementById('globalLastUpdateTxt');
-               if(el) el.innerText = timeString;
            }
+           // شريط الفترة من إعدادات الإدارة (وليس وقت النسخة)
+           if (typeof applyAppBranding === "function") applyAppBranding();
        } catch(e) {}
 
        let isAdmin = (currentRole === "admin" || currentRole === "super_admin");
@@ -4589,7 +5708,7 @@ firebase.auth().onAuthStateChanged(async function(user){
          
          if(user.email === "mohfawze2010@gmail.com") {
              currentRole = "super_admin";
-             adminPermissions = {data: true, suppliers: true, msgs: true, reports: true, complaints: true};
+             adminPermissions = {data: true, suppliers: true, msgs: true, reports: true, complaints: true, wipe: false};
              if(!roleDoc.exists || roleDoc.data().role !== "super_admin") {
                  await db.collection("users").doc(user.uid).set({
                      ownerName: "محمد فوزي",
@@ -4602,7 +5721,7 @@ firebase.auth().onAuthStateChanged(async function(user){
              let rData = roleDoc.data();
              if(rData.role === "super_admin") {
                  currentRole = "super_admin";
-                 adminPermissions = {data: true, suppliers: true, msgs: true, reports: true, complaints: true};
+                 adminPermissions = {data: true, suppliers: true, msgs: true, reports: true, complaints: true, wipe: false};
              } else {
                  currentRole = "admin";
                  adminPermissions = rData.permissions || {data: true, suppliers: true, msgs: true, reports: true, complaints: true};
@@ -5615,7 +6734,8 @@ async function submitAdvancedNote(tripId, type, event) {
     btn.disabled = true;
     
     try {
-        await db.collection("notes").doc(tripId).set({ note: finalNote, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+        await db.collection("notes").doc(tripId).set({ note: finalNote, updatedAt: firebase.firestore.FieldValue.serverTimestamp(), supplierSap: (loggedInSupplierSapGlobal || ""), supplierName: (currentUserName || "") });
+        if (typeof refreshFailedTripsStats === "function" && document.getElementById("tab-reports") && document.getElementById("tab-reports").classList.contains("active")) refreshFailedTripsStats();
         if (trip) trip.note = finalNote;
         
         let container = document.getElementById("noteContainer_" + tripId);
@@ -5689,6 +6809,55 @@ async function handleForgotPassword() {
             console.error("Password reset error:", err);
             showAlert("❌ خطأ: " + err.message);
         }
+    }
+}
+
+async function refreshFailedTripsStats() {
+    let countEl = document.getElementById("failedNotesCount");
+    let atEl = document.getElementById("failedNotesLastAt");
+    let supEl = document.getElementById("failedNotesLastSupplier");
+    if (!countEl) return;
+    try {
+        let snap = await db.collection("notes").get();
+        let count = snap.size;
+        countEl.textContent = String(count);
+        let latest = null;
+        snap.forEach(doc => {
+            let d = doc.data() || {};
+            let ts = d.updatedAt && d.updatedAt.toDate ? d.updatedAt.toDate() : (d.updatedAt ? new Date(d.updatedAt) : null);
+            // من نص الملاحظة
+            let note = d.note || "";
+            let addMatch = note.match(/تاريخ (?:الإضافة|التحديث):\s*([^)|]+)/);
+            let fromNote = null;
+            if (addMatch) {
+                let parsed = Date.parse(addMatch[1].trim());
+                if (!isNaN(parsed)) fromNote = new Date(parsed);
+            }
+            // تفضيل updatedAt
+            let effective = ts || fromNote;
+            if (!effective) return;
+            let sap = "";
+            let trip = (globalTrips || []).find(t => t.id === doc.id);
+            if (trip) sap = normalizeValue(trip["رقم المورد"] || "");
+            let name = "";
+            if (sap && globalSupplierDataMap && globalSupplierDataMap.get(sap)) {
+                name = globalSupplierDataMap.get(sap).ownerName || globalSupplierDataMap.get(sap).officeName || sap;
+            }
+            if (!name && trip) name = trip["اسم المكتب"] || trip["اسم المورد"] || sap || "—";
+            if (!latest || effective > latest.at) {
+                latest = { at: effective, name: name || "—", sap: sap };
+            }
+        });
+        if (latest) {
+            atEl.textContent = latest.at.toLocaleString("ar-EG");
+            supEl.textContent = latest.name + (latest.sap ? " (ساب: " + latest.sap + ")" : "");
+        } else {
+            atEl.textContent = count ? "غير محدد" : "—";
+            supEl.textContent = "—";
+        }
+    } catch (e) {
+        console.warn("refreshFailedTripsStats", e);
+        countEl.textContent = "خطأ";
     }
 }
 
@@ -5925,6 +7094,38 @@ async function smartCleanupLicenseSpaceIfNeeded(updatesArr) {
         } catch(e) { console.warn("smartCleanup save failed", e); }
     }
     return updates;
+}
+
+/** حذف صور الرخص فوراً من كل السجلات مع الإبقاء على بيانات السيارة والرفع والاعتماد */
+async function forceFreeAllLicenseImages() {
+    if (!canManageLicenses()) {
+        showAlert("🚫 يتطلب صلاحية إدارة الرخص أو مدير النظام.");
+        return;
+    }
+    if (!confirm("سيتم حذف صور الرخص فقط من كل السجلات.\nتبقى بيانات السيارة والمورد ومن اعتمد — هل تريد المتابعة؟")) return;
+    let updates = (globalAdminLicenseUpdates || []).map(u => {
+        if (u.images && u.images.length > 0) {
+            return {
+                ...u,
+                images: [],
+                imagePaths: [],
+                cleanedAt: new Date().toISOString(),
+                cleanedReason: "manual_free_space"
+            };
+        }
+        return u;
+    });
+    let freed = (globalAdminLicenseUpdates || []).filter(u => u.images && u.images.length > 0).length;
+    globalAdminLicenseUpdates = updates;
+    try {
+        await db.collection("uploadedFiles").doc("ALL_LICENSE_UPDATES").set({ updates: updates });
+        renderLicenseNotificationsContent();
+        updateAdminLicenseBadge();
+        showAlert("✅ تم تحرير المساحة: حُذفت صور " + freed + " سجل مع الإبقاء على البيانات.");
+    } catch (e) {
+        console.error(e);
+        showAlert("❌ فشل تحرير المساحة: " + e.message);
+    }
 }
 
 async function handleLicenseImagesUpload(event, plate, code, vId) {
