@@ -285,6 +285,21 @@ button:disabled {background:#999 !important; cursor:not-allowed;}
 .dues-row-main { display:flex; flex-wrap:wrap; align-items:center; gap:8px; width:100%; }
 .dues-row-code { flex:1 1 120px; min-width:0; }
 .dues-row-money { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.dues-sort-bar { display:inline-flex !important; flex-wrap:wrap; gap:5px; align-items:center; margin:0 0 8px 0; padding:0 2px; width:auto !important; }
+button.dues-sort-chip, .dues-sort-chip {
+  display:inline-flex !important; align-items:center; justify-content:center; gap:2px;
+  width:auto !important; max-width:fit-content !important; flex:0 0 auto !important;
+  padding:3px 9px !important; margin:0 !important;
+  border-radius:12px !important; font-size:11px !important; font-family:tahoma !important;
+  font-weight:bold !important; cursor:pointer; line-height:1.25 !important;
+  border:1px solid transparent !important; white-space:nowrap !important;
+  box-sizing:border-box !important; background:#f1f3f5; color:#333;
+}
+button.dues-sort-chip.chip-code, .dues-sort-chip.chip-code { background:#e9f5ff !important; border-color:#b8daff !important; color:#004085 !important; }
+button.dues-sort-chip.chip-ded, .dues-sort-chip.chip-ded { background:#dc3545 !important; border-color:#c82333 !important; color:#fff !important; }
+button.dues-sort-chip.chip-amt, .dues-sort-chip.chip-amt { background:#d4edda !important; border-color:#28a745 !important; color:#155724 !important; }
+button.dues-sort-chip.active, .dues-sort-chip.active { box-shadow:0 0 0 2px #075bb5; }
+.dues-sort-chip .arrow { font-size:9px; opacity:0.95; margin-right:1px; }
 @media (min-width: 768px) {
   .dues-row-main { flex-wrap:nowrap; }
   .dues-row-money { margin-right:8px; flex-shrink:0; }
@@ -1424,6 +1439,8 @@ let currentSupplierServiceTypes = new Set();
 let loggedInSupplierSapGlobal = "";
 let activePanel = "";
 let selectedDuesPeriod = "";
+let __duesSortKey = "amount"; // amount | deduction | code
+let __duesSortDir = "desc"; // desc | asc
 let globalDuesPeriodsCache = [];
 
 let currentRenderedArray = [];
@@ -6368,27 +6385,46 @@ function buildDuesPeriodUI(selectedPeriod, selectedBranch) {
         });
     });
 
+    // ترتيب تفاعلي
+    let sortKey = (typeof __duesSortKey !== "undefined" && __duesSortKey) ? __duesSortKey : "amount";
+    let sortDir = (typeof __duesSortDir !== "undefined" && __duesSortDir) ? __duesSortDir : "desc";
+    let dirMul = sortDir === "asc" ? 1 : -1;
     detailRows.sort((a, b) => {
-        let periodA = globalDuesPeriodsCache.find(p => p.period === a.period);
-        let periodB = globalDuesPeriodsCache.find(p => p.period === b.period);
-        let keyA = periodA ? periodA.sortKey : 0;
-        let keyB = periodB ? periodB.sortKey : 0;
-        if (keyB !== keyA) return keyB - keyA;
-        return b.amount - a.amount;
+        // عند ترتيب الخصم: صفوف الخصم دائماً في الأعلى، وبدون خصم في الأسفل
+        if (sortKey === "deduction") {
+            let da = Math.abs(a.deduction || 0);
+            let db = Math.abs(b.deduction || 0);
+            let ha = da > 0 ? 1 : 0;
+            let hb = db > 0 ? 1 : 0;
+            if (ha !== hb) return hb - ha; // من له خصم أولاً
+            if (da !== db) return (da - db) * dirMul; // ضمن الخصم: تصاعدي/تنازلي
+            return (b.amount || 0) - (a.amount || 0);
+        }
+        let cmp = 0;
+        if (sortKey === "code") {
+            cmp = String(a.code || "").localeCompare(String(b.code || ""), "ar", { numeric: true, sensitivity: "base" });
+        } else {
+            cmp = (a.amount || 0) - (b.amount || 0);
+        }
+        if (cmp !== 0) return cmp * dirMul;
+        return String(a.code || "").localeCompare(String(b.code || ""), "ar", { numeric: true });
     });
 
     let totalAmount = detailRows.reduce((sum, r) => sum + r.amount, 0);
     let totalDeduction = detailRows.reduce((sum, r) => sum + (r.deduction || 0), 0);
 
+    let arrowAmt = sortKey === "amount" ? (sortDir === "desc" ? "▼" : "▲") : "";
+    let arrowDed = sortKey === "deduction" ? (sortDir === "desc" ? "▼" : "▲") : "";
+    let arrowCode = sortKey === "code" ? (sortDir === "desc" ? "▼" : "▲") : "";
+
     let rowsHtml = "";
     if (detailRows.length === 0) {
         rowsHtml = "<p style='text-align:center; font-size:13px; padding:15px; color:#666;'>لا توجد أكواد لهذه الفترة/الفرع.</p>";
     } else {
-        rowsHtml += `<div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; font-size:11px; color:#666; padding:0 4px; align-items:center;">
-            <span style="background:#e9f5ff; border:1px solid #b8daff; padding:3px 8px; border-radius:6px;">🏷️ الكود</span>
-            <span style="background:#dc3545; color:#fff; border:1px solid #c82333; padding:3px 8px; border-radius:6px;">خصم (يظهر فقط إن وُجد)</span>
-            <span style="background:#d4edda; color:#155724; border:1px solid #28a745; padding:3px 8px; border-radius:6px;">💰 المستحقات</span>
-            <span style="color:#888;">(اضغط على الصف لعرض باقي التفاصيل)</span>
+        rowsHtml += `<div class="dues-sort-bar">
+            <button type="button" class="dues-sort-chip chip-code${sortKey==='code'?' active':''}" onclick="sortDuesList('code')" title="ترتيب حسب الكود">🏷️ الكود${arrowCode ? ' <span class="arrow">'+arrowCode+'</span>' : ''}</button>
+            <button type="button" class="dues-sort-chip chip-ded${sortKey==='deduction'?' active':''}" onclick="sortDuesList('deduction')" title="ترتيب الخصم — صفوف الخصم تبقى بالأعلى">خصم${arrowDed ? ' <span class="arrow">'+arrowDed+'</span>' : ''}</button>
+            <button type="button" class="dues-sort-chip chip-amt${sortKey==='amount'?' active':''}" onclick="sortDuesList('amount')" title="ترتيب حسب المستحقات">💰 المستحقات${arrowAmt ? ' <span class="arrow">'+arrowAmt+'</span>' : ''}</button>
         </div>`;
         detailRows.forEach((r, idx) => {
             let extra = "";
@@ -6409,7 +6445,7 @@ function buildDuesPeriodUI(selectedPeriod, selectedBranch) {
             let dedBadge = hasDed
                 ? `<span class="dues-money-box dues-money-ded">خصم: ${dedStr} ج</span>`
                 : "";
-            let amtBadge = `<span class="dues-money-box dues-money-ok">${amtStr} ج</span>`;
+            let amtBadge = `<span class="dues-money-box dues-money-ok">مستحق: ${amtStr} ج</span>`;
             let detailBody = typeof getDuesExtraRowsHtml === "function" ? getDuesExtraRowsHtml(r.row) : "";
             let rowClass = hasDed ? "detail-card dues-row-has-deduction" : "detail-card";
             let borderCol = hasDed ? "#dc3545" : "#075bb5";
@@ -6457,6 +6493,20 @@ function buildDuesPeriodUI(selectedPeriod, selectedBranch) {
     }
 }
 
+function sortDuesList(key) {
+    if (!key) key = "amount";
+    if (__duesSortKey === key) {
+        __duesSortDir = (__duesSortDir === "desc") ? "asc" : "desc";
+    } else {
+        __duesSortKey = key;
+        // الخصم: أول ضغطة من الأصغر للأكبر (مع بقاء صفوف الخصم بالأعلى)
+        // المستحقات/الكود: أول ضغطة من الأكبر للأصغر
+        __duesSortDir = (key === "deduction") ? "asc" : "desc";
+    }
+    let periodSel = document.getElementById("duesPeriodFilter");
+    let periodVal = periodSel ? periodSel.value : "";
+    buildDuesPeriodUI(periodVal || null, window.__duesInternalBranch || "");
+}
 function filterDuesByPeriod(periodVal) {
     buildDuesPeriodUI(periodVal || null, window.__duesInternalBranch || "");
 }
