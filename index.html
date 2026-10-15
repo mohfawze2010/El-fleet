@@ -1969,16 +1969,21 @@ function closeComplaintModal() {
 function renderComplaintsFullPage() {
     let html = `
     <div style="padding:8px;">
-        <!-- نموذج إضافة شكوى/مقترح جديد -->
-        <div style="background:#f3f6fb; padding:14px; border-radius:12px; margin-bottom:16px; border:1px solid #dbe2ef;">
-            <h4 style="margin:0 0 10px 0; color:#075bb5; font-size:14px;">➕ إرسال مقترح أو شكوى جديدة</h4>
-            <select id="compTypeFull" style="margin-bottom:10px; padding:10px; width:100%; border-radius:8px; font-family:tahoma; border:1px solid #ccc;">
-                <option value="مقترح">أريد تقديم مقترح 💡</option>
-                <option value="شكوى">أريد تقديم شكوى ⚠️</option>
-            </select>
-            <textarea id="compTextFull" placeholder="اكتب التفاصيل هنا بوضوح..." style="height:90px; margin-bottom:10px; width:100%; padding:10px; border-radius:8px; resize:none; font-family:tahoma; border:1px solid #ccc;"></textarea>
-            <button onclick="submitComplaintFull(event)" style="background:#28a745; width:100%; padding:12px; border-radius:8px; color:#fff; font-weight:bold; border:none; cursor:pointer; font-size:14px;">إرسال</button>
-        </div>
+        <!-- نموذج إضافة شكوى/مقترح (قابل للطى) -->
+        <details class="upload-accordion" style="background:#f3f6fb; border-radius:12px; margin-bottom:14px; border:1px solid #dbe2ef; padding:0;">
+            <summary style="list-style:none; cursor:pointer; padding:12px 14px; font-weight:bold; color:#075bb5; font-size:14px; display:flex; align-items:center; gap:8px;">
+                <span style="display:inline-flex; width:22px; height:22px; border-radius:6px; background:#075bb5; color:#fff; align-items:center; justify-content:center; font-size:16px; line-height:1;">+</span>
+                إرسال مقترح أو شكوى جديدة
+            </summary>
+            <div style="padding:0 14px 14px 14px;">
+                <select id="compTypeFull" style="margin-bottom:10px; padding:10px; width:100%; border-radius:8px; font-family:tahoma; border:1px solid #ccc;">
+                    <option value="مقترح">أريد تقديم مقترح 💡</option>
+                    <option value="شكوى">أريد تقديم شكوى ⚠️</option>
+                </select>
+                <textarea id="compTextFull" placeholder="اكتب التفاصيل هنا بوضوح..." style="height:90px; margin-bottom:10px; width:100%; padding:10px; border-radius:8px; resize:none; font-family:tahoma; border:1px solid #ccc;"></textarea>
+                <button onclick="submitComplaintFull(event)" style="background:#28a745; width:100%; padding:12px; border-radius:8px; color:#fff; font-weight:bold; border:none; cursor:pointer; font-size:14px;">إرسال</button>
+            </div>
+        </details>
 
         <!-- سجل الشكاوى السابقة -->
         <h4 style="margin:0 0 10px 0; color:#333; font-size:14px; border-bottom:2px solid #ddd; padding-bottom:6px;">سجل رسائلك السابقة 📥</h4>
@@ -3009,6 +3014,44 @@ async function deleteCollectionInBatches(colName, filterFn) {
 }
 
 
+async function exportAuditLogToExcel() {
+    if (!canViewAudit()) { showAlert("🚫 لا صلاحية لتصدير السجل."); return; }
+    try {
+        if (typeof loadAuditLog === "function") await loadAuditLog();
+    } catch (e) {}
+    let rows = (_auditLogCache || []).slice();
+    if (!rows.length) {
+        showAlert("لا توجد عمليات مسجّلة للتصدير.");
+        return;
+    }
+    let data = rows.map(d => {
+        let when = "";
+        try {
+            when = d.at ? new Date(d.at).toLocaleString("ar-EG") : (d.atIso || "");
+        } catch (e) { when = String(d.at || ""); }
+        let before = d.before;
+        let after = d.after;
+        if (before && typeof before === "object") before = JSON.stringify(before);
+        if (after && typeof after === "object") after = JSON.stringify(after);
+        return {
+            "التاريخ والوقت": when,
+            "المشرف / المنفّذ": d.byName || d.by || d.userName || "",
+            "العملية": d.action || d.type || "",
+            "التفاصيل": d.details || d.note || "",
+            "كان": before != null ? String(before) : "",
+            "أصبح": after != null ? String(after) : "",
+            "معرّف إضافي": d.targetId || d.extra || ""
+        };
+    });
+    const ws = XLSX.utils.json_to_sheet(data);
+    styleExcelSheet(ws, data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "سجل العمليات");
+    let d = new Date();
+    XLSX.writeFile(wb, `Audit_Log_${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}.xlsx`);
+    showAlert("✅ تم تصدير سجل العمليات.");
+}
+
 async function loadAuditLog() {
     let box = document.getElementById("auditLogList");
     if (!box) return;
@@ -3258,7 +3301,7 @@ function handleCardClick(panelName) {
     openPanel(panelName);
 }
 
-/** توسيع أعمدة الإكسيل + تمييز صف العناوين */
+/** تنسيق موحّد لكل شيتات الإكسيل: RTL + توسيط + عرض تلقائي + تواريخ + هيدر */
 function styleExcelSheet(ws, dataRows) {
     try {
         if (!ws) return;
@@ -3272,6 +3315,12 @@ function styleExcelSheet(ws, dataRows) {
                 if (ws[addr] && ws[addr].v != null) keys.push(String(ws[addr].v));
             }
         }
+
+        // اتجاه الشيت من اليمين لليسار
+        ws["!views"] = [{ rightToLeft: true, state: "normal" }];
+        if (!ws["!margins"]) ws["!margins"] = { left: 0.25, right: 0.25, top: 0.5, bottom: 0.5 };
+
+        // عرض الأعمدة (Auto-fit تقريبي)
         ws["!cols"] = keys.map(k => {
             let maxLen = String(k || "").length;
             (dataRows || []).forEach(row => {
@@ -3279,24 +3328,96 @@ function styleExcelSheet(ws, dataRows) {
                 let len = v == null ? 0 : String(v).length;
                 if (len > maxLen) maxLen = len;
             });
-            return { wch: Math.min(Math.max(maxLen + 4, 14), 45) };
+            return { wch: Math.min(Math.max(maxLen + 3, 12), 42) };
         });
-        // تمييز الهيدر (صف 0) — يدعمه Excel عند وجود cellStyles في بعض البيئات؛ نضع أيضاً علامة بصرية بالنص
-        if (ws["!ref"]) {
-            let range = XLSX.utils.decode_range(ws["!ref"]);
+
+        if (!ws["!ref"]) return;
+        let range = XLSX.utils.decode_range(ws["!ref"]);
+        let isDateHeader = keys.map(k => {
+            let s = String(k || "");
+            return s.includes("تاريخ") || s.includes("وقت") || /^date$/i.test(s) || s === "at" || s === "الوقت";
+        });
+
+        let rowsMeta = [];
+        for (let R = range.s.r; R <= range.e.r; ++R) {
+            rowsMeta.push({ hpt: R === 0 ? 24 : 20 });
             for (let C = range.s.c; C <= range.e.c; ++C) {
-                let addr = XLSX.utils.encode_cell({ r: 0, c: C });
-                if (!ws[addr]) continue;
-                ws[addr].s = {
-                    font: { bold: true, color: { rgb: "FFFFFF" } },
-                    fill: { patternType: "solid", fgColor: { rgb: "075BB5" } },
-                    alignment: { horizontal: "center", vertical: "center", wrapText: true }
+                let addr = XLSX.utils.encode_cell({ r: R, c: C });
+                if (!ws[addr]) {
+                    ws[addr] = { t: "s", v: "" };
+                }
+                let cell = ws[addr];
+                if (!cell.s) cell.s = {};
+                cell.s.alignment = {
+                    horizontal: "center",
+                    vertical: "center",
+                    wrapText: true,
+                    readingOrder: 2
                 };
+                if (R === 0) {
+                    cell.s.font = { bold: true, color: { rgb: "FFFFFF" }, sz: 11 };
+                    cell.s.fill = { patternType: "solid", fgColor: { rgb: "075BB5" } };
+                } else {
+                    cell.s.font = cell.s.font || { sz: 10 };
+                    // تنسيق التاريخ للأعمدة المناسبة
+                    if (isDateHeader[C] && cell.v !== undefined && cell.v !== null && cell.v !== "") {
+                        let parsed = null;
+                        if (typeof cell.v === "number" && cell.v > 20000 && cell.v < 60000) {
+                            // excel serial already
+                            cell.t = "n";
+                            cell.z = "yyyy-mm-dd";
+                        } else {
+                            let raw = String(cell.v).trim();
+                            let d = new Date(raw);
+                            if (!isNaN(d.getTime()) && d.getFullYear() > 1990) {
+                                // SheetJS date
+                                cell.t = "d";
+                                cell.v = d;
+                                cell.z = "yyyy-mm-dd HH:mm";
+                            } else {
+                                // إبقاء النص مع توسيط
+                                cell.t = "s";
+                                cell.v = raw;
+                            }
+                        }
+                    }
+                }
             }
-            ws["!rows"] = [{ hpt: 22 }];
         }
+        ws["!rows"] = rowsMeta;
     } catch (e) { console.warn("styleExcelSheet", e); }
 }
+/** ترتيب أعمدة تصدير المورد مطابقاً لنموذج الشيت المعتمد — مع استبعاد أي عمود غير موجود */
+function pickExportRow(src, orderedKeys, aliases) {
+    let row = {};
+    orderedKeys.forEach(key => {
+        let val = src[key];
+        if ((val === undefined || val === null || val === "") && aliases && aliases[key]) {
+            for (let i = 0; i < aliases[key].length; i++) {
+                let a = aliases[key][i];
+                if (src[a] !== undefined && src[a] !== null && String(src[a]).trim() !== "") {
+                    val = src[a];
+                    break;
+                }
+            }
+        }
+        if (val === undefined || val === null) val = "";
+        if (typeof val === "string" && (String(key).includes("تاريخ") || String(key).includes("وقت"))) {
+            try { val = onlyDate(val) || val; } catch (e) {}
+        }
+        // مبالغ بدون كسور ظاهرة عند التصدير للمستحقات
+        if (key === "مبلغ الرحلات" || key === "الخصومات" || key === "اجر الرحلة" || key === "الاجر اليومى") {
+            if (val !== "" && typeof parseDuesMoney === "function") {
+                let n = parseDuesMoney(val);
+                if (key === "الخصومات" && n !== 0) val = n; // قد تكون سالبة في المصدر
+                else if (key !== "الخصومات") val = Math.abs(n) || n;
+            }
+        }
+        row[key] = val;
+    });
+    return row;
+}
+
 async function exportSupplierDataToExcel() {
     if (currentRole === 'admin' || currentRole === 'super_admin') {
         showAlert("هذا الزر مخصص للموردين فقط لتنزيل كشف حسابهم.");
@@ -3311,73 +3432,97 @@ async function exportSupplierDataToExcel() {
     showAlert("⏳ جاري تجهيز التقرير لك، سيتم التحميل خلال ثوانٍ...");
 
     setTimeout(() => {
+        let officeKeys = window.__activeOfficeKeys || new Set();
+        let matchSup = function(row) {
+            return rowMatchesActiveSupplier(row, loggedInSupplierSapGlobal, officeKeys) ||
+                normalizeValue(row["رقم المورد"]) === loggedInSupplierSapGlobal;
+        };
+
+        const VEHICLE_COLS = ["كود الحافلة","كود RFID","رقم اللوحة","تاريخ انتهاء رخصة السيارة","وصف الحافلة","الفرع","وصف الخط","اسم السائق","الحالة","تاريخ بداية التشغيل","المنطة المركزية الخاصة بالحافلة","مشرف التشغيل","نوع الخدمة","الاجر اليومى","رقم المورد","اسم المورد"];
+        const VEHICLE_ALIASES = {
+            "كود الحافلة": ["كود","Bus Trip Code"],
+            "كود RFID": ["RFID","RFID كود","كود الـ RFID"],
+            "تاريخ انتهاء رخصة السيارة": ["تاريخ انتهاء الرخصة","انتهاء الرخصة"],
+            "المنطة المركزية الخاصة بالحافلة": ["المنطقة المركزية","المنطقة المركزية الخاصة بالحافلة"],
+            "الاجر اليومى": ["الأجر اليومي","الاجر اليومي","الأجر اليومى"],
+            "نوع الخدمة": ["الخدمة"]
+        };
+
+        const TRIP_COLS = ["كود الحافلة","RFID كود","رقم اللوحة","وصف الحافلة","الفرع","حالة الرحلة","الوردية","وقت الوردية","البوابة","تاريخ الحضور","وقت الحضور","مشرف التشغيل","اسم السائق","نوع الخدمة","المنطقة المركزية","اجر الرحلة","وصف الخط","اسم المورد","رقم المورد","رقم اللوحة البديلة","الحافلة البديلة"];
+        const TRIP_ALIASES = {
+            "كود الحافلة": ["كود","Bus Trip Code"],
+            "RFID كود": ["كود RFID","RFID","كود الـ RFID"],
+            "حالة الرحلة": ["الحالة"],
+            "وقت الوردية": ["التاريخ","تاريخ الوردية"],
+            "تاريخ الحضور": ["تاريخ"],
+            "المنطقة المركزية": ["المنطة المركزية","المنطة المركزية الخاصة بالحافلة"],
+            "اجر الرحلة": ["الأجر","الاجر","أجر الرحلة"],
+            "نوع الخدمة": ["الخدمة"]
+        };
+
+        const DUES_COLS = ["كود الحافلة","رقم اللوحة","وصف الخط","الفترة","الفرع","مبلغ الرحلات","عدد الرحلات","الخصومات","السبب (ملاحظات)","وصف الحافلة","اسم المورد","رقم المورد"];
+        const DUES_ALIASES = {
+            "كود الحافلة": ["كود","Bus Trip Code","كود الرحلة"],
+            "الفترة": ["الفتره","فترة"],
+            "مبلغ الرحلات": ["المبلغ"],
+            "عدد الرحلات": ["عدد الأيام","عدد الايام"],
+            "الخصومات": ["خصومات","الخصم","خصم"],
+            "السبب (ملاحظات)": ["ملاحظات","ملاحظة","السبب","سبب"]
+        };
+
         let vData = [];
-        globalVehicles.forEach(v => {
-            if (normalizeValue(v["رقم المورد"]) === loggedInSupplierSapGlobal) {
-                let row = {};
-                for(let k in v) {
-                    if(!["fileId", "fileName", "uploadedAt", "id", "note", "noteUpdatedAt", "sortDate", "_isExpired", "_diffDays"].includes(k)) {
-                        let val = v[k];
-                        if(k.includes("تاريخ")) val = onlyDate(val);
-                        row[k] = val;
-                    }
-                }
-                vData.push(row);
+        (globalVehicles || []).forEach(v => {
+            if (!matchSup(v)) return;
+            if (activeBranch) {
+                let b = resolveRowBranch(v);
+                if (!branchesMatch(b, activeBranch)) return;
             }
+            vData.push(pickExportRow(v, VEHICLE_COLS, VEHICLE_ALIASES));
         });
 
         let tData = [];
-        globalTrips.forEach(t => {
-            if (normalizeValue(t["رقم المورد"]) === loggedInSupplierSapGlobal) {
-                let row = {};
-                for(let k in t) {
-                    if(!["fileId", "fileName", "uploadedAt", "id", "note", "noteUpdatedAt", "sortDate"].includes(k)) {
-                        let val = t[k];
-                        if(k.includes("تاريخ") || k.includes("وقت الوردية") || k.includes("التاريخ")) val = onlyDate(val);
-                        row[k] = val;
-                    }
-                }
-                if(t.note) row["ملاحظات (المورد - العميل)"] = t.note;
-                tData.push(row);
+        (globalTrips || []).forEach(t => {
+            if (!matchSup(t)) return;
+            if (activeBranch) {
+                let b = resolveRowBranch(t);
+                if (!branchesMatch(b, activeBranch)) return;
             }
+            let row = pickExportRow(t, TRIP_COLS, TRIP_ALIASES);
+            tData.push(row);
         });
 
         let dData = [];
-        globalDues.forEach(d => {
-            if (normalizeValue(d["رقم المورد"]) === loggedInSupplierSapGlobal) {
-                let row = {};
-                for(let k in d) {
-                    if(!["fileId", "fileName", "uploadedAt", "id"].includes(k)) {
-                        row[k] = d[k];
-                    }
-                }
-                dData.push(row);
+        (globalDues || []).forEach(d => {
+            if (!matchSup(d)) return;
+            if (activeBranch) {
+                let b = getDuesBranch(d);
+                if (!branchesMatch(b, activeBranch)) return;
             }
+            dData.push(pickExportRow(d, DUES_COLS, DUES_ALIASES));
         });
 
-        if(vData.length === 0 && tData.length === 0 && dData.length === 0) {
+        if (vData.length === 0 && tData.length === 0 && dData.length === 0) {
             document.getElementById("alertMsg").innerText = "عفواً، لا توجد أي بيانات متاحة لك للتحميل حالياً.";
             return;
         }
 
         const wb = XLSX.utils.book_new();
 
+        // ترتيب الشيتات كما في النموذج: سيارات → رحلات → مستحقات
+        if (vData.length > 0) {
+            const wsVehicles = XLSX.utils.json_to_sheet(vData, { header: VEHICLE_COLS });
+            styleExcelSheet(wsVehicles, vData);
+            XLSX.utils.book_append_sheet(wb, wsVehicles, "بيانات السيارات");
+        }
         if (tData.length > 0) {
-            const wsTrips = XLSX.utils.json_to_sheet(tData);
+            const wsTrips = XLSX.utils.json_to_sheet(tData, { header: TRIP_COLS });
             styleExcelSheet(wsTrips, tData);
             XLSX.utils.book_append_sheet(wb, wsTrips, "سجل الرحلات");
         }
-        
         if (dData.length > 0) {
-            const wsDues = XLSX.utils.json_to_sheet(dData);
+            const wsDues = XLSX.utils.json_to_sheet(dData, { header: DUES_COLS });
             styleExcelSheet(wsDues, dData);
             XLSX.utils.book_append_sheet(wb, wsDues, "المستحقات");
-        }
-
-        if (vData.length > 0) {
-            const wsVehicles = XLSX.utils.json_to_sheet(vData);
-            styleExcelSheet(wsVehicles, vData);
-            XLSX.utils.book_append_sheet(wb, wsVehicles, "بيانات السيارات");
         }
 
         let d = new Date();
@@ -4112,6 +4257,7 @@ function selectMsgSupplier(sap, name) {
                 <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; align-items:center;">
                     <input type="text" id="auditSearchInput" placeholder="🔍 ابحث بالمشرف أو العملية أو التفاصيل..." onkeyup="filterAuditLogList()" style="flex:1; min-width:180px; padding:8px 10px; border-radius:8px; border:1px solid #ccc; font-family:tahoma; font-size:12px; margin:0;">
                     <button type="button" onclick="loadAuditLog()" style="width:auto; background:#6c757d; color:#fff; border:none; border-radius:8px; padding:8px 12px; font-size:12px; cursor:pointer;">🔄 تحديث</button>
+                    <button type="button" onclick="exportAuditLogToExcel()" style="width:auto; background:#075bb5; color:#fff; border:none; border-radius:8px; padding:8px 12px; font-size:12px; cursor:pointer;">📥 تصدير الإكسيل</button>
                 </div>
                 <div id="auditLogList" style="max-height:420px; overflow-y:auto; font-size:12px;"></div>
             </div>
@@ -4662,8 +4808,7 @@ async function exportSuppliersToExcel() {
         }
 
         const ws = XLSX.utils.json_to_sheet(dataToExport);
-        const colWidths = [ {wch: 25}, {wch: 12}, {wch: 25}, {wch: 15}, {wch: 20}, {wch: 25} ];
-        ws['!cols'] = colWidths;
+        styleExcelSheet(ws, dataToExport);
         
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "بيانات الموردين");
@@ -5260,9 +5405,7 @@ async function exportComplaintsToExcel() {
     });
     
     const ws = XLSX.utils.json_to_sheet(data);
-    const colWidths = [ {wch: 15}, {wch: 25}, {wch: 12}, {wch: 40}, {wch: 45}, {wch: 45}, {wch: 20}, {wch: 15}, {wch: 20}, {wch: 18}, {wch: 20} ];
-    ws['!cols'] = colWidths;
-    
+    styleExcelSheet(ws, data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "المقترحات والشكاوى");
     XLSX.writeFile(wb, `Complaints_${new Date().toLocaleDateString('ar-EG')}.xlsx`);
@@ -6422,9 +6565,9 @@ function buildDuesPeriodUI(selectedPeriod, selectedBranch) {
         rowsHtml = "<p style='text-align:center; font-size:13px; padding:15px; color:#666;'>لا توجد أكواد لهذه الفترة/الفرع.</p>";
     } else {
         rowsHtml += `<div class="dues-sort-bar">
-            <button type="button" class="dues-sort-chip chip-code${sortKey==='code'?' active':''}" onclick="sortDuesList('code')" title="ترتيب حسب الكود">🏷️ الكود${arrowCode ? ' <span class="arrow">'+arrowCode+'</span>' : ''}</button>
-            <button type="button" class="dues-sort-chip chip-ded${sortKey==='deduction'?' active':''}" onclick="sortDuesList('deduction')" title="ترتيب الخصم — صفوف الخصم تبقى بالأعلى">خصم${arrowDed ? ' <span class="arrow">'+arrowDed+'</span>' : ''}</button>
-            <button type="button" class="dues-sort-chip chip-amt${sortKey==='amount'?' active':''}" onclick="sortDuesList('amount')" title="ترتيب حسب المستحقات">💰 المستحقات${arrowAmt ? ' <span class="arrow">'+arrowAmt+'</span>' : ''}</button>
+            <button type="button" class="dues-sort-chip chip-code${sortKey==='code'?' active':''}" onclick="sortDuesList('code')" title="ترتيب حسب الكود">ترتيب بالكود${arrowCode ? ' <span class="arrow">'+arrowCode+'</span>' : ''}</button>
+            <button type="button" class="dues-sort-chip chip-ded${sortKey==='deduction'?' active':''}" onclick="sortDuesList('deduction')" title="ترتيب بمبلغ الخصم — صفوف الخصم بالأعلى">ترتيب بمبلغ الخصم${arrowDed ? ' <span class="arrow">'+arrowDed+'</span>' : ''}</button>
+            <button type="button" class="dues-sort-chip chip-amt${sortKey==='amount'?' active':''}" onclick="sortDuesList('amount')" title="ترتيب بمبلغ المستحقات">ترتيب بمبلغ المستحقات${arrowAmt ? ' <span class="arrow">'+arrowAmt+'</span>' : ''}</button>
         </div>`;
         detailRows.forEach((r, idx) => {
             let extra = "";
@@ -6477,10 +6620,13 @@ function buildDuesPeriodUI(selectedPeriod, selectedBranch) {
     else metaBits.push("كل الفترات");
     metaBits.push("عدد الأكواد: " + detailRows.length);
     let totalDedAbs = Math.abs(totalDeduction || 0);
+    let codesWithDed = detailRows.filter(r => Math.abs(r.deduction || 0) > 0).length;
+    let dedLabel = "الخصومات: " + totalDedAbs.toLocaleString("en-US") + " ج";
+    if (codesWithDed > 0) dedLabel += " لعدد " + codesWithDed + " كود";
     let summaryBar = `
     <div class="dues-summary-bar">
         <span class="dues-summary-meta">${metaBits.join(" | ")}</span>
-        <span class="dues-pill dues-pill-ded" style="background:#dc3545;color:#fff;border:1px solid #c82333;padding:5px 12px;border-radius:8px;font-weight:bold;">الخصومات: ${totalDedAbs.toLocaleString("en-US")} ج</span>
+        <span class="dues-pill dues-pill-ded" style="background:#dc3545;color:#fff;border:1px solid #c82333;padding:5px 12px;border-radius:8px;font-weight:bold;">${dedLabel}</span>
         <span class="dues-pill dues-pill-ok" style="background:#d4edda;color:#155724;border:1px solid #28a745;padding:5px 12px;border-radius:8px;font-weight:bold;">المستحقات: ${totalAmount.toLocaleString("en-US")} ج</span>
     </div>`;
 
@@ -7220,6 +7366,7 @@ async function exportNotesReport() {
         }
 
         const ws = XLSX.utils.json_to_sheet(dataToExport);
+        styleExcelSheet(ws, dataToExport);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "تقرير الملاحظات");
 
