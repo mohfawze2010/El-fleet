@@ -270,6 +270,26 @@ button:disabled {background:#999 !important; cursor:not-allowed;}
 .detail-card summary::-webkit-details-marker { display: none; }
 .detail-card summary::after { content: "▼"; margin-right: auto; font-size: 11px; color: #999; transition: transform 0.3s; padding-right:8px; }
 .detail-card[open] summary::after { transform: rotate(180deg); color: #075bb5; }
+.dues-row-has-deduction { background: #fff5f5 !important; border-right-color: #dc3545 !important; }
+.dues-row-has-deduction summary { background: #fff5f5; }
+.dues-money-box { display:inline-block; padding:4px 10px; border-radius:8px; font-size:13px; font-weight:bold; white-space:nowrap; }
+.dues-money-ok { background:#d4edda; color:#155724; border:1px solid #28a745; }
+.dues-money-ded { background:#dc3545; color:#ffffff; border:1px solid #c82333; }
+.dues-pill-ok { background:#d4edda !important; color:#155724 !important; border:1px solid #28a745 !important; }
+.dues-pill-ded { background:#dc3545 !important; color:#ffffff !important; border:1px solid #c82333 !important; }
+.dues-summary-bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:center; background:#f0f7ff; border:1px solid #b8daff; border-radius:10px; padding:10px 12px; margin-bottom:10px; font-size:12px; color:#333; }
+.dues-summary-bar .dues-pill { display:inline-block; padding:5px 10px; border-radius:8px; font-weight:bold; font-size:13px; }
+.dues-summary-bar .dues-pill-ok { background:#d4edda; color:#155724; border:1px solid #c3e6cb; }
+.dues-summary-bar .dues-pill-ded { background:#f8d7da; color:#721c24; border:1px solid #f5c6cb; }
+.dues-summary-meta { color:#555; font-size:12px; }
+.dues-row-main { display:flex; flex-wrap:wrap; align-items:center; gap:8px; width:100%; }
+.dues-row-code { flex:1 1 120px; min-width:0; }
+.dues-row-money { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+@media (min-width: 768px) {
+  .dues-row-main { flex-wrap:nowrap; }
+  .dues-row-money { margin-right:8px; flex-shrink:0; }
+  .dues-row-code { flex:0 1 auto; }
+}
 .detail-body { margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee; font-size: 13px; line-height: 1.6; color: #444; }
 .detail-body div.info-row { border-bottom: 1px dashed #f0f0f0; padding-bottom: 4px; margin-bottom: 4px; }
 .detail-body div.info-row:last-child { border-bottom: none; }
@@ -757,7 +777,8 @@ button:disabled {background:#999 !important; cursor:not-allowed;}
     <div class="card stat clickable" id="card_dues" onclick="handleCardClick('المستحقات')">
         <div id="ind_dues" class="data-indicator" style="display:none;">👆 عرض التفاصيل</div>
         <div class="stat-title">المستحقات 💰</div>
-        <div class="num" id="numDues">0</div>
+        <div class="num" id="numDues" style="color:#28a745;">0</div>
+        <div id="numDuesDeduction" style="display:none; font-size:11px; color:#dc3545; font-weight:bold; margin-top:2px;"></div>
         <div id="dueMonthLabel" style="font-size:11px; color:#666; margin-top:4px; font-weight:bold;"></div>
     </div>
 
@@ -784,7 +805,7 @@ button:disabled {background:#999 !important; cursor:not-allowed;}
 </div>
 
 <div id="globalFilter">
-    <h3>فترة البحث والإحصائيات</h3>
+    <h3>فترة البحث والإحصائيات (للرحلات فقط)</h3>
     <div style="display:flex; gap:10px; margin-bottom:5px; font-size:12px; font-weight:bold; color:#555;">
         <span style="flex:1; text-align:right;">من تاريخ:</span>
         <span style="flex:1; text-align:right;">إلى تاريخ:</span>
@@ -1011,8 +1032,27 @@ function canManageLicenses() {
 }
 function canDeletePasswordRequests() {
     if (currentRole === "super_admin") return true;
-    // تُمنح مع صلاحية الموردين أو صلاحية منفصلة pwdDelete
-    return currentRole === "admin" && adminPermissions && (adminPermissions.pwdDelete === true || adminPermissions.suppliers === true);
+    // صلاحية مستقلة فقط — لا ترتبط بإدارة الموردين
+    if (currentRole !== "admin" || !adminPermissions) return false;
+    return adminPermissions.pwdDelete === true;
+}
+/** هل طلب الباسورد يخص مشرفاً؟ (لا يظهر للمشرف العادي) */
+function isPasswordRequestFromAdmin(r) {
+    if (!r) return false;
+    if (r.isAdminRequest === true) return true;
+    if (r.isAdminRequest === false) return false;
+    try {
+        if (r.phone && globalAdminsMap && globalAdminsMap.size > 0 && globalAdminsMap.has(r.phone)) return true;
+    } catch (e) {}
+    return false;
+}
+/** الطلبات الظاهرة حسب الدور — المشرف العادي: طلبات الموردين فقط */
+function getVisiblePasswordRequests() {
+    return (globalPasswordRequests || []).filter(r => {
+        if (!r || !r.phone) return false;
+        if (isPasswordRequestFromAdmin(r)) return currentRole === "super_admin";
+        return true;
+    });
 }
 async function loadAppSettings() {
     try {
@@ -1398,6 +1438,7 @@ let unsubSupplierComps = null;
 let globalLicenseNotifs = [];
 let globalAdminLicenseUpdates = [];
 let unsubAdminLicenses = null;
+let unsubMyPerms = null;
 
 function deepCleanArabic(str) {
     if (!str) return "";
@@ -2787,6 +2828,11 @@ async function safeUploadTest(inputId, label) {
                         if (!row["الفرع"] && row["فرع"]) row["الفرع"] = row["فرع"];
                         if (!row["مبلغ الرحلات"] && row["المبلغ"]) row["مبلغ الرحلات"] = row["المبلغ"];
                         if (!row["كود الحافلة"] && (row["Bus Trip Code"] || row["كود"])) row["كود الحافلة"] = row["Bus Trip Code"] || row["كود"];
+                        // توحيد عمود الخصومات
+                        if (row["الخصومات"] === undefined || row["الخصومات"] === "") {
+                            let ded = row["خصومات"] || row["الخصم"] || row["خصم"] || row["deductions"] || row["Deduction"] || row["Deductions"] || "";
+                            if (ded !== undefined && ded !== null && String(ded).trim() !== "") row["الخصومات"] = ded;
+                        }
                     }
                     return row;
                 });
@@ -3195,6 +3241,45 @@ function handleCardClick(panelName) {
     openPanel(panelName);
 }
 
+/** توسيع أعمدة الإكسيل + تمييز صف العناوين */
+function styleExcelSheet(ws, dataRows) {
+    try {
+        if (!ws) return;
+        let keys = [];
+        if (dataRows && dataRows.length > 0) {
+            keys = Object.keys(dataRows[0]);
+        } else if (ws["!ref"]) {
+            let range = XLSX.utils.decode_range(ws["!ref"]);
+            for (let C = range.s.c; C <= range.e.c; ++C) {
+                let addr = XLSX.utils.encode_cell({ r: 0, c: C });
+                if (ws[addr] && ws[addr].v != null) keys.push(String(ws[addr].v));
+            }
+        }
+        ws["!cols"] = keys.map(k => {
+            let maxLen = String(k || "").length;
+            (dataRows || []).forEach(row => {
+                let v = row[k];
+                let len = v == null ? 0 : String(v).length;
+                if (len > maxLen) maxLen = len;
+            });
+            return { wch: Math.min(Math.max(maxLen + 4, 14), 45) };
+        });
+        // تمييز الهيدر (صف 0) — يدعمه Excel عند وجود cellStyles في بعض البيئات؛ نضع أيضاً علامة بصرية بالنص
+        if (ws["!ref"]) {
+            let range = XLSX.utils.decode_range(ws["!ref"]);
+            for (let C = range.s.c; C <= range.e.c; ++C) {
+                let addr = XLSX.utils.encode_cell({ r: 0, c: C });
+                if (!ws[addr]) continue;
+                ws[addr].s = {
+                    font: { bold: true, color: { rgb: "FFFFFF" } },
+                    fill: { patternType: "solid", fgColor: { rgb: "075BB5" } },
+                    alignment: { horizontal: "center", vertical: "center", wrapText: true }
+                };
+            }
+            ws["!rows"] = [{ hpt: 22 }];
+        }
+    } catch (e) { console.warn("styleExcelSheet", e); }
+}
 async function exportSupplierDataToExcel() {
     if (currentRole === 'admin' || currentRole === 'super_admin') {
         showAlert("هذا الزر مخصص للموردين فقط لتنزيل كشف حسابهم.");
@@ -3262,16 +3347,19 @@ async function exportSupplierDataToExcel() {
 
         if (tData.length > 0) {
             const wsTrips = XLSX.utils.json_to_sheet(tData);
+            styleExcelSheet(wsTrips, tData);
             XLSX.utils.book_append_sheet(wb, wsTrips, "سجل الرحلات");
         }
         
         if (dData.length > 0) {
             const wsDues = XLSX.utils.json_to_sheet(dData);
+            styleExcelSheet(wsDues, dData);
             XLSX.utils.book_append_sheet(wb, wsDues, "المستحقات");
         }
 
         if (vData.length > 0) {
             const wsVehicles = XLSX.utils.json_to_sheet(vData);
+            styleExcelSheet(wsVehicles, vData);
             XLSX.utils.book_append_sheet(wb, wsVehicles, "بيانات السيارات");
         }
 
@@ -3768,18 +3856,18 @@ function selectMsgSupplier(sap, name) {
                     <div style="background:#f0f4f8; padding:10px; border-radius:8px; border:1px solid #d0d7de;">
                         <b style="color:#333; font-size:12px;">صلاحيات المشرف:</b>
                         <div class="perm-grid">
-                            <label class="perm-item">📂 بيانات<input type="checkbox" id="chk_data"></label>
-                            <label class="perm-item">👥 موردين<input type="checkbox" id="chk_suppliers"></label>
-                            <label class="perm-item">✉️ رسائل<input type="checkbox" id="chk_msgs"></label>
-                            <label class="perm-item">💡 شكاوى<input type="checkbox" id="chk_complaints"></label>
-                            <label class="perm-item">📊 تقارير<input type="checkbox" id="chk_reports"></label>
-                            <label class="perm-item" style="border-color:#f5c6cb; color:#842029;">🗑 مسح شامل<input type="checkbox" id="chk_wipe"></label>
-                            <label class="perm-item">🪪 الرخص<input type="checkbox" id="chk_licenses"></label>
-                            <label class="perm-item">🔑 حذف طلبات<input type="checkbox" id="chk_pwdDelete"></label>
-                            <label class="perm-item">📋 سجل عمليات<input type="checkbox" id="chk_audit"></label>
-                            <label class="perm-item" style="border-color:#ffc107; color:#856404;">👁 مشاهدة فقط<input type="checkbox" id="chk_readonly"></label>
+                            <label class="perm-item" title="رفع ملفات السيارات والرحلات والمستحقات">📂 رفع ملفات البيانات<input type="checkbox" id="chk_data"></label>
+                            <label class="perm-item" title="إنشاء حسابات الموردين وإيقافهم وعرض كلمات المرور">👥 إدارة الموردين<input type="checkbox" id="chk_suppliers"></label>
+                            <label class="perm-item" title="إرسال وحذف الرسائل العامة للموردين">✉️ إرسال الرسائل<input type="checkbox" id="chk_msgs"></label>
+                            <label class="perm-item" title="عرض والرد على الشكاوى والمقترحات">💡 الشكاوى والمقترحات<input type="checkbox" id="chk_complaints"></label>
+                            <label class="perm-item" title="تقرير الرحلات الفاشلة وتصديره">📊 تقرير الرحلات الفاشلة<input type="checkbox" id="chk_reports"></label>
+                            <label class="perm-item" style="border-color:#f5c6cb; color:#842029;" title="مسح كل بيانات السيارات والرحلات والمستحقات المرفوعة">🗑 مسح البيانات المرفوعة<input type="checkbox" id="chk_wipe"></label>
+                            <label class="perm-item" title="تنظيف صور الرخص وتحرير مساحة التخزين">🪪 تنظيف صور الرخص<input type="checkbox" id="chk_licenses"></label>
+                            <label class="perm-item" title="زر مسح طلب نسيان كلمة السر من قائمة الإشعارات فقط — لا يحذف المورد">🔑 مسح إشعار طلب الباسورد<input type="checkbox" id="chk_pwdDelete"></label>
+                            <label class="perm-item" title="عرض سجل العمليات (من فعل ماذا ومتى)">📋 عرض سجل العمليات<input type="checkbox" id="chk_audit"></label>
+                            <label class="perm-item" style="border-color:#ffc107; color:#856404;" title="يمنع أي تعديل أو حذف أو إنشاء — عرض فقط">👁 مشاهدة فقط (بدون تعديل)<input type="checkbox" id="chk_readonly"></label>
                         </div>
-                        <p style="font-size:10px; color:#842029; margin:8px 0 0 0; line-height:1.4;">⚠️ مسح شامل / الرخص / حذف طلبات — بحذر. «مشاهدة فقط» تمنع أي تعديل.</p>
+                        <p style="font-size:10px; color:#842029; margin:8px 0 0 0; line-height:1.5;">⚠️ «مسح إشعار طلب الباسورد» = حذف الطلب من الجرس فقط وليس حساب المورد. «مشاهدة فقط» تلغي التعديل حتى مع تفعيل صلاحيات أخرى. سحب أي صلاحية يُطبَّق فوراً على المشرف المتصل.</p>
                     </div>
                     <button type="button" onclick="createNewAdmin()" style="background:#007bff; font-weight:bold; margin-top:10px; padding:10px; width:100%; border:none; border-radius:8px; color:#fff; cursor:pointer;">إضافة المشرف</button>
                 </div>
@@ -3832,7 +3920,26 @@ function selectMsgSupplier(sap, name) {
                 </div>
             </div>
 
-            <!-- 2ب. ملاحظة فترة الرحلات -->
+            <!-- 3. المستحقات (بعد الرحلات) -->
+            <div class="upload-accordion" data-color="green" id="acc_dues">
+                <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_dues')">
+                    <span class="upload-acc-plus">+</span>
+                    <p class="upload-acc-title">💰 رفع ملف المستحقات (Excel/CSV)</p>
+                </div>
+                <div class="upload-acc-body">
+                    <div class="upload-cols-hint" style="color:#155724; border-color:#8fd19e; background:#e8f5e9;">
+                        📌 <b>الأعمدة المطلوبة:</b>
+                        <code>اسم المورد</code> | <code>رقم المورد</code> | <code>الفترة</code> | <code>الفرع</code> | <code>مبلغ الرحلات</code> | <code>الخصومات</code> | <code>كود الحافلة</code> | <code>رقم اللوحة</code> | <code>وصف الخط</code> | <code>وصف الحافلة</code> | <code>عدد الرحلات</code> | <code>السبب (ملاحظات)</code>
+                    </div>
+                    <div class="upload-acc-actions">
+                        <button type="button" class="btn-sm" onclick="downloadExcelTemplate('dues')" style="background:#1e7e34;">📄 قالب</button>
+                        <input type="file" id="duesFile" accept=".xlsx,.xls,.csv">
+                        <button type="button" class="btn-sm" onclick="safeUploadTest('duesFile','ملف المستحقات')" style="background:#28a745;">📤 رفع</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4. ملاحظة فترة الرحلات (بعد المستحقات) -->
             <div class="upload-accordion" data-color="teal" id="acc_trips_period" style="margin-bottom:8px;">
                 <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_trips_period')">
                     <span class="upload-acc-plus">+</span>
@@ -3851,25 +3958,6 @@ function selectMsgSupplier(sap, name) {
                         </div>
                         <button type="button" class="btn-sm" onclick="saveTripsPeriodNote()" style="background:#17a2b8; width:auto !important; margin:0;">💾 حفظ الفترة</button>
                         <button type="button" class="btn-sm" onclick="clearTripsPeriodNote()" style="background:#6c757d; width:auto !important; margin:0;">مسح</button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 3. المستحقات -->
-            <div class="upload-accordion" data-color="green" id="acc_dues">
-                <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_dues')">
-                    <span class="upload-acc-plus">+</span>
-                    <p class="upload-acc-title">💰 رفع ملف المستحقات (Excel/CSV)</p>
-                </div>
-                <div class="upload-acc-body">
-                    <div class="upload-cols-hint" style="color:#155724; border-color:#8fd19e; background:#e8f5e9;">
-                        📌 <b>الأعمدة المطلوبة:</b>
-                        <code>اسم المورد</code> | <code>الفترة</code> (أو <code>الفتره</code>) | <code>الفرع</code> | <code>مبلغ الرحلات</code> | <code>كود الحافلة</code>
-                    </div>
-                    <div class="upload-acc-actions">
-                        <button type="button" class="btn-sm" onclick="downloadExcelTemplate('dues')" style="background:#1e7e34;">📄 قالب</button>
-                        <input type="file" id="duesFile" accept=".xlsx,.xls,.csv">
-                        <button type="button" class="btn-sm" onclick="safeUploadTest('duesFile','ملف المستحقات')" style="background:#28a745;">📤 رفع</button>
                     </div>
                 </div>
             </div>
@@ -4253,16 +4341,16 @@ async function loadAdminsList() {
                 <div style="font-size:11px; color:#333; margin-top:8px; background:#fff; padding:8px; border-radius:8px; border:1px solid #eee;">
                     <b style="display:block; margin-bottom:4px;">صلاحياته الحالية:</b>
                     <div class="perm-grid">
-                        <label class="perm-item">بيانات<input type="checkbox" id="edit_p_data_${doc.id}" ${p.data?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
-                        <label class="perm-item">موردين<input type="checkbox" id="edit_p_sup_${doc.id}" ${p.suppliers?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
-                        <label class="perm-item">رسائل<input type="checkbox" id="edit_p_msg_${doc.id}" ${p.msgs?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
-                        <label class="perm-item">شكاوى<input type="checkbox" id="edit_p_comp_${doc.id}" ${p.complaints?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
-                        <label class="perm-item">تقارير<input type="checkbox" id="edit_p_rep_${doc.id}" ${p.reports?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
-                        <label class="perm-item" style="border-color:#f5c6cb; color:#842029;">مسح شامل<input type="checkbox" id="edit_p_wipe_${doc.id}" ${p.wipe?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
-                        <label class="perm-item">الرخص<input type="checkbox" id="edit_p_lic_${doc.id}" ${p.licenses?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
-                        <label class="perm-item">حذف طلبات<input type="checkbox" id="edit_p_pwd_${doc.id}" ${p.pwdDelete?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
-                        <label class="perm-item">سجل عمليات<input type="checkbox" id="edit_p_audit_${doc.id}" ${p.audit?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
-                        <label class="perm-item" style="border-color:#ffc107; color:#856404;">مشاهدة فقط<input type="checkbox" id="edit_p_ro_${doc.id}" ${p.readonly?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                        <label class="perm-item" title="رفع ملفات البيانات">رفع ملفات البيانات<input type="checkbox" id="edit_p_data_${doc.id}" ${p.data?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                        <label class="perm-item" title="إدارة الموردين">إدارة الموردين<input type="checkbox" id="edit_p_sup_${doc.id}" ${p.suppliers?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                        <label class="perm-item" title="إرسال الرسائل">إرسال الرسائل<input type="checkbox" id="edit_p_msg_${doc.id}" ${p.msgs?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                        <label class="perm-item" title="الشكاوى">الشكاوى والمقترحات<input type="checkbox" id="edit_p_comp_${doc.id}" ${p.complaints?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                        <label class="perm-item" title="التقارير">تقرير الرحلات الفاشلة<input type="checkbox" id="edit_p_rep_${doc.id}" ${p.reports?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                        <label class="perm-item" style="border-color:#f5c6cb; color:#842029;" title="مسح البيانات المرفوعة">مسح البيانات المرفوعة<input type="checkbox" id="edit_p_wipe_${doc.id}" ${p.wipe?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                        <label class="perm-item" title="الرخص">تنظيف صور الرخص<input type="checkbox" id="edit_p_lic_${doc.id}" ${p.licenses?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                        <label class="perm-item" title="مسح إشعار طلب الباسورد فقط">مسح إشعار طلب الباسورد<input type="checkbox" id="edit_p_pwd_${doc.id}" ${p.pwdDelete?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                        <label class="perm-item" title="سجل العمليات">عرض سجل العمليات<input type="checkbox" id="edit_p_audit_${doc.id}" ${p.audit?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                        <label class="perm-item" style="border-color:#ffc107; color:#856404;" title="بدون تعديل">مشاهدة فقط<input type="checkbox" id="edit_p_ro_${doc.id}" ${p.readonly?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
                     </div>
                     <div style="border-top:1px dashed #ddd; padding-top:6px; margin-top:8px;">
                         <b>كلمة المرور:</b>
@@ -4344,6 +4432,12 @@ async function updateAdminPerms(uid) {
         };
         await db.collection("users").doc(uid).update({ permissions: perms });
         if (typeof logAudit === "function") logAudit("تحديث صلاحيات مشرف", "تعديل صلاحيات حساب", { before: "صلاحيات سابقة", after: "صلاحيات جديدة للحساب" });
+        // إن كان الحساب الحالي هو نفس المشرف المحدَّث — طبّق فوراً
+        if (firebase.auth().currentUser && firebase.auth().currentUser.uid === uid) {
+            adminPermissions = perms;
+            if (typeof applyAdminPermissionsUI === "function") applyAdminPermissionsUI();
+            if (typeof updateAdminNotificationsBadge === "function") updateAdminNotificationsBadge();
+        }
         showAlert("✅ تم تحديث صلاحيات المشرف بنجاح.");
     } catch(e) { console.error(e); showAlert("❌ خطأ أثناء التحديث."); }
 }
@@ -4624,20 +4718,18 @@ async function deleteAdminMessage(msgId, event) {
 
 function updateAdminNotificationsBadge() {
     let badge = document.getElementById("adminNotifBadge");
-    let visibleReqs = globalPasswordRequests.filter(r => {
-        let adminFound = globalAdminsMap.get(r.phone);
-        let isRealAdmin = r.isAdminRequest || !!adminFound;
-        if (isRealAdmin) {
-            return currentRole === "super_admin";
-        }
-        return true;
-    });
-    
-    if(visibleReqs.length > 0) { 
-        badge.style.display = "block"; 
-        badge.innerText = visibleReqs.length; 
-    } else { 
-        badge.style.display = "none"; 
+    if (!badge) return;
+    // العدد = ما يراه هذا الحساب فقط (المشرف لا يُحسب له طلبات المشرفين)
+    let visibleReqs = typeof getVisiblePasswordRequests === "function"
+        ? getVisiblePasswordRequests()
+        : (globalPasswordRequests || []).filter(r => r && r.phone && !(r.isAdminRequest === true && currentRole !== "super_admin"));
+    let n = visibleReqs.length;
+    if (n > 0) {
+        badge.style.display = "block";
+        badge.innerText = String(n);
+    } else {
+        badge.style.display = "none";
+        badge.innerText = "0";
     }
 }
 
@@ -4653,13 +4745,7 @@ function openAdminNotificationsPanel() {
 
     let html = "<div style='padding:5px;'>";
     try {
-        let visibleReqs = (globalPasswordRequests || []).filter(r => {
-            if (!r) return false;
-            let adminFound = globalAdminsMap.get(r.phone);
-            let isRealAdmin = r.isAdminRequest || !!adminFound;
-            if (isRealAdmin) return currentRole === "super_admin";
-            return true;
-        });
+        let visibleReqs = typeof getVisiblePasswordRequests === "function" ? getVisiblePasswordRequests() : (globalPasswordRequests || []);
 
         if (!visibleReqs.length) {
             html += "<p style='text-align:center; font-size:13px;'>لا توجد طلبات تغيير رقم سري حالياً.</p>";
@@ -4807,7 +4893,7 @@ async function markPasswordRequestReported(reqId, event) {
 async function deletePasswordRequest(reqId, event) {
     if(event) { event.stopPropagation(); event.preventDefault(); }
     if(!canDeletePasswordRequests()) {
-        showAlert("🚫 حذف طلبات كلمة المرور يتطلب صلاحية الموردين أو صلاحية حذف الطلبات.");
+        showAlert("🚫 مسح طلبات الباسورد يتطلب تفعيل صلاحية «مسح طلبات الباسورد» من مدير النظام.");
         return;
     }
     if(!confirm("هل أنت متأكد من إنهاء وحذف هذا الطلب من الإشعارات؟")) return;
@@ -5395,6 +5481,7 @@ async function loadSupplierData(){
                d.uid = doc.id;
                if(d.phone) globalAdminsMap.set(d.phone, d);
            });
+           if (typeof updateAdminNotificationsBadge === "function") updateAdminNotificationsBadge();
        } catch(e){}
 
        let nameToSapMap = new Map();
@@ -5612,43 +5699,58 @@ async function loadSupplierData(){
        d._duesBranch = dBranch;
        myDues.push(d);
 
-       let val = d["مبلغ الرحلات"] || d["المبلغ"] || 0;
-       if (typeof val === "string") val = val.replace(/,/g, "").trim();
-       let num = parseFloat(val) || 0;
+       let num = typeof parseDuesMoney === "function" ? parseDuesMoney(d["مبلغ الرحلات"] || d["المبلغ"] || 0) : (Math.trunc(parseFloat(String(d["مبلغ الرحلات"]||d["المبلغ"]||0).replace(/,/g,""))||0));
+       let ded = typeof getDuesDeduction === "function" ? getDuesDeduction(d) : 0;
 
        if (!duesPeriodsMap.has(periodLabel)) {
-           duesPeriodsMap.set(periodLabel, { total: 0, sortKey: periodSortKey });
+           duesPeriodsMap.set(periodLabel, { total: 0, deduction: 0, sortKey: periodSortKey });
        }
-       duesPeriodsMap.get(periodLabel).total += num;
+       let bucket = duesPeriodsMap.get(periodLabel);
+       bucket.total += num;
+       bucket.deduction += ded;
    });
 
-   // فرز الفترات من الأحدث إلى الأقدم وحفظها عالمياً لاستخدامها في لوحة التفاصيل
    let sortedPeriods = Array.from(duesPeriodsMap.entries()).sort((a, b) => b[1].sortKey - a[1].sortKey);
 
-   // تحديث الكاش العالمي للفترات (نفس البيانات المعروضة على الكارت)
    globalDuesPeriodsCache = sortedPeriods.map(([period, data]) => ({
        period: period,
        total: data.total,
+       deduction: data.deduction || 0,
        sortKey: data.sortKey
    }));
 
    let latestPeriodName = "";
    let latestPeriodTotal = 0;
+   let latestPeriodDeduction = 0;
 
    if (sortedPeriods.length > 0) {
-       let latest = sortedPeriods[0]; // الأحدث بعد الفرز التنازلي
+       let latest = sortedPeriods[0];
        latestPeriodName = latest[0];
        latestPeriodTotal = latest[1].total;
+       latestPeriodDeduction = latest[1].deduction || 0;
    }
 
    if (!selectedDuesPeriod || !duesPeriodsMap.has(selectedDuesPeriod)) {
        selectedDuesPeriod = latestPeriodName;
    }
 
-   // وضع المبلغ والفترة على الكارت
    let duesEl = document.getElementById("numDues");
    if (duesEl) {
-       duesEl.innerHTML = latestPeriodTotal.toLocaleString("en-US") + " ج";
+       duesEl.style.color = "#28a745";
+       duesEl.innerHTML = (typeof formatMoneyInt === "function" ? formatMoneyInt(latestPeriodTotal) : latestPeriodTotal.toLocaleString("en-US")) + " ج";
+   }
+   let dedEl = document.getElementById("numDuesDeduction");
+   if (dedEl) {
+       // يظهر دائماً تحت مبلغ المستحقات (أحمر صغير)
+       dedEl.style.display = "block";
+       dedEl.style.color = "#dc3545";
+       dedEl.style.fontSize = "11px";
+       dedEl.style.fontWeight = "bold";
+       dedEl.style.marginTop = "3px";
+       let dedAbs = Math.abs(latestPeriodDeduction || 0);
+       let dedTxt = (typeof formatMoneyInt === "function" ? formatMoneyInt(dedAbs) : dedAbs.toLocaleString("en-US"));
+       dedEl.innerHTML = "خصومات: " + dedTxt + " ج";
+       dedEl.style.opacity = dedAbs ? "1" : "0.55";
    }
 
    let dueMonthLabelEl = document.getElementById("dueMonthLabel");
@@ -5757,6 +5859,23 @@ firebase.auth().onAuthStateChanged(async function(user){
              document.getElementById("licenseNotificationBtn").classList.remove("hide");
              
              applyAdminPermissionsUI();
+
+             // تحديث الصلاحيات فوراً عند تعديلها من السوبر (بدون إعادة دخول)
+             if (unsubMyPerms) { try { unsubMyPerms(); } catch(e){} unsubMyPerms = null; }
+             if (currentRole === "admin") {
+                 unsubMyPerms = db.collection("users").doc(user.uid).onSnapshot(doc => {
+                     if (!doc.exists) return;
+                     let d = doc.data() || {};
+                     if (d.role === "super_admin") return;
+                     adminPermissions = d.permissions || {};
+                     if (adminPermissions.pwdDelete === undefined) adminPermissions.pwdDelete = false;
+                     if (typeof applyAdminPermissionsUI === "function") applyAdminPermissionsUI();
+                     if (typeof updateAdminNotificationsBadge === "function") updateAdminNotificationsBadge();
+                     if (activePanel === "الاشعارات" && document.getElementById("popupBox") && document.getElementById("popupBox").style.display === "flex") {
+                         openAdminNotificationsPanel();
+                     }
+                 }, err => console.warn("perms listen", err));
+             }
              
              document.querySelectorAll(".card.stat.clickable").forEach(el => { 
                  el.classList.remove("clickable"); 
@@ -5925,18 +6044,19 @@ function renderDuesByPeriod(showAll, activeSap) {
             let periodLabel = formatDuesPeriodLabel(rawPeriod);
             let periodSortKey = parseDuesPeriodSortKey(rawPeriod || periodLabel);
 
-            let val = d["مبلغ الرحلات"] || d["المبلغ"] || 0;
-            if (typeof val === "string") val = val.replace(/,/g, "").trim();
-            let num = parseFloat(val) || 0;
+            let num = typeof parseDuesMoney === "function" ? parseDuesMoney(d["مبلغ الرحلات"] || d["المبلغ"] || 0) : 0;
+            let ded = typeof getDuesDeduction === "function" ? getDuesDeduction(d) : 0;
 
             if (!duesPeriodsMap.has(periodLabel)) {
-                duesPeriodsMap.set(periodLabel, { total: 0, sortKey: periodSortKey });
+                duesPeriodsMap.set(periodLabel, { total: 0, deduction: 0, sortKey: periodSortKey });
             }
-            duesPeriodsMap.get(periodLabel).total += num;
+            let bkt = duesPeriodsMap.get(periodLabel);
+            bkt.total += num;
+            bkt.deduction += ded;
         });
 
         globalDuesPeriodsCache = Array.from(duesPeriodsMap.entries())
-            .map(([period, data]) => ({ period, total: data.total, sortKey: data.sortKey }))
+            .map(([period, data]) => ({ period, total: data.total, deduction: data.deduction || 0, sortKey: data.sortKey }))
             .sort((a, b) => b.sortKey - a.sortKey);
     }
 
@@ -5958,6 +6078,76 @@ function getDuesBranch(d) {
     let v = d["الفرع"] || d["فرع"] || d["branch"] || d["Branch"] || "";
     if (v === undefined || v === null) return "";
     return String(v).trim();
+}
+/** تحويل قيمة مالية نصية إلى رقم */
+function parseDuesMoney(val) {
+    if (val === undefined || val === null || val === "") return 0;
+    let n;
+    if (typeof val === "number") n = val;
+    else {
+        let s = String(val).replace(/,/g, "").replace(/[^0-9.\-]/g, "").trim();
+        n = parseFloat(s);
+    }
+    if (isNaN(n)) return 0;
+    // تجاهل الكسور دائماً (620230.2 → 620230)
+    return Math.trunc(n);
+}
+function formatMoneyInt(n) {
+    let v = parseDuesMoney(n);
+    return v.toLocaleString("en-US");
+}
+/** قراءة الخصومات من صف المستحقات */
+function getDuesDeduction(d) {
+    if (!d) return 0;
+    let raw = d["الخصومات"];
+    if (raw === undefined || raw === null || String(raw).trim() === "") raw = d["خصومات"];
+    if (raw === undefined || raw === null || String(raw).trim() === "") raw = d["الخصم"];
+    if (raw === undefined || raw === null || String(raw).trim() === "") raw = d["خصم"];
+    if (raw === undefined || raw === null || String(raw).trim() === "") raw = d["deductions"] || d["Deduction"] || d["Deductions"];
+    // بحث مرن عن أي عمود يحتوي كلمة خصم
+    if (raw === undefined || raw === null || String(raw).trim() === "") {
+        for (let k in d) {
+            if (!k) continue;
+            let kn = String(k).replace(/\s+/g, "");
+            if (kn.indexOf("خصم") >= 0 || kn.toLowerCase().indexOf("deduct") >= 0) {
+                raw = d[k];
+                break;
+            }
+        }
+    }
+    return parseDuesMoney(raw || 0);
+}
+/** تفاصيل إضافية لصف المستحقات (كل الأعمدة ما عدا الأساسية) */
+function getDuesExtraRowsHtml(d) {
+    if (!d) return "";
+    let skip = new Set([
+        "fileId", "fileName", "uploadedAt", "id", "note", "noteUpdatedAt", "sortDate",
+        "_formattedPeriod", "_periodSortKey", "_duesBranch",
+        "مبلغ الرحلات", "المبلغ", "الخصومات", "خصومات", "الخصم", "خصم",
+        "كود الحافلة", "كود", "Bus Trip Code", "كود الرحلة"
+    ]);
+    let prefer = ["عدد الرحلات", "عدد الأيام", "عدد الايام", "أيام", "ايام", "السبب (ملاحظات)", "ملاحظات", "ملاحظة", "السبب", "وصف الخط", "الوصف", "وصف الحافلة", "وصف", "رقم اللوحة", "اسم الخط", "الخط", "نوع الخدمة", "الخدمة", "اسم المورد", "رقم المورد", "الفترة", "الفرع"];
+    let html = "";
+    let used = new Set();
+    prefer.forEach(k => {
+        if (d[k] === undefined || d[k] === null || String(d[k]).trim() === "") return;
+        if (used.has(k)) return;
+        used.add(k);
+        let val = sanitizeHTML(String(d[k]));
+        if (String(k).includes("تاريخ")) val = onlyDate(val);
+        html += `<div class="info-row"><b>${sanitizeHTML(k)}:</b> <span style="color:#075bb5;">${val}</span></div>`;
+    });
+    for (let k in d) {
+        if (skip.has(k) || used.has(k)) continue;
+        if (String(k).startsWith("_")) continue;
+        if (d[k] === undefined || d[k] === null || String(d[k]).trim() === "") continue;
+        used.add(k);
+        let val = sanitizeHTML(String(d[k]));
+        if (String(k).includes("تاريخ")) val = onlyDate(val);
+        html += `<div class="info-row"><b>${sanitizeHTML(k)}:</b> <span style="color:#075bb5;">${val}</span></div>`;
+    }
+    if (!html) html = `<div style="font-size:12px; color:#888;">لا توجد أعمدة إضافية لهذا السطر.</div>`;
+    return html;
 }
 
 /** توحيد اسم الفرع للمقارنة (فرع بنها ≈ بنها) */
@@ -6079,16 +6269,17 @@ function buildDuesPeriodUI(selectedPeriod, selectedBranch) {
 
         let periodLabel = getDuesPeriodLabel(d);
         let periodSortKey = parseDuesPeriodSortKey(getRawDuesPeriod(d) || periodLabel);
-        let val = d["مبلغ الرحلات"] || d["المبلغ"] || 0;
-        if (typeof val === "string") val = val.replace(/,/g, "").trim();
-        let num = parseFloat(val) || 0;
+        let num = typeof parseDuesMoney === "function" ? parseDuesMoney(d["مبلغ الرحلات"] || d["المبلغ"] || 0) : (Math.trunc(parseFloat(String(d["مبلغ الرحلات"]||0).replace(/,/g,""))||0));
+        let ded = typeof getDuesDeduction === "function" ? getDuesDeduction(d) : 0;
         if (!duesPeriodsMap.has(periodLabel)) {
-            duesPeriodsMap.set(periodLabel, { total: 0, sortKey: periodSortKey });
+            duesPeriodsMap.set(periodLabel, { total: 0, deduction: 0, sortKey: periodSortKey });
         }
-        duesPeriodsMap.get(periodLabel).total += num;
+        let bk = duesPeriodsMap.get(periodLabel);
+        bk.total += num;
+        bk.deduction += ded;
     });
     globalDuesPeriodsCache = Array.from(duesPeriodsMap.entries())
-        .map(([period, data]) => ({ period, total: data.total, sortKey: data.sortKey }))
+        .map(([period, data]) => ({ period, total: data.total, deduction: data.deduction || 0, sortKey: data.sortKey }))
         .sort((a, b) => b.sortKey - a.sortKey);
 
     if (!globalDuesPeriodsCache || globalDuesPeriodsCache.length === 0) {
@@ -6105,7 +6296,7 @@ function buildDuesPeriodUI(selectedPeriod, selectedBranch) {
     globalDuesPeriodsCache.forEach(p => {
         let val = String(p.period || "");
         let sel = (selectedPeriod && selectedPeriod === p.period) ? " selected" : "";
-        let label = val + " — " + (Number(p.total) || 0).toLocaleString("en-US") + " ج";
+        let label = val + " — " + (typeof formatMoneyInt === "function" ? formatMoneyInt(p.total) : (Math.trunc(Number(p.total)||0)).toLocaleString("en-US")) + " ج";
         periodOptions += '<option value="' + sanitizeHTML(val) + '"' + sel + '>' + sanitizeHTML(label) + '</option>';
     });
 
@@ -6162,17 +6353,18 @@ function buildDuesPeriodUI(selectedPeriod, selectedBranch) {
         if (selectedPeriod && periodLabel !== selectedPeriod) return;
 
         let code = d["Bus Trip Code"] || d["كود الحافلة"] || d["كود"] || d["كود الرحلة"] || d["رقم اللوحة"] || "بدون كود";
-        let val = d["مبلغ الرحلات"] || d["المبلغ"] || 0;
-        if (typeof val === "string") val = val.replace(/,/g, "").trim();
-        let amount = parseFloat(val) || 0;
+        let amount = parseDuesMoney(d["مبلغ الرحلات"] || d["المبلغ"] || 0);
+        let deduction = typeof getDuesDeduction === "function" ? getDuesDeduction(d) : parseDuesMoney(d["الخصومات"] || 0);
 
         detailRows.push({
             code: String(code),
             amount: amount,
+            deduction: deduction,
             period: periodLabel,
             branch: b || "",
             plate: d["رقم اللوحة"] || d["رقم اللوحات"] || "",
-            desc: d["وصف الحافلة"] || d["وصف"] || ""
+            desc: d["وصف الحافلة"] || d["وصف"] || "",
+            row: d
         });
     });
 
@@ -6186,11 +6378,18 @@ function buildDuesPeriodUI(selectedPeriod, selectedBranch) {
     });
 
     let totalAmount = detailRows.reduce((sum, r) => sum + r.amount, 0);
+    let totalDeduction = detailRows.reduce((sum, r) => sum + (r.deduction || 0), 0);
 
     let rowsHtml = "";
     if (detailRows.length === 0) {
         rowsHtml = "<p style='text-align:center; font-size:13px; padding:15px; color:#666;'>لا توجد أكواد لهذه الفترة/الفرع.</p>";
     } else {
+        rowsHtml += `<div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; font-size:11px; color:#666; padding:0 4px; align-items:center;">
+            <span style="background:#e9f5ff; border:1px solid #b8daff; padding:3px 8px; border-radius:6px;">🏷️ الكود</span>
+            <span style="background:#dc3545; color:#fff; border:1px solid #c82333; padding:3px 8px; border-radius:6px;">خصم (يظهر فقط إن وُجد)</span>
+            <span style="background:#d4edda; color:#155724; border:1px solid #28a745; padding:3px 8px; border-radius:6px;">💰 المستحقات</span>
+            <span style="color:#888;">(اضغط على الصف لعرض باقي التفاصيل)</span>
+        </div>`;
         detailRows.forEach((r, idx) => {
             let extra = "";
             if (!selectedPeriod) {
@@ -6202,33 +6401,60 @@ function buildDuesPeriodUI(selectedPeriod, selectedBranch) {
             if (r.plate) {
                 extra += `<div style="font-size:11px; color:#888;">اللوحة: ${sanitizeHTML(r.plate)}</div>`;
             }
+            let dedNum = Math.abs(r.deduction || 0);
+            let dedStr = dedNum.toLocaleString("en-US");
+            let amtStr = r.amount.toLocaleString("en-US");
+            let hasDed = dedNum > 0;
+            // الخصم يظهر فقط إذا كان أكبر من صفر — بجوار الكود ثم المستحق
+            let dedBadge = hasDed
+                ? `<span class="dues-money-box dues-money-ded">خصم: ${dedStr} ج</span>`
+                : "";
+            let amtBadge = `<span class="dues-money-box dues-money-ok">${amtStr} ج</span>`;
+            let detailBody = typeof getDuesExtraRowsHtml === "function" ? getDuesExtraRowsHtml(r.row) : "";
+            let rowClass = hasDed ? "detail-card dues-row-has-deduction" : "detail-card";
+            let borderCol = hasDed ? "#dc3545" : "#075bb5";
             rowsHtml += `
-            <div class="detail-card" style="display:flex; justify-content:space-between; align-items:center; padding:12px 14px; margin:6px 0; border-right:4px solid #075bb5; background:#fff;">
-                <div style="display:flex; align-items:center; gap:10px;">
-                    <span style="background:#075bb5; color:#fff; min-width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold;">${idx + 1}</span>
-                    <div>
-                        <div style="font-size:14px; font-weight:bold; color:#333;">🏷️ ${sanitizeHTML(r.code)}</div>
-                        ${extra}
+            <details class="${rowClass}" style="margin:6px 0; border-right:4px solid ${borderCol}; padding:0;">
+                <summary style="padding:12px 14px; list-style:none; cursor:pointer;">
+                    <div class="dues-row-main">
+                        <span style="background:${hasDed ? '#dc3545' : '#075bb5'}; color:#fff; min-width:26px; height:26px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold; flex-shrink:0;">${idx + 1}</span>
+                        <div class="dues-row-code">
+                            <div style="font-size:14px; font-weight:bold; color:#075bb5;">🏷️ ${sanitizeHTML(r.code)}</div>
+                            ${extra}
+                        </div>
+                        <div class="dues-row-money">
+                            ${dedBadge}${amtBadge}
+                        </div>
                     </div>
+                </summary>
+                <div class="detail-body" style="padding:10px 14px 14px; border-top:1px dashed #e0e0e0; background:#fafbfd;" onclick="event.stopPropagation();">
+                    ${detailBody}
                 </div>
-                <div style="text-align:left;">
-                    <span style="font-size:16px; font-weight:bold; color:#155724; background:#d4edda; padding:5px 10px; border-radius:8px; border:1px solid #c3e6cb; white-space:nowrap;">
-                        ${r.amount.toLocaleString("en-US")} ج
-                    </span>
-                </div>
-            </div>`;
+            </details>`;
         });
     }
 
-    resultDiv.innerHTML = filterHtml + rowsHtml;
+    // شريط ملخص فوق القائمة (خارج popupCount ذي الخلفية التركواز)
+    let metaBits = [];
+    if (selectedBranch) metaBits.push("الفرع: " + sanitizeHTML(selectedBranch));
+    if (selectedPeriod) metaBits.push("الفترة: " + sanitizeHTML(selectedPeriod));
+    else metaBits.push("كل الفترات");
+    metaBits.push("عدد الأكواد: " + detailRows.length);
+    let totalDedAbs = Math.abs(totalDeduction || 0);
+    let summaryBar = `
+    <div class="dues-summary-bar">
+        <span class="dues-summary-meta">${metaBits.join(" | ")}</span>
+        <span class="dues-pill dues-pill-ded" style="background:#dc3545;color:#fff;border:1px solid #c82333;padding:5px 12px;border-radius:8px;font-weight:bold;">الخصومات: ${totalDedAbs.toLocaleString("en-US")} ج</span>
+        <span class="dues-pill dues-pill-ok" style="background:#d4edda;color:#155724;border:1px solid #28a745;padding:5px 12px;border-radius:8px;font-weight:bold;">المستحقات: ${totalAmount.toLocaleString("en-US")} ج</span>
+    </div>`;
 
-    let countParts = [];
-    if (selectedBranch) countParts.push("الفرع: " + selectedBranch);
-    if (selectedPeriod) countParts.push("الفترة: " + selectedPeriod);
-    else countParts.push("كل الفترات");
-    countParts.push("عدد الأكواد: " + detailRows.length);
-    countParts.push("الإجمالي: " + totalAmount.toLocaleString("en-US") + " ج");
-    document.getElementById("popupCount").innerText = countParts.join(" | ");
+    resultDiv.innerHTML = filterHtml + summaryBar + rowsHtml;
+
+    let pc = document.getElementById("popupCount");
+    if (pc) {
+        pc.style.display = "none"; // الملخص داخل القائمة أوضح
+        pc.innerHTML = "";
+    }
 }
 
 function filterDuesByPeriod(periodVal) {
@@ -6559,16 +6785,17 @@ function loadMoreRecords() {
             
             mainInfo = `<div style="display:flex; align-items:center;">${serialBadge} ${carIconHtml} ${styledPlate} ${codeStr ? '<span style="color:#777; font-size:12px; margin:0 5px;">| كود: '+codeStr+'</span>' : ''} ${deskInfo}</div> <div style="margin-right:auto;">${rightSideContainer}</div>`;        } else if (activePanel === "المستحقات") {
             let rightSideContainer = providerInfoInner ? `<div style="margin-right:auto; display:flex; gap:5px; align-items:center;">${providerInfoInner}</div>` : "";
-            let amount = sanitizeHTML(x["مبلغ الرحلات"] || x["المبلغ"] || "0");
+            let amountNum = typeof parseDuesMoney === "function" ? parseDuesMoney(x["مبلغ الرحلات"] || x["المبلغ"] || 0) : (parseFloat(String(x["مبلغ الرحلات"]||x["المبلغ"]||0).replace(/,/g,""))||0);
+            let dedNum = typeof getDuesDeduction === "function" ? getDuesDeduction(x) : 0;
+            let amount = amountNum.toLocaleString("en-US");
+            let dedStr = dedNum.toLocaleString("en-US");
             let codeStr = sanitizeHTML(x["Bus Trip Code"] || x["كود الحافلة"] || x["كود"] || "");
             let identifierStr = codeStr ? `كود: ${codeStr}` : `بدون كود`;
-            
             let moneyIconHtml = `<div style="display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px; background:#d4edda; border-radius:8px; margin:0 5px; vertical-align: middle;"><svg viewBox="0 0 24 24" width="20" height="20" fill="#28a745"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.16-1.46-3.27-3.4h1.96c.1 1.05.82 1.87 2.65 1.87 1.96 0 2.4-.98 2.4-1.59 0-.83-.44-1.61-2.67-2.14-2.48-.6-4.18-1.62-4.18-3.67 0-1.72 1.39-2.84 3.11-3.21V4h2.67v1.95c1.86.45 2.79 1.86 2.85 3.39H14.3c-.05-1.11-.64-1.87-2.22-1.87-1.5 0-2.4.68-2.4 1.64 0 .84.65 1.39 2.67 1.91s4.18 1.39 4.18 3.91c-.01 1.83-1.38 2.83-3.12 3.16z"/></svg></div>`;
-            
-            let prominentAmount = `<span style="font-size: 15px; font-weight: bold; color: #155724; background: #c3e6cb; padding: 2px 8px; border-radius: 6px; border: 1px solid #b1dfbb; margin: 0 5px;">${amount} ج</span>`;
-            let regularPlate = `<span style="color:#555; font-size:13px; margin:0 5px; font-weight:bold;">${identifierStr}</span>`;
-            
-            mainInfo = `<div style="display:flex; align-items:center;">${serialBadge} ${moneyIconHtml} ${prominentAmount} ${regularPlate} ${deskInfo}</div> <div style="margin-right:auto;">${rightSideContainer}</div>`;
+            let prominentAmount = `<span style="font-size: 14px; font-weight: bold; color: #155724; background: #c3e6cb; padding: 2px 8px; border-radius: 6px; border: 1px solid #b1dfbb; margin: 0 4px;">${amount} ج</span>`;
+            let dedBadge = `<span style="font-size: 13px; font-weight: bold; color: #fff; background: #dc3545; padding: 2px 8px; border-radius: 6px; border: 1px solid #c82333; margin: 0 4px;">خصم: ${dedStr} ج</span>`;
+            let regularPlate = `<span style="color:#075bb5; font-size:13px; margin:0 5px; font-weight:bold;">${identifierStr}</span>`;
+            mainInfo = `<div style="display:flex; align-items:center; flex-wrap:wrap;">${serialBadge} ${moneyIconHtml} ${regularPlate} ${dedBadge} ${prominentAmount} ${deskInfo}</div> <div style="margin-right:auto;">${rightSideContainer}</div>`;
 
         } else {            let dateStr = onlyDate(x["وقت الوردية"] || x["التاريخ"]);
             let shiftStr = sanitizeHTML(x["الوردية"]||x["وردية"]||x["وقت الوردية"]||"");
@@ -6978,8 +7205,8 @@ function downloadExcelTemplate(type) {
         sample = ["اسم المورد مثال", "أ ب ج 1234", "BUS001", "2026-09-01", "2026-09-01 07:00", "صباحي", "رحلة ناجحة", "خط المعادي", "القاهرة", "نقل موظفين"];
         fileName = "قالب_الرحلات.xlsx";
     } else if (type === "dues") {
-        headers = ["اسم المورد", "رقم المورد", "الفترة", "الفرع", "مبلغ الرحلات", "كود الحافلة", "Bus Trip Code", "رقم اللوحة", "وصف الحافلة"];
-        sample = ["اسم المورد مثال", "12345", "2026-09", "1500", "TRIP001", "BUS001", "أ ب ج 1234", "أتوبيس 50 راكب"];
+        headers = ["اسم المورد", "رقم المورد", "الفترة", "الفرع", "مبلغ الرحلات", "الخصومات", "كود الحافلة", "رقم اللوحة", "وصف الخط", "وصف الحافلة", "عدد الرحلات", "السبب (ملاحظات)"];
+        sample = ["اسم المورد مثال", "12345", "2026-09", "قويسنا", "1500", "200", "TRIP001", "أ ب ج 1234", "قويسنا - بركة السبع", "أتوبيس 50 راكب", "30", "تلف الملصق"];
         fileName = "قالب_المستحقات.xlsx";
     } else if (type === "suppliers") {
         headers = ["رقم ساب", "اسم المورد", "اسم المكتب", "رقم الهاتف", "كلمة المرور"];
@@ -6993,10 +7220,10 @@ function downloadExcelTemplate(type) {
         let row = {};
         headers.forEach((h, i) => { row[h] = sample[i] || ""; });
         const ws = XLSX.utils.json_to_sheet([row]);
-        // تفريغ الصف التجريبي ليبقى الهيدر فقط (أو نترك صف مثال للتوضيح)
-        // نترك صف مثال واحد للمساعدة
+        styleExcelSheet(ws, [row]);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "القالب");
+        // sheetjs community: cell styles need xlsx-js-style; widths always apply
         XLSX.writeFile(wb, fileName);
         showAlert("✅ تم تحميل القالب. الصف الأول مثال توضيحي — احذفه أو عدّله ثم أضف بياناتك مع الحفاظ على أسماء الأعمدة.");
     } catch (e) {
