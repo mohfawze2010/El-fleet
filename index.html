@@ -979,7 +979,8 @@ let appSettings = {
     displayVersion: "V1.1",
     tripsPeriodNote: "",
     tripsPeriodFrom: "",
-    tripsPeriodTo: ""
+    tripsPeriodTo: "",
+    tripsPeriodByBranch: {}
 };
 function formatPeriodDateAr(iso) {
     if (!iso) return "";
@@ -1105,11 +1106,13 @@ async function loadAppSettings() {
                 displayVersion: d.displayVersion || "V1.1",
                 tripsPeriodNote: d.tripsPeriodNote || "",
                 tripsPeriodFrom: d.tripsPeriodFrom || "",
-                tripsPeriodTo: d.tripsPeriodTo || ""
+                tripsPeriodTo: d.tripsPeriodTo || "",
+                tripsPeriodByBranch: (d.tripsPeriodByBranch && typeof d.tripsPeriodByBranch === "object") ? d.tripsPeriodByBranch : {}
             };
         }
     } catch (e) { console.warn("loadAppSettings", e); }
     applyAppBranding();
+    try { if (typeof renderBranchPeriodsList === "function") renderBranchPeriodsList(); } catch(e){}
 }
 function flashAdminResult(msg, ms) {
     let ar = document.getElementById("adminResult");
@@ -1197,14 +1200,25 @@ function applyAppBranding() {
         if (elVerAdmin) elVerAdmin.textContent = ver;
         let elVerSet = document.getElementById("setDisplayVersion");
         if (elVerSet && document.activeElement !== elVerSet) elVerSet.value = ver;
-        // فترة الرحلات (من/إلى) — تظهر في واجهة البيانات
-        let pf = (appSettings.tripsPeriodFrom || "").trim();
-        let pt = (appSettings.tripsPeriodTo || "").trim();
+        // فترة الرحلات: حسب الفرع المختار إن وُجدت، وإلا العامة
         let periodTxt = "";
-        if (pf && pt) periodTxt = formatPeriodDateAr(pf) + "  إلى  " + formatPeriodDateAr(pt);
-        else if (pf) periodTxt = "من " + formatPeriodDateAr(pf);
-        else if (pt) periodTxt = "حتى " + formatPeriodDateAr(pt);
-        else if ((appSettings.tripsPeriodNote || "").trim()) periodTxt = (appSettings.tripsPeriodNote || "").trim();
+        let byBr = appSettings.tripsPeriodByBranch || {};
+        let brKey = (typeof activeBranch !== "undefined" && activeBranch) ? String(activeBranch).trim() : "";
+        if (brKey && byBr[brKey] && (byBr[brKey].from || byBr[brKey].to)) {
+            let bf = (byBr[brKey].from || "").trim();
+            let bt = (byBr[brKey].to || "").trim();
+            if (bf && bt) periodTxt = formatPeriodDateAr(bf) + "  إلى  " + formatPeriodDateAr(bt) + " (فرع: " + brKey + ")";
+            else if (bf) periodTxt = "من " + formatPeriodDateAr(bf) + " (فرع: " + brKey + ")";
+            else if (bt) periodTxt = "حتى " + formatPeriodDateAr(bt) + " (فرع: " + brKey + ")";
+        }
+        if (!periodTxt) {
+            let pf = (appSettings.tripsPeriodFrom || "").trim();
+            let pt = (appSettings.tripsPeriodTo || "").trim();
+            if (pf && pt) periodTxt = formatPeriodDateAr(pf) + "  إلى  " + formatPeriodDateAr(pt);
+            else if (pf) periodTxt = "من " + formatPeriodDateAr(pf);
+            else if (pt) periodTxt = "حتى " + formatPeriodDateAr(pt);
+            else if ((appSettings.tripsPeriodNote || "").trim()) periodTxt = (appSettings.tripsPeriodNote || "").trim();
+        }
         let bar = document.getElementById("tripsPeriodBar");
         let barEmpty = document.getElementById("tripsPeriodBarEmpty");
         let span = document.getElementById("globalLastUpdateTxt");
@@ -1525,7 +1539,7 @@ function sanitizeDocId(sap) {
     return String(sap).replace(/\//g, "-").trim();
 }
 
-function changeBranch(val) { activeBranch = val; applyGlobalFilter(); }
+function changeBranch(val) { activeBranch = val; try { if (typeof applyAppBranding === "function") applyAppBranding(); } catch(e){} applyGlobalFilter(); }
 function changeServiceType(val) { activeServiceType = val; applyGlobalFilter(); }
 
 function phoneToAuthEmail(phone) {
@@ -2372,6 +2386,84 @@ async function submitSupplierReplyModal(compId, event) {
     }
 }
 
+
+function renderBranchPeriodsList() {
+    let box = document.getElementById("branchPeriodsList");
+    if (!box) return;
+    let byBr = appSettings.tripsPeriodByBranch || {};
+    let keys = Object.keys(byBr).sort((a,b) => a.localeCompare(b, "ar"));
+    if (!keys.length) {
+        box.innerHTML = '<span style="color:#888;">لا توجد فترات خاصة بالفروع بعد.</span>';
+        return;
+    }
+    let html = '<table style="width:100%; border-collapse:collapse; font-size:12px;">';
+    keys.forEach(k => {
+        let p = byBr[k] || {};
+        let txt = "";
+        if (p.from && p.to) txt = formatPeriodDateAr(p.from) + " → " + formatPeriodDateAr(p.to);
+        else if (p.from) txt = "من " + formatPeriodDateAr(p.from);
+        else if (p.to) txt = "حتى " + formatPeriodDateAr(p.to);
+        else txt = "—";
+        let safeK = String(k).replace(/\\/g,"\\\\").replace(/'/g,"\\'");
+        html += '<tr style="border-bottom:1px solid #f0e0a0;"><td style="padding:6px;font-weight:bold;">' + sanitizeHTML(k) + '</td><td style="padding:6px;">' + sanitizeHTML(txt) + '</td><td style="padding:6px;width:70px;"><button type="button" onclick="removeBranchPeriodNote(\'' + safeK + '\')" style="background:#dc3545;color:#fff;border:none;border-radius:6px;padding:4px 8px;font-size:11px;width:auto;cursor:pointer;">حذف</button></td></tr>';
+    });
+    html += '</table>';
+    box.innerHTML = html;
+    let dl = document.getElementById("branchPeriodSuggestions");
+    if (dl) {
+        let branches = new Set();
+        (globalVehicles || []).forEach(v => { let b = (v["الفرع"]||"").trim(); if(b) branches.add(b); });
+        (globalTrips || []).forEach(t => { let b = (t["الفرع"]||"").trim(); if(b) branches.add(b); });
+        (globalDues || []).forEach(d => { let b = (d["الفرع"]||"").trim(); if(b) branches.add(b); });
+        Object.keys(byBr).forEach(k => branches.add(k));
+        dl.innerHTML = Array.from(branches).sort((a,b)=>a.localeCompare(b,"ar")).map(b => '<option value="'+sanitizeHTML(b)+'">').join("");
+    }
+}
+async function saveBranchPeriodNote() {
+    if (currentRole !== "super_admin" && currentRole !== "admin") return;
+    if (typeof canAdminWrite === "function" && !canAdminWrite()) { showAlert("🚫 حساب مشاهدة فقط."); return; }
+    let name = ((document.getElementById("setBranchPeriodName") || {}).value || "").trim();
+    let from = ((document.getElementById("setBranchPeriodFrom") || {}).value || "").trim();
+    let to = ((document.getElementById("setBranchPeriodTo") || {}).value || "").trim();
+    if (!name) { showAlert("اكتب اسم الفرع."); return; }
+    if (!from && !to) { showAlert("حدد تاريخ البداية أو النهاية على الأقل."); return; }
+    if (from && to && from > to) { showAlert("تاريخ البداية يجب ألا يتجاوز النهاية."); return; }
+    if (!appSettings.tripsPeriodByBranch) appSettings.tripsPeriodByBranch = {};
+    appSettings.tripsPeriodByBranch[name] = { from: from, to: to };
+    try {
+        await db.collection("system").doc("appSettings").set({
+            tripsPeriodByBranch: appSettings.tripsPeriodByBranch,
+            updatedAt: Date.now(),
+            updatedBy: currentUserName || ""
+        }, { merge: true });
+        renderBranchPeriodsList();
+        applyAppBranding();
+        if (typeof logAudit === "function") logAudit("فترة فرع", "حفظ فترة لفرع: " + name, { after: from + " → " + to });
+        showAlert("✅ تم حفظ فترة فرع: " + name);
+        let n = document.getElementById("setBranchPeriodName");
+        let f = document.getElementById("setBranchPeriodFrom");
+        let t = document.getElementById("setBranchPeriodTo");
+        if (n) n.value = "";
+        if (f) f.value = "";
+        if (t) t.value = "";
+    } catch (e) { showAlert("❌ " + e.message); }
+}
+async function removeBranchPeriodNote(name) {
+    if (!name || !appSettings.tripsPeriodByBranch) return;
+    if (!confirm("حذف فترة الفرع: " + name + " ؟")) return;
+    delete appSettings.tripsPeriodByBranch[name];
+    try {
+        await db.collection("system").doc("appSettings").set({
+            tripsPeriodByBranch: appSettings.tripsPeriodByBranch,
+            updatedAt: Date.now()
+        }, { merge: true });
+        renderBranchPeriodsList();
+        applyAppBranding();
+        showAlert("تم حذف فترة الفرع.");
+    } catch (e) { showAlert("❌ " + e.message); }
+}
+
+
 async function clearTripsPeriodNote() {
     let f = document.getElementById("setTripsPeriodFrom");
     let t = document.getElementById("setTripsPeriodTo");
@@ -2421,8 +2513,13 @@ async function loadUploadedFiles() {
     try {
         let snap = await db.collection("systemFiles").orderBy("date", "desc").get();
         _uploadedFilesCache = [];
+        let seenKey = new Set();
+        // مرتّبة من الأحدث — نعرض أول ظهور فقط لكل (اسم+نوع)
         snap.forEach(doc => {
             let d = doc.data() || {};
+            let key = String(d.name || "").trim().toLowerCase() + "|" + String(d.type || "").toLowerCase();
+            if (key !== "|" && seenKey.has(key)) return;
+            if (key !== "|") seenKey.add(key);
             _uploadedFilesCache.push({
                 id: d.id || doc.id,
                 name: d.name || "",
@@ -2754,12 +2851,19 @@ async function safeUploadTest(inputId, label) {
         showAlert("⚠️ يرجى اختيار ملف أولاً قبل الضغط على زر الرفع.");
         return;
     }
+    // منع الضغط المزدوج / تشغيل رفعين في نفس الوقت
+    if (window.__uploadInProgress) {
+        showAlert("⏳ يوجد رفع جارٍ بالفعل — انتظر حتى ينتهي.");
+        return;
+    }
+    window.__uploadInProgress = true;
 
     const file = fileInput.files[0];
     const collectionName = inputId === 'vehiclesFile' ? 'vehicles' : (inputId === 'tripsFile' ? 'trips' : 'dues');
     const typeName = inputId === 'vehiclesFile' ? 'بيانات السيارات' : (inputId === 'tripsFile' ? 'بيانات الرحلات' : 'بيانات المستحقات');
     const fileId = generateFileId();
     const uploadDate = new Date().toISOString();
+    const fileNameNorm = String(file.name || "").trim().toLowerCase();
 
     resultDiv.innerHTML = `⏳ جاري قراءة الملف وتجهيز البيانات...`;
 
@@ -2774,6 +2878,7 @@ async function safeUploadTest(inputId, label) {
 
             if (!data || !data.length) {
                 resultDiv.innerHTML = `❌ الملف فارغ أو غير مطابق: لا يحتوي على صفوف بيانات صالحة.`;
+                window.__uploadInProgress = false;
                 return;
             }
 
@@ -2789,6 +2894,7 @@ async function safeUploadTest(inputId, label) {
                 );
                 if (!hasSapOrName || !hasPlateOrCode) {
                     resultDiv.innerHTML = `❌ الملف غير مطابق لقالب السيارات. تأكد من وجود أعمدة مثل: رقم المورد / اسم المورد، ورقم اللوحة أو كود الحافلة.`;
+                    window.__uploadInProgress = false;
                     return;
                 }
             } else if (collectionName === "trips") {
@@ -2797,6 +2903,7 @@ async function safeUploadTest(inputId, label) {
                 );
                 if (!hasSapOrName && !hasTripHint) {
                     resultDiv.innerHTML = `❌ الملف غير مطابق لقالب الرحلات. تأكد من أعمدة مثل: اسم المورد، التاريخ/الوردية، حالة الرحلة.`;
+                    window.__uploadInProgress = false;
                     return;
                 }
             } else if (collectionName === "dues") {
@@ -2805,6 +2912,7 @@ async function safeUploadTest(inputId, label) {
                 );
                 if (!hasSapOrName && !hasAmount) {
                     resultDiv.innerHTML = `❌ الملف غير مطابق لقالب المستحقات. تأكد من أعمدة مثل: رقم/اسم المورد، الفترة، مبلغ الرحلات.`;
+                    window.__uploadInProgress = false;
                     return;
                 }
             }
@@ -2962,8 +3070,29 @@ async function safeUploadTest(inputId, label) {
                 window.__lastUploadMatchInfo = null;
             }
 
-            let existingData = await downloadAllData(collectionName);
-            let combinedData = (existingData || []).concat(data || []);
+            // إزالة أي رفع سابق بنفس اسم الملف ونفس النوع (تفادي التكرار في القائمة والبيانات والسجل)
+            let existingData = await downloadAllData(collectionName) || [];
+            let replacedOldIds = [];
+            try {
+                let sfSnap = await db.collection("systemFiles").get();
+                for (let doc of sfSnap.docs) {
+                    let d = doc.data() || {};
+                    let n = String(d.name || "").trim().toLowerCase();
+                    let t = String(d.type || "").toLowerCase();
+                    if (n && n === fileNameNorm && t === collectionName) {
+                        replacedOldIds.push(d.id || doc.id);
+                        try { await db.collection("systemFiles").doc(doc.id).delete(); } catch (eDel) {}
+                    }
+                }
+            } catch (eSf) { console.warn("systemFiles dedupe", eSf); }
+            if (replacedOldIds.length) {
+                let idSet = new Set(replacedOldIds.map(String));
+                existingData = existingData.filter(row => !idSet.has(String(row.fileId || "")));
+                // أيضاً صفوف بنفس اسم الملف (نسخ قديمة)
+                existingData = existingData.filter(row => String(row.fileName || "").trim().toLowerCase() !== fileNameNorm);
+            }
+
+            let combinedData = existingData.concat(data || []);
 
             // التجميع: السيارات برقم المورد | الرحلات والمستحقات باسم المكتب الموحّد
             let groupedData = {};
@@ -3010,15 +3139,22 @@ async function safeUploadTest(inputId, label) {
                     matchNote = `<br><span style="color:#155724;font-size:12px;">✓ تم تخزين السجلات باسم المكتب وربط ${m.matched} برقم المورد.</span>`;
                 }
             }
-            if (typeof logAudit === "function") logAudit("رفع ملف بيانات", label || inputId || "ملف");
-                resultDiv.innerHTML = `✅ تم رفع وتحديث ${label} بنجاح (${data.length} سجل)!` + matchNote;
+            let replaceNote = replacedOldIds.length ? `<br><span style="color:#0f6674;font-size:12px;">تم استبدال ${replacedOldIds.length} رفع سابق بنفس اسم الملف (بدون تكرار).</span>` : "";
+            if (typeof logAudit === "function") {
+                logAudit("رفع ملف بيانات", (label || typeName) + " — " + (file.name || ""), {
+                    after: data.length + " سجل" + (replacedOldIds.length ? " (استبدال مكرر)" : "")
+                });
+            }
+            resultDiv.innerHTML = `✅ تم رفع وتحديث ${label} بنجاح (${data.length} سجل)!` + matchNote + replaceNote;
             fileInput.value = "";
             
             loadUploadedFiles();
             dataLoaded = false;
             await loadSupplierData();
+            window.__uploadInProgress = false;
 
         } catch (err) {
+            window.__uploadInProgress = false;
             console.error(err);
             let msg = (err && err.message) ? String(err.message) : String(err);
             let friendly = "";
@@ -3255,8 +3391,11 @@ async function factoryResetSection(section) {
         return;
     }
     if (!canAdminWrite()) { showAlert("🚫 حساب مشاهدة فقط."); return; }
-    if (confirm("يُنصح بنسخة احتياطية أولاً.\nموافق = تحميل نسخة احتياطية الآن\nإلغاء = المتابعة بدون نسخة")) {
-        try { await downloadSystemBackup(); } catch (e) {}
+    // نسخة احتياطية اختيارية فقط عند تهيئة حسابات الموردين/المشرفين
+    if (section === "suppliers" || section === "admins") {
+        if (confirm("هذه العملية تمس الحسابات.\nهل تريد تحميل نسخة احتياطية للحسابات أولاً؟\nموافق = نعم | إلغاء = متابعة بدون نسخة")) {
+            try { await downloadSystemBackup(); } catch (e) {}
+        }
     }
     const labels = {
         complaints: "كل المقترحات والشكاوى",
@@ -3330,10 +3469,8 @@ async function wipeAllData() {
         return;
     }
     if (!canAdminWrite()) { showAlert("🚫 حساب مشاهدة فقط."); return; }
-    if (confirm("تحميل نسخة احتياطية قبل المسح؟")) {
-        try { await downloadSystemBackup(); } catch (e) {}
-    }
-    if(!confirm("⚠️ تحذير: هل أنت متأكد من مسح كافة بيانات السيارات والرحلات والمستحقات؟")) return;
+    // المسح للملفات المرفوعة فقط — بدون نسخة احتياطية إجبارية (لا تُمس حسابات الموردين/المشرفين)
+    if(!confirm("⚠️ تحذير: مسح كافة بيانات السيارات والرحلات والمستحقات والملفات المرفوعة؟\n(حسابات الموردين والمشرفين لن تُحذف)")) return;
     let pwd = prompt("لتأكيد المسح الشامل، اكتب كلمة 'مسح':");
     if (pwd !== "مسح") { showAlert("تم إلغاء عملية المسح."); return; }
     
@@ -4228,18 +4365,41 @@ function selectMsgSupplier(sap, name) {
                     <p class="upload-acc-title">📅 ملاحظة فترة بيانات الرحلات (للموردين)</p>
                 </div>
                 <div class="upload-acc-body">
-                    <p style="font-size:11px; color:#666; margin:0 0 10px 0; line-height:1.5;">تظهر للمورد في واجهة البيانات الجملة الثابتة:<br><b>بيانات الرحلات المعروضة عن الفترة:</b> من … إلى …<br>(خاصة بالرحلات وليست المستحقات). اختر التواريخ من التقويم لتوحيد الصيغة.</p>
-                    <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end;">
-                        <div style="flex:1; min-width:140px;">
-                            <label style="font-size:12px; font-weight:bold; display:block; margin-bottom:4px;">من تاريخ</label>
-                            <input type="date" id="setTripsPeriodFrom" style="width:100%; padding:10px; border-radius:8px; border:1px solid #7ec8d4; box-sizing:border-box; font-family:tahoma; font-size:14px;">
+                    <p style="font-size:11px; color:#666; margin:0 0 10px 0; line-height:1.5;">تظهر للمورد: <b>بيانات الرحلات المعروضة عن الفترة:</b> … (للرحلات فقط). يمكن فترة عامة أو فترة مختلفة لكل فرع.</p>
+                    <div style="background:#e8f7f9; border:1px solid #7ec8d4; border-radius:8px; padding:10px; margin-bottom:12px;">
+                        <div style="font-size:12px; font-weight:bold; color:#0f6674; margin-bottom:6px;">📅 الفترة العامة (عند عدم اختيار فرع أو فرع بلا فترة خاصة)</div>
+                        <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end;">
+                            <div style="flex:1; min-width:120px;">
+                                <label style="font-size:11px; font-weight:bold; display:block; margin-bottom:3px;">من تاريخ</label>
+                                <input type="date" id="setTripsPeriodFrom" style="width:100%; padding:8px; border-radius:8px; border:1px solid #7ec8d4; box-sizing:border-box; font-family:tahoma; font-size:13px;">
+                            </div>
+                            <div style="flex:1; min-width:120px;">
+                                <label style="font-size:11px; font-weight:bold; display:block; margin-bottom:3px;">إلى تاريخ</label>
+                                <input type="date" id="setTripsPeriodTo" style="width:100%; padding:8px; border-radius:8px; border:1px solid #7ec8d4; box-sizing:border-box; font-family:tahoma; font-size:13px;">
+                            </div>
+                            <button type="button" class="btn-sm" onclick="saveTripsPeriodNote()" style="background:#17a2b8; width:auto !important; margin:0;">💾 حفظ العامة</button>
+                            <button type="button" class="btn-sm" onclick="clearTripsPeriodNote()" style="background:#6c757d; width:auto !important; margin:0;">مسح العامة</button>
                         </div>
-                        <div style="flex:1; min-width:140px;">
-                            <label style="font-size:12px; font-weight:bold; display:block; margin-bottom:4px;">إلى تاريخ</label>
-                            <input type="date" id="setTripsPeriodTo" style="width:100%; padding:10px; border-radius:8px; border:1px solid #7ec8d4; box-sizing:border-box; font-family:tahoma; font-size:14px;">
+                    </div>
+                    <div style="background:#fff8e6; border:1px solid #ffc107; border-radius:8px; padding:10px;">
+                        <div style="font-size:12px; font-weight:bold; color:#856404; margin-bottom:6px;">🏢 فترة حسب الفرع (اختياري)</div>
+                        <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end; margin-bottom:8px;">
+                            <div style="flex:1; min-width:110px;">
+                                <label style="font-size:11px; font-weight:bold; display:block; margin-bottom:3px;">اسم الفرع</label>
+                                <input type="text" id="setBranchPeriodName" placeholder="مثال: بنها" list="branchPeriodSuggestions" style="width:100%; padding:8px; border-radius:8px; border:1px solid #ffc107; box-sizing:border-box; font-family:tahoma; font-size:13px;">
+                                <datalist id="branchPeriodSuggestions"></datalist>
+                            </div>
+                            <div style="flex:1; min-width:110px;">
+                                <label style="font-size:11px; font-weight:bold; display:block; margin-bottom:3px;">من</label>
+                                <input type="date" id="setBranchPeriodFrom" style="width:100%; padding:8px; border-radius:8px; border:1px solid #ffc107; box-sizing:border-box; font-family:tahoma; font-size:13px;">
+                            </div>
+                            <div style="flex:1; min-width:110px;">
+                                <label style="font-size:11px; font-weight:bold; display:block; margin-bottom:3px;">إلى</label>
+                                <input type="date" id="setBranchPeriodTo" style="width:100%; padding:8px; border-radius:8px; border:1px solid #ffc107; box-sizing:border-box; font-family:tahoma; font-size:13px;">
+                            </div>
+                            <button type="button" class="btn-sm" onclick="saveBranchPeriodNote()" style="background:#fd7e14; width:auto !important; margin:0;">💾 حفظ للفرع</button>
                         </div>
-                        <button type="button" class="btn-sm" onclick="saveTripsPeriodNote()" style="background:#17a2b8; width:auto !important; margin:0;">💾 حفظ الفترة</button>
-                        <button type="button" class="btn-sm" onclick="clearTripsPeriodNote()" style="background:#6c757d; width:auto !important; margin:0;">مسح</button>
+                        <div id="branchPeriodsList" style="font-size:12px; max-height:160px; overflow-y:auto;"></div>
                     </div>
                 </div>
             </div>
@@ -4436,7 +4596,7 @@ function selectMsgSupplier(sap, name) {
             <div class="upload-accordion" data-color="red" id="acc_set_factory" style="margin-bottom:10px;">
                 <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_set_factory')">
                     <span class="upload-acc-plus">+</span>
-                    <p class="upload-acc-title">🧨 تهيئة النظام + نسخة احتياطية</p>
+                    <p class="upload-acc-title">🧨 تهيئة النظام</p>
                 </div>
                 <div class="upload-acc-body">
                     <p style="font-size:10px; color:#666; margin:0 0 8px 0; line-height:1.5;">النسخة الاحتياطية ملف JSON للمراجعة والأرشفة. <b>ليست استرجاعاً تلقائياً</b> داخل البرنامج — لاستعادة بيانات التشغيل أعد رفع ملفات الإكسيل من تبويب البيانات. يمكن الرجوع لقائمة الموردين/المشرفين يدوياً من الملف إن لزم.</p>
