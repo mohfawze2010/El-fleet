@@ -16,7 +16,8 @@ function logoutUser(){
  currentRole="supplier";
  adminPermissions = {};
  dataLoaded = false; 
- activeBranch = ""; 
+ activeBranch = "";
+ activeBranches = [];
  activeServiceType = "";
  loggedInSupplierSapGlobal = "";
  currentSupplierServiceTypes = new Set();
@@ -169,7 +170,7 @@ button:disabled {background:#999 !important; cursor:not-allowed;}
 .footer-info a { color: #075bb5; text-decoration: none; }
 .footer-info a:hover { text-decoration: underline; }
 
-.header {background:#075bb5;color:#fff;padding:12px 15px;border-radius:15px;line-height:1.4; position: relative; display: flex; justify-content: space-between; align-items: flex-start;}
+.header {background:#075bb5;color:#fff;padding:12px 15px;border-radius:15px;line-height:1.4; position: relative; z-index: 300; overflow: visible; display: flex; justify-content: space-between; align-items: flex-start;}
 
 .header-actions-left {display: flex; flex-direction: column; gap: 8px; align-items: flex-end; width: 55%;}
 .top-icons-row {
@@ -200,12 +201,56 @@ button:disabled {background:#999 !important; cursor:not-allowed;}
 .pulse-badge-anim { animation: pulseBadgeAnim 1.5s infinite; }
 @keyframes pulseBadgeAnim { 0% { transform: scale(1); } 50% { transform: scale(1.15); } 100% { transform: scale(1); } }
 
-.provider-info-right {flex: 1; padding-left: 5px;}
+.provider-info-right {flex: 1; padding-left: 5px; overflow: visible; position: relative; z-index: 305;}
 .portal-title {font-size: 14px; font-weight: bold; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
-.provider-details {font-size: 12px; opacity: 0.9; line-height: 1.6;}
+.provider-details {font-size: 12px; opacity: 0.9; line-height: 1.6; overflow: visible;}
 
 #branchSelector, #serviceSelector { background: rgba(255, 255, 255, 0.2); color: #fff; border: 1px solid rgba(255,255,255,0.4); padding: 2px 5px; border-radius: 4px; font-family: tahoma; font-size: 11px; outline: none; margin-right: 4px; cursor: pointer; width: auto; margin-top: 2px; margin-bottom: 2px;}
 #branchSelector option, #serviceSelector option { background: #075bb5; color: #fff; }
+.branch-multi-wrap { position: relative; display: inline-block; vertical-align: middle; max-width: 100%; z-index: 310; overflow: visible; }
+.branch-multi-btn {
+  background: rgba(255,255,255,0.2); color: #fff; border: 1px solid rgba(255,255,255,0.45);
+  padding: 2px 8px; border-radius: 4px; font-family: tahoma; font-size: 11px; cursor: pointer;
+  width: auto !important; margin: 2px 0; white-space: nowrap; max-width: 160px;
+  overflow: hidden; text-overflow: ellipsis; line-height: 1.35;
+  box-shadow: none;
+}
+.branch-multi-btn:hover { background: rgba(255,255,255,0.32); }
+.branch-multi-drop {
+  display: none; position: absolute; top: calc(100% + 3px); right: 0; z-index: 5000;
+  background: #075bb5; color: #fff; border: 1px solid rgba(255,255,255,0.35);
+  border-radius: 8px; box-shadow: 0 12px 28px rgba(7,91,181,0.45), 0 2px 8px rgba(0,0,0,0.15);
+  min-width: 160px; max-width: 220px; max-height: min(280px, 55vh);
+  overflow-x: hidden; overflow-y: auto; padding: 4px 0 0 0; margin: 0;
+  scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.45) rgba(0,0,0,0.12);
+  -webkit-overflow-scrolling: touch;
+}
+.branch-multi-drop::-webkit-scrollbar { width: 5px; }
+.branch-multi-drop::-webkit-scrollbar-track { background: rgba(0,0,0,0.12); border-radius: 8px; }
+.branch-multi-drop::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.4); border-radius: 8px; }
+.branch-multi-drop.open { display: block; }
+.branch-multi-drop label {
+  display: flex; align-items: center; gap: 6px; padding: 5px 10px; font-size: 11px;
+  cursor: pointer; border-radius: 0; color: #fff; margin: 0; font-weight: normal;
+  line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.branch-multi-drop label:hover { background: rgba(255,255,255,0.14); }
+.branch-multi-drop label:active { background: rgba(255,255,255,0.22); }
+.branch-multi-drop input[type="checkbox"] {
+  width: 13px !important; height: 13px !important; margin: 0 !important; padding: 0 !important;
+  accent-color: #fff; flex-shrink: 0; cursor: pointer;
+}
+.branch-multi-actions {
+  display: flex; gap: 4px; padding: 5px 6px 6px; border-top: 1px solid rgba(255,255,255,0.22);
+  margin-top: 2px; position: sticky; bottom: 0; background: #064a96;
+}
+.branch-multi-actions button {
+  flex: 1; width: auto !important; padding: 4px 4px !important; margin: 0 !important;
+  font-size: 10px !important; border-radius: 4px !important; font-weight: bold;
+  border: 1px solid rgba(255,255,255,0.25) !important; box-shadow: none !important;
+}
+.branch-multi-actions button:first-child { background: rgba(255,255,255,0.2) !important; color: #fff !important; }
+.branch-multi-actions button:last-child { background: rgba(0,0,0,0.2) !important; color: #fff !important; }
 
 .grid {display:grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top:15px; perspective: 1000px;} 
 .stat {
@@ -339,7 +384,7 @@ button.dues-sort-chip.active, .dues-sort-chip.active { box-shadow:0 0 0 2px #075
 
 .desktop-only { color: #555; font-size: 12px; font-weight: normal; margin: 0 8px; border-right: 1px solid #ccc; padding-right: 8px;}
 
-#adminDashFilter { background:#fff; padding:12px; border-radius:15px; margin-top:10px; box-shadow:0 2px 8px rgba(0,0,0,0.06); position: relative; z-index: 100;}
+#adminDashFilter { background:#fff; padding:12px; border-radius:15px; margin-top:10px; box-shadow:0 2px 8px rgba(0,0,0,0.06); position: relative; z-index: 50;}
 .dash-dropdown { display:none; position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid #075bb5; z-index:101; max-height:200px; overflow-y:auto; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.15);}
 .dash-dropdown div { padding:10px; border-bottom:1px solid #eee; cursor:pointer; font-size:13px;}
 .dash-dropdown div:hover { background:#e9f5ff;}
@@ -779,9 +824,9 @@ button.dues-sort-chip.active, .dues-sort-chip.active { box-shadow:0 0 0 2px #075
                 <div class="exit-text">تواصل</div>
             </div>
             
-            <div class="exit-container hide" id="supplierExportBtn" onclick="exportSupplierDataToExcel()" title="تحميل كشف حسابي">
+            <div class="exit-container hide" id="supplierExportBtn" onclick="handleTopExportClick()" title="تحميل / تصدير البيانات">
                 <div class="exit-icon-circle icon-text-success">📥</div>
-                <div class="exit-text">تنزيل</div>
+                <div class="exit-text" id="exportBtnLabel">تنزيل</div>
             </div>
         </div>
         <button id="adminBtn" class="hide" onclick="openAdmin()" style="background:#fff; color:#075bb5; padding:6px 10px; font-size:12px; border-radius:8px; box-shadow:0 2px 4px rgba(0,0,0,0.1); margin-top:10px; width:100%;">⚙️ لوحة الإدارة</button>
@@ -1440,8 +1485,10 @@ let currentUserName = "";
 let dataLoaded = false;
 let adminDashFilteredSap = null; 
 let activeBranch = "";
+/** فروع محددة للفلتر الخارجي (مصفوفة فارغة = كل الفروع) */
+let activeBranches = [];
 /** غيّر هذا الرقم مع كل إصدار منطق جديد لإبطال كاش IndexedDB تلقائياً */
-const APP_LOGIC_VERSION = "9.7";
+const APP_LOGIC_VERSION = "9.8";
 const APP_DISPLAY_VERSION = "V1.1";
 (function invalidateStaleAppCache() {
     try {
@@ -1539,8 +1586,94 @@ function sanitizeDocId(sap) {
     return String(sap).replace(/\//g, "-").trim();
 }
 
-function changeBranch(val) { activeBranch = val; try { if (typeof applyAppBranding === "function") applyAppBranding(); } catch(e){} applyGlobalFilter(); }
+function changeBranch(val) {
+    activeBranch = val || "";
+    activeBranches = activeBranch ? [activeBranch] : [];
+    try { if (typeof applyAppBranding === "function") applyAppBranding(); } catch(e){}
+    applyGlobalFilter();
+}
 function changeServiceType(val) { activeServiceType = val; applyGlobalFilter(); }
+
+/** هل الصف يطابق الفروع المختارة؟ (فارغ = كل الفروع) */
+function matchesActiveBranches(rowBranch) {
+    let list = (typeof activeBranches !== "undefined" && Array.isArray(activeBranches) && activeBranches.length)
+        ? activeBranches
+        : (activeBranch ? [activeBranch] : []);
+    if (!list.length) return true;
+    return list.some(function(sb) { return branchesMatch(rowBranch, sb); });
+}
+function getActiveBranchesLabel() {
+    let list = (typeof activeBranches !== "undefined" && Array.isArray(activeBranches) && activeBranches.length)
+        ? activeBranches
+        : (activeBranch ? [activeBranch] : []);
+    if (!list.length) return "كل الفروع";
+    if (list.length === 1) return list[0];
+    return list.length + " فروع";
+}
+function syncActiveBranchCompat() {
+    if (!activeBranches || !activeBranches.length) {
+        activeBranch = "";
+    } else if (activeBranches.length === 1) {
+        activeBranch = activeBranches[0];
+    } else {
+        // أكثر من فرع: نترك activeBranch فارغاً ونعتمد على matchesActiveBranches
+        activeBranch = "";
+    }
+}
+function toggleBranchDropdown(ev) {
+    if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+    let drop = document.getElementById("branchMultiDrop");
+    let btn = document.getElementById("branchMultiBtn");
+    if (!drop) return;
+    let willOpen = !drop.classList.contains("open");
+    drop.classList.toggle("open");
+    if (willOpen && btn) {
+        // وضع القائمة أسفل أو أعلى حسب المساحة المتاحة حتى لا تُقطع
+        drop.style.top = "";
+        drop.style.bottom = "";
+        drop.style.maxHeight = "";
+        let btnRect = btn.getBoundingClientRect();
+        let spaceBelow = window.innerHeight - btnRect.bottom;
+        let spaceAbove = btnRect.top;
+        let preferred = Math.min(280, Math.floor(window.innerHeight * 0.55));
+        if (spaceBelow < 160 && spaceAbove > spaceBelow) {
+            drop.style.top = "auto";
+            drop.style.bottom = "calc(100% + 3px)";
+            drop.style.maxHeight = Math.max(120, Math.min(preferred, spaceAbove - 12)) + "px";
+        } else {
+            drop.style.top = "calc(100% + 3px)";
+            drop.style.bottom = "auto";
+            drop.style.maxHeight = Math.max(120, Math.min(preferred, spaceBelow - 12)) + "px";
+        }
+    }
+}
+function onBranchCheckboxChange() {
+    let boxes = document.querySelectorAll("#branchMultiDrop input.branch-cb");
+    activeBranches = [];
+    boxes.forEach(function(cb) {
+        if (cb.checked) activeBranches.push(cb.value);
+    });
+    syncActiveBranchCompat();
+    let btn = document.getElementById("branchMultiBtn");
+    if (btn) btn.textContent = "الفرع: " + getActiveBranchesLabel() + " ▾";
+    try { if (typeof applyAppBranding === "function") applyAppBranding(); } catch(e){}
+    applyGlobalFilter();
+}
+function selectAllBranches() {
+    document.querySelectorAll("#branchMultiDrop input.branch-cb").forEach(function(cb) { cb.checked = true; });
+    onBranchCheckboxChange();
+}
+function clearBranchSelection() {
+    document.querySelectorAll("#branchMultiDrop input.branch-cb").forEach(function(cb) { cb.checked = false; });
+    onBranchCheckboxChange();
+}
+document.addEventListener("click", function(e) {
+    let wrap = document.querySelector(".branch-multi-wrap");
+    let drop = document.getElementById("branchMultiDrop");
+    if (!wrap || !drop) return;
+    if (!wrap.contains(e.target)) drop.classList.remove("open");
+});
+
 
 function phoneToAuthEmail(phone) {
     let clean = String(phone || "").trim().replace(/[^0-9]/g, "");
@@ -3730,20 +3863,14 @@ async function exportSupplierDataToExcel() {
         let vData = [];
         (globalVehicles || []).forEach(v => {
             if (!matchSup(v)) return;
-            if (activeBranch) {
-                let b = resolveRowBranch(v);
-                if (!branchesMatch(b, activeBranch)) return;
-            }
+            if (!matchesActiveBranches(resolveRowBranch(v))) return;
             vData.push(pickExportRow(v, VEHICLE_COLS, VEHICLE_ALIASES));
         });
 
         let tData = [];
         (globalTrips || []).forEach(t => {
             if (!matchSup(t)) return;
-            if (activeBranch) {
-                let b = resolveRowBranch(t);
-                if (!branchesMatch(b, activeBranch)) return;
-            }
+            if (!matchesActiveBranches(resolveRowBranch(t))) return;
             let row = pickExportRow(t, TRIP_COLS, TRIP_ALIASES);
             tData.push(row);
         });
@@ -3751,10 +3878,7 @@ async function exportSupplierDataToExcel() {
         let dData = [];
         (globalDues || []).forEach(d => {
             if (!matchSup(d)) return;
-            if (activeBranch) {
-                let b = getDuesBranch(d);
-                if (!branchesMatch(b, activeBranch)) return;
-            }
+            if (!matchesActiveBranches(getDuesBranch(d))) return;
             dData.push(pickExportRow(d, DUES_COLS, DUES_ALIASES));
         });
 
@@ -3798,6 +3922,166 @@ async function exportSupplierDataToExcel() {
 
     }, 100);
 }
+
+function handleTopExportClick() {
+    if (currentRole === "admin" || currentRole === "super_admin") {
+        exportAdminDataToExcel();
+    } else {
+        exportSupplierDataToExcel();
+    }
+}
+
+/** تصدير بيانات الإدارة (حافلات + رحلات + مستحقات) وفق الفلاتر الحالية */
+async function exportAdminDataToExcel() {
+    if (currentRole !== "admin" && currentRole !== "super_admin") {
+        showAlert("هذا التصدير مخصص للإدارة فقط.");
+        return;
+    }
+    showAlert("⏳ جاري تجهيز ملف الإكسل حسب الفلاتر المحددة...");
+    setTimeout(function() {
+        try {
+            let isAdmin = true;
+            let activeSap = adminDashFilteredSap ? adminDashFilteredSap : null;
+            let showAll = !adminDashFilteredSap;
+            let officeKeys = window.__activeOfficeKeys || new Set();
+            const fromDate = (document.getElementById("globalFromDate") || {}).value || "";
+            const toDate = (document.getElementById("globalToDate") || {}).value || "";
+
+            function matchSup(row) {
+                if (showAll) return true;
+                return rowMatchesActiveSupplier(row, activeSap, officeKeys) ||
+                    normalizeValue(row["رقم المورد"]) === activeSap;
+            }
+            function matchBranchService(row, isTrip) {
+                let b = (typeof resolveRowBranch === "function") ? resolveRowBranch(row) : (row["الفرع"] || row["فرع"] || "");
+                if (row._duesBranch !== undefined) b = getDuesBranch(row);
+                if (!matchesActiveBranches(b)) return false;
+                let sType = String(row["نوع الخدمة"] || row["الخدمة"] || "").trim();
+                if (!sType && isTrip) {
+                    let plate = normalizeValue(row["رقم اللوحة"]);
+                    let code = normalizeValue(row["كود الحافلة"] || row["كود"]);
+                    sType = (globalVehicleToServiceType && (globalVehicleToServiceType.get(plate) || globalVehicleToServiceType.get(code))) || "";
+                }
+                if (activeServiceType && sType !== activeServiceType) return false;
+                return true;
+            }
+
+            const VEHICLE_COLS = ["كود الحافلة","كود RFID","رقم اللوحة","تاريخ انتهاء رخصة السيارة","وصف الحافلة","الفرع","وصف الخط","اسم السائق","الحالة","تاريخ بداية التشغيل","المنطة المركزية الخاصة بالحافلة","مشرف التشغيل","نوع الخدمة","الاجر اليومى","رقم المورد","اسم المورد"];
+            const VEHICLE_ALIASES = {
+                "كود الحافلة": ["كود","Bus Trip Code"],
+                "كود RFID": ["RFID","RFID كود","كود الـ RFID"],
+                "تاريخ انتهاء رخصة السيارة": ["تاريخ انتهاء الرخصة","انتهاء الرخصة"],
+                "المنطة المركزية الخاصة بالحافلة": ["المنطقة المركزية","المنطقة المركزية الخاصة بالحافلة"],
+                "الاجر اليومى": ["الأجر اليومي","الاجر اليومي","الأجر اليومى"],
+                "نوع الخدمة": ["الخدمة"]
+            };
+            const TRIP_COLS = ["كود الحافلة","RFID كود","رقم اللوحة","وصف الحافلة","الفرع","حالة الرحلة","الوردية","وقت الوردية","البوابة","تاريخ الحضور","وقت الحضور","مشرف التشغيل","اسم السائق","نوع الخدمة","المنطقة المركزية","اجر الرحلة","وصف الخط","اسم المورد","رقم المورد","رقم اللوحة البديلة","الحافلة البديلة"];
+            const TRIP_ALIASES = {
+                "كود الحافلة": ["كود","Bus Trip Code"],
+                "RFID كود": ["كود RFID","RFID","كود الـ RFID"],
+                "حالة الرحلة": ["الحالة"],
+                "وقت الوردية": ["التاريخ","تاريخ الوردية"],
+                "تاريخ الحضور": ["تاريخ"],
+                "المنطقة المركزية": ["المنطة المركزية","المنطة المركزية الخاصة بالحافلة"],
+                "اجر الرحلة": ["الأجر","الاجر","أجر الرحلة"],
+                "نوع الخدمة": ["الخدمة"]
+            };
+            const DUES_COLS = ["كود الحافلة","رقم اللوحة","وصف الخط","الفترة","الفرع","مبلغ الرحلات","عدد الرحلات","الخصومات","السبب (ملاحظات)","وصف الحافلة","اسم المورد","رقم المورد"];
+            const DUES_ALIASES = {
+                "كود الحافلة": ["كود","Bus Trip Code","كود الرحلة"],
+                "الفترة": ["الفتره","فترة","period"],
+                "مبلغ الرحلات": ["المبلغ"],
+                "الخصومات": ["خصومات","الخصم","خصم"],
+                "الفرع": ["فرع","branch"]
+            };
+
+            function pickExportRow(src, cols, aliases) {
+                let row = {};
+                cols.forEach(function(col) {
+                    let val = src[col];
+                    if ((val === undefined || val === null || val === "") && aliases && aliases[col]) {
+                        for (let i = 0; i < aliases[col].length; i++) {
+                            let a = aliases[col][i];
+                            if (src[a] !== undefined && src[a] !== null && src[a] !== "") { val = src[a]; break; }
+                        }
+                    }
+                    row[col] = (val === undefined || val === null) ? "" : val;
+                });
+                return row;
+            }
+
+            let vData = [];
+            (globalVehicles || []).forEach(function(v) {
+                if (!matchSup(v)) return;
+                if (!matchBranchService(v, false)) return;
+                vData.push(pickExportRow(v, VEHICLE_COLS, VEHICLE_ALIASES));
+            });
+
+            let tData = [];
+            (globalTrips || []).forEach(function(t) {
+                if (!matchSup(t)) return;
+                if (!matchBranchService(t, true)) return;
+                let date = onlyDate(t["وقت الوردية"] || t["التاريخ"]);
+                if (fromDate && date < fromDate) return;
+                if (toDate && date > toDate) return;
+                tData.push(pickExportRow(t, TRIP_COLS, TRIP_ALIASES));
+            });
+
+            let dData = [];
+            (globalDues || []).forEach(function(d) {
+                if (!matchSup(d)) return;
+                let b = getDuesBranch(d);
+                if (!matchesActiveBranches(b)) return;
+                if (activeServiceType) {
+                    let sType = String(d["نوع الخدمة"] || d["الخدمة"] || "").trim();
+                    if (sType && sType !== activeServiceType) return;
+                }
+                dData.push(pickExportRow(d, DUES_COLS, DUES_ALIASES));
+            });
+
+            if (vData.length === 0 && tData.length === 0 && dData.length === 0) {
+                document.getElementById("alertMsg").innerText = "عفواً، لا توجد بيانات مطابقة للفلاتر الحالية.";
+                return;
+            }
+
+            const wb = XLSX.utils.book_new();
+            if (vData.length > 0) {
+                const ws = XLSX.utils.json_to_sheet(vData, { header: VEHICLE_COLS });
+                if (typeof styleExcelSheet === "function") styleExcelSheet(ws, vData);
+                XLSX.utils.book_append_sheet(wb, ws, "بيانات السيارات");
+            }
+            if (tData.length > 0) {
+                const ws = XLSX.utils.json_to_sheet(tData, { header: TRIP_COLS });
+                if (typeof styleExcelSheet === "function") styleExcelSheet(ws, tData);
+                XLSX.utils.book_append_sheet(wb, ws, "سجل الرحلات");
+            }
+            if (dData.length > 0) {
+                const ws = XLSX.utils.json_to_sheet(dData, { header: DUES_COLS });
+                if (typeof styleExcelSheet === "function") styleExcelSheet(ws, dData);
+                XLSX.utils.book_append_sheet(wb, ws, "المستحقات");
+            }
+
+            let d = new Date();
+            let timeStamp = d.getDate() + "-" + (d.getMonth()+1) + "-" + d.getFullYear();
+            let branchPart = (typeof getActiveBranchesLabel === "function") ? getActiveBranchesLabel() : "كل_الفروع";
+            branchPart = String(branchPart).replace(/[\\/:*?"<>|]/g, "_").slice(0, 40);
+            let sapPart = activeSap ? ("_SAP" + activeSap) : "_الكل";
+            let fileName = "Admin_Export_" + branchPart + sapPart + "_" + timeStamp + ".xlsx";
+            XLSX.writeFile(wb, fileName);
+
+            document.getElementById("alertMsg").innerText = "✅ تم تصدير الملف بنجاح! (" + vData.length + " سيارة، " + tData.length + " رحلة، " + dData.length + " مستحق)";
+            document.getElementById("alertBtn").innerText = "موافق";
+            setTimeout(function() {
+                document.getElementById("customAlertOverlay").style.display = "none";
+                document.getElementById("customAlert").style.display = "none";
+            }, 2500);
+        } catch (e) {
+            console.error(e);
+            document.getElementById("alertMsg").innerText = "❌ فشل التصدير: " + (e.message || e);
+        }
+    }, 80);
+}
+
 function applyAdminPermissionsUI() {
     if(currentRole === "super_admin") {
         ["btn-tab-admins","btn-tab-data","btn-tab-suppliers","btn-tab-msgs","btn-tab-reports","btn-tab-complaints","btn-tab-settings","btn-tab-audit"].forEach(id => {
@@ -4023,7 +4307,10 @@ if(currentRole==="admin" || currentRole==="super_admin"){
  document.getElementById("adminBtn").classList.remove("hide");
  document.getElementById("adminDashFilter").classList.remove("hide");
  document.getElementById("showRole").innerHTML= currentRole==="super_admin" ? "الصلاحية: Super Admin" : "الصلاحية: Admin";
- document.getElementById("supplierExportBtn").classList.add("hide"); 
+ document.getElementById("supplierExportBtn").classList.remove("hide");
+ let _exLblA = document.getElementById("exportBtnLabel");
+ if (_exLblA) _exLblA.textContent = "تصدير";
+ document.getElementById("supplierExportBtn").title = "تصدير البيانات (حافلات ورحلات ومستحقات) حسب الفلاتر";
  document.getElementById("complaintBtn").classList.add("hide");
  document.getElementById("changePassBtn").classList.remove("hide"); 
  document.getElementById("licenseNotificationBtn").classList.remove("hide");
@@ -4040,7 +4327,10 @@ if(currentRole==="admin" || currentRole==="super_admin"){
  document.getElementById("adminBtn").classList.add("hide");
  document.getElementById("adminDashFilter").classList.add("hide");
  document.getElementById("showRole").innerHTML="الصلاحية: Supplier";
- document.getElementById("supplierExportBtn").classList.remove("hide"); 
+ document.getElementById("supplierExportBtn").classList.remove("hide");
+ let _exLblB = document.getElementById("exportBtnLabel");
+ if (_exLblB) _exLblB.textContent = "تنزيل";
+ document.getElementById("supplierExportBtn").title = "تحميل كشف حسابي";
  document.getElementById("complaintBtn").classList.remove("hide");
  document.getElementById("adminNotificationBtn").classList.add("hide");
  document.getElementById("msgIconWrap").classList.remove("hide");
@@ -4196,7 +4486,8 @@ function selectDashSupplier(sap, name) {
     document.getElementById("dashSupplierSearch").value = name + " (ساب: " + sap + ")";
     document.getElementById("dashSupplierDropdown").style.display = "none";
     adminDashFilteredSap = normalizeValue(sap);
-    activeBranch = ""; 
+    activeBranch = "";
+    activeBranches = [];
     activeServiceType = "";
     applyGlobalFilter();
 }
@@ -4204,7 +4495,8 @@ function selectDashSupplier(sap, name) {
 function clearDashFilter() {
     document.getElementById("dashSupplierSearch").value = "";
     adminDashFilteredSap = null;
-    activeBranch = ""; 
+    activeBranch = "";
+    activeBranches = [];
     activeServiceType = "";
     applyGlobalFilter();
 }
@@ -6050,12 +6342,32 @@ async function loadSupplierData(){
        let an = normalizeBranchName(activeBranch);
        if (branchNormMap.has(an)) activeBranch = branchNormMap.get(an);
    }
+   // مزامنة activeBranches مع القائمة المتاحة بعد التطبيع
+   if (activeBranches && activeBranches.length) {
+       activeBranches = activeBranches.map(function(ab) {
+           let an = normalizeBranchName(ab);
+           return branchNormMap.has(an) ? branchNormMap.get(an) : ab;
+       }).filter(function(ab) {
+           return branchesArr.some(function(b) { return normalizeBranchName(b) === normalizeBranchName(ab); });
+       });
+       syncActiveBranchCompat();
+   }
    let branchHtml = "";
    if(branchesArr.length > 1) {
-       branchHtml = `الفرع: <select id="branchSelector" onchange="changeBranch(this.value)">
-           <option value="">كل الفروع</option>
-           ${branchesArr.map(b => `<option value="${b}" ${normalizeBranchName(b)===normalizeBranchName(activeBranch)?'selected':''}>${b}</option>`).join('')}
-       </select>`;
+       let selectedSet = new Set((activeBranches || []).map(function(x){ return normalizeBranchName(x); }));
+       let checks = branchesArr.map(function(b) {
+           let sel = selectedSet.has(normalizeBranchName(b)) ? " checked" : "";
+           return '<label><input type="checkbox" class="branch-cb" value="'+sanitizeHTML(b)+'"'+sel+' onchange="onBranchCheckboxChange()"> '+sanitizeHTML(b)+'</label>';
+       }).join("");
+       let btnLabel = getActiveBranchesLabel();
+       branchHtml = '<div class="branch-multi-wrap">'
+         + '<button type="button" class="branch-multi-btn" id="branchMultiBtn" onclick="toggleBranchDropdown(event)">الفرع: '+sanitizeHTML(btnLabel)+' ▾</button>'
+         + '<div class="branch-multi-drop" id="branchMultiDrop">'
+         + checks
+         + '<div class="branch-multi-actions">'
+         + '<button type="button" onclick="selectAllBranches()">الكل</button>'
+         + '<button type="button" onclick="clearBranchSelection()">مسح</button>'
+         + '</div></div></div>';
    } else if(branchesArr.length === 1) { branchHtml = `الفرع: ${branchesArr[0]}`; } 
    else { branchHtml = "الفرع: غير محدد"; }
    document.getElementById("showBranchContainer").innerHTML = branchHtml;
@@ -6085,7 +6397,7 @@ async function loadSupplierData(){
       if(showAll || rowMatchesActiveSupplier(d, activeSap, activeOfficeKeys) || normalizeValue(d["رقم المورد"])===activeSap){
          let b = resolveRowBranch(d);
          let sType = String(d["نوع الخدمة"] || d["الخدمة"] || "").trim();
-         if((!activeBranch || branchesMatch(b, activeBranch)) && (!activeServiceType || sType === activeServiceType)) {
+         if(matchesActiveBranches(b) && (!activeServiceType || sType === activeServiceType)) {
              vehiclesKeys.add(normalizeValue(d["رقم اللوحة"] || Math.random()));
              let code = normalizeValue(d["كود الحافلة"] || d["كود"]);
              if(code) codesKeys.add(code);
@@ -6103,7 +6415,7 @@ async function loadSupplierData(){
             sType = globalVehicleToServiceType.get(tripPlate) || globalVehicleToServiceType.get(tripCode) || "";
         }
         
-        if((!activeBranch || branchesMatch(b, activeBranch)) && (!activeServiceType || sType === activeServiceType)) {
+        if(matchesActiveBranches(b) && (!activeServiceType || sType === activeServiceType)) {
             let date = onlyDate(d["وقت الوردية"] || d["التاريخ"]);
             if((!fromDate || date >= fromDate) && (!toDate || date <= toDate)){
                 totalTrips++; 
@@ -6132,7 +6444,7 @@ async function loadSupplierData(){
        if (!(showAll || rowMatchesActiveSupplier(d, activeSap, activeOfficeKeys))) return;
        // فلتر الفرع الخارجي (من رأس الصفحة)
        let dBranch = getDuesBranch(d);
-       if (activeBranch && !branchesMatch(dBranch, activeBranch)) return;
+       if (!matchesActiveBranches(dBranch)) return;
 
        let rawPeriod = getRawDuesPeriod(d);
        let periodLabel = formatDuesPeriodLabel(rawPeriod);
@@ -6201,7 +6513,9 @@ async function loadSupplierData(){
    if (dueMonthLabelEl) {
        let labelParts = [];
        if (latestPeriodName) labelParts.push("فترة: " + latestPeriodName);
-       if (activeBranch) labelParts.push("فرع: " + activeBranch);
+       if (typeof getActiveBranchesLabel === "function" && ((activeBranches && activeBranches.length) || activeBranch)) {
+           labelParts.push("فرع: " + getActiveBranchesLabel());
+       } else if (activeBranch) labelParts.push("فرع: " + activeBranch);
        if (labelParts.length) {
            dueMonthLabelEl.innerHTML = labelParts.join(" | ");
            dueMonthLabelEl.style.color = "#075bb5";
@@ -6297,7 +6611,10 @@ firebase.auth().onAuthStateChanged(async function(user){
              document.getElementById("adminBtn").classList.remove("hide");
              document.getElementById("adminDashFilter").classList.remove("hide");
              document.getElementById("showRole").innerHTML= currentRole==="super_admin" ? "الصلاحية: Super Admin" : "الصلاحية: Admin";
-             document.getElementById("supplierExportBtn").classList.add("hide"); 
+             document.getElementById("supplierExportBtn").classList.remove("hide");
+             let _exLbl = document.getElementById("exportBtnLabel");
+             if (_exLbl) _exLbl.textContent = "تصدير";
+             document.getElementById("supplierExportBtn").title = "تصدير البيانات (حافلات ورحلات ومستحقات) حسب الفلاتر";
              document.getElementById("complaintBtn").classList.add("hide");
              document.getElementById("changePassBtn").classList.remove("hide"); 
              document.getElementById("licenseNotificationBtn").classList.remove("hide");
@@ -6347,7 +6664,10 @@ firebase.auth().onAuthStateChanged(async function(user){
              document.getElementById("adminBtn").classList.add("hide");
              document.getElementById("adminDashFilter").classList.add("hide");
              document.getElementById("showRole").innerHTML="الصلاحية: Supplier";
-             document.getElementById("supplierExportBtn").classList.remove("hide"); 
+             document.getElementById("supplierExportBtn").classList.remove("hide");
+             let _exLbl2 = document.getElementById("exportBtnLabel");
+             if (_exLbl2) _exLbl2.textContent = "تنزيل";
+             document.getElementById("supplierExportBtn").title = "تحميل كشف حسابي";
              document.getElementById("complaintBtn").classList.remove("hide");
              document.getElementById("adminNotificationBtn").classList.add("hide");
              document.getElementById("msgIconWrap").classList.remove("hide");
@@ -6482,7 +6802,7 @@ function renderDuesByPeriod(showAll, activeSap) {
         (globalDues || []).forEach(d => {
             if (!(showAll || rowMatchesActiveSupplier(d, activeSap, officeKeysForDues))) return;
             let dBranch = getDuesBranch(d);
-            if (activeBranch && !branchesMatch(dBranch, activeBranch)) return;
+            if (!matchesActiveBranches(dBranch)) return;
 
             let rawPeriod = getRawDuesPeriod(d);
             let periodLabel = formatDuesPeriodLabel(rawPeriod);
@@ -6710,6 +7030,7 @@ function buildDuesPeriodUI(selectedPeriod, selectedBranch) {
         if (!(showAll || rowMatchesActiveSupplier(d, activeSap, officeKeysDetail))) return;
         let b = getDuesBranch(d);
         if (selectedBranch && !branchesMatch(b, selectedBranch)) return;
+        if (!matchesActiveBranches(b)) return;
 
         let periodLabel = getDuesPeriodLabel(d);
         let periodSortKey = parseDuesPeriodSortKey(getRawDuesPeriod(d) || periodLabel);
@@ -6792,6 +7113,7 @@ function buildDuesPeriodUI(selectedPeriod, selectedBranch) {
         if (!(showAll || rowMatchesActiveSupplier(d, activeSap, officeKeysDetail))) return;
         let b = getDuesBranch(d);
         if (selectedBranch && !branchesMatch(b, selectedBranch)) return;
+        if (!matchesActiveBranches(b)) return;
 
         let periodLabel = getDuesPeriodLabel(d);
         if (selectedPeriod && periodLabel !== selectedPeriod) return;
@@ -7028,7 +7350,7 @@ function showData(){
    if(showAll || rowMatchesActiveSupplier(x, activeSap, officeKeys) || normalizeValue(x["رقم المورد"])===activeSap){
     let b = resolveRowBranch(x);
     let sType = String(x["نوع الخدمة"] || x["الخدمة"] || "").trim();
-    if((!activeBranch || branchesMatch(b, activeBranch)) && (!activeServiceType || sType === activeServiceType)) {
+    if(matchesActiveBranches(b) && (!activeServiceType || sType === activeServiceType)) {
         let k = (activePanel==="الأكواد") ? normalizeValue(x["كود الحافلة"]||x["كود"]) : normalizeValue(x["رقم اللوحة"]||Math.random());
         if(k && !seen.has(k)){ 
             seen.add(k); 
@@ -7063,7 +7385,7 @@ function showData(){
         sType = globalVehicleToServiceType.get(tripPlate) || globalVehicleToServiceType.get(tripCode) || "";
     }
     
-    if((!activeBranch || branchesMatch(b, activeBranch)) && (!activeServiceType || sType === activeServiceType)) {
+    if(matchesActiveBranches(b) && (!activeServiceType || sType === activeServiceType)) {
         let date = onlyDate(x["وقت الوردية"] || x["التاريخ"]);
         if((!from || date >= from) && (!to || date <= to)){
           let status = String(x["حالة الرحلة"]||x["الحالة"]||"").trim();
