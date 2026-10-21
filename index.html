@@ -442,8 +442,6 @@ button.dues-sort-chip.active, .dues-sort-chip.active { box-shadow:0 0 0 2px #075
 }
 .upload-accordion[data-color="blue"] { border-color: #075bb5; }
 .upload-accordion[data-color="teal"] { border-color: #17a2b8; }
-.upload-accordion[data-color="orange"] { border-right: 4px solid #fd7e14; }
-.upload-accordion[data-color="orange"] .upload-acc-header { background: #fff8f0; }
 .upload-accordion[data-color="green"] { border-color: #28a745; }
 .upload-accordion[data-color="gray"] { border-color: #adb5bd; }
 .upload-accordion[data-color="red"] { border-color: #dc3545; }
@@ -797,11 +795,6 @@ button.dues-sort-chip.active, .dues-sort-chip.active { box-shadow:0 0 0 2px #075
     📅 لم تُحدَّد بعد فترة بيانات الرحلات من الإدارة
 </div>
 
-<div id="dataMaintenanceBanner" style="display:none; text-align:center; margin-top:12px; background:linear-gradient(135deg,#fff3cd,#ffe8a1); padding:14px 12px; border-radius:12px; color:#856404; font-size:13px; font-weight:bold; border:1px solid #ffc107; box-shadow:0 2px 8px rgba(255,193,7,0.25); line-height:1.6;">
-    <div style="font-size:22px; margin-bottom:4px;">⏳</div>
-    <div id="dataMaintenanceMsg">جاري رفع وتحديث البيانات الجديدة.<br>يرجى المتابعة بعد قليل لحين انتهاء الإدارة من رفع الملفات.</div>
-</div>
-
 <div id="adminDashFilter" class="hide">
     <h4 style="margin:0 0 8px 0; font-size:13px; color:#004085;">🔍 تصفية الإحصائيات لمورد محدد</h4>
     <div style="position:relative;">
@@ -986,8 +979,7 @@ let appSettings = {
     displayVersion: "V1.1",
     tripsPeriodNote: "",
     tripsPeriodFrom: "",
-    tripsPeriodTo: "",
-    tripsPeriodByBranch: {}
+    tripsPeriodTo: ""
 };
 function formatPeriodDateAr(iso) {
     if (!iso) return "";
@@ -1113,8 +1105,7 @@ async function loadAppSettings() {
                 displayVersion: d.displayVersion || "V1.1",
                 tripsPeriodNote: d.tripsPeriodNote || "",
                 tripsPeriodFrom: d.tripsPeriodFrom || "",
-                tripsPeriodTo: d.tripsPeriodTo || "",
-                tripsPeriodByBranch: (d.tripsPeriodByBranch && typeof d.tripsPeriodByBranch === "object") ? d.tripsPeriodByBranch : {}
+                tripsPeriodTo: d.tripsPeriodTo || ""
             };
         }
     } catch (e) { console.warn("loadAppSettings", e); }
@@ -1206,25 +1197,14 @@ function applyAppBranding() {
         if (elVerAdmin) elVerAdmin.textContent = ver;
         let elVerSet = document.getElementById("setDisplayVersion");
         if (elVerSet && document.activeElement !== elVerSet) elVerSet.value = ver;
-        // فترة الرحلات: عامة أو حسب الفرع المختار
+        // فترة الرحلات (من/إلى) — تظهر في واجهة البيانات
+        let pf = (appSettings.tripsPeriodFrom || "").trim();
+        let pt = (appSettings.tripsPeriodTo || "").trim();
         let periodTxt = "";
-        let byBr = appSettings.tripsPeriodByBranch || {};
-        let brKey = (typeof activeBranch !== "undefined" && activeBranch) ? String(activeBranch).trim() : "";
-        if (brKey && byBr[brKey] && (byBr[brKey].from || byBr[brKey].to)) {
-            let bf = (byBr[brKey].from || "").trim();
-            let bt = (byBr[brKey].to || "").trim();
-            if (bf && bt) periodTxt = formatPeriodDateAr(bf) + "  إلى  " + formatPeriodDateAr(bt) + " (فرع: " + brKey + ")";
-            else if (bf) periodTxt = "من " + formatPeriodDateAr(bf) + " (فرع: " + brKey + ")";
-            else if (bt) periodTxt = "حتى " + formatPeriodDateAr(bt) + " (فرع: " + brKey + ")";
-        }
-        if (!periodTxt) {
-            let pf = (appSettings.tripsPeriodFrom || "").trim();
-            let pt = (appSettings.tripsPeriodTo || "").trim();
-            if (pf && pt) periodTxt = formatPeriodDateAr(pf) + "  إلى  " + formatPeriodDateAr(pt);
-            else if (pf) periodTxt = "من " + formatPeriodDateAr(pf);
-            else if (pt) periodTxt = "حتى " + formatPeriodDateAr(pt);
-            else if ((appSettings.tripsPeriodNote || "").trim()) periodTxt = (appSettings.tripsPeriodNote || "").trim();
-        }
+        if (pf && pt) periodTxt = formatPeriodDateAr(pf) + "  إلى  " + formatPeriodDateAr(pt);
+        else if (pf) periodTxt = "من " + formatPeriodDateAr(pf);
+        else if (pt) periodTxt = "حتى " + formatPeriodDateAr(pt);
+        else if ((appSettings.tripsPeriodNote || "").trim()) periodTxt = (appSettings.tripsPeriodNote || "").trim();
         let bar = document.getElementById("tripsPeriodBar");
         let barEmpty = document.getElementById("tripsPeriodBarEmpty");
         let span = document.getElementById("globalLastUpdateTxt");
@@ -1447,7 +1427,7 @@ let dataLoaded = false;
 let adminDashFilteredSap = null; 
 let activeBranch = "";
 /** غيّر هذا الرقم مع كل إصدار منطق جديد لإبطال كاش IndexedDB تلقائياً */
-const APP_LOGIC_VERSION = "v1.6-link-wipe-2";
+const APP_LOGIC_VERSION = "9.7";
 const APP_DISPLAY_VERSION = "V1.1";
 (function invalidateStaleAppCache() {
     try {
@@ -1456,15 +1436,6 @@ const APP_DISPLAY_VERSION = "V1.1";
             localStorage.setItem("elaraby_app_logic_ver", APP_LOGIC_VERSION);
             // إبطال كاش البيانات حتى يُعاد التحميل من السيرفر
             localStorage.removeItem("elaraby_data_version");
-            localStorage.removeItem("elaraby_data_version_admin");
-            try {
-                if (typeof idbSet === "function") {
-                    idbSet("elaraby_admin_v6_vehicles", []);
-                    idbSet("elaraby_admin_v6_trips", []);
-                    idbSet("elaraby_admin_v6_dues", []);
-                }
-            } catch (eIdb) {}
-
             // مسح مفاتيح الكاش القديمة من localStorage
             Object.keys(localStorage).forEach(k => {
                 if (k.indexOf("elaraby_") === 0 && k !== "elaraby_app_logic_ver") {
@@ -1554,7 +1525,7 @@ function sanitizeDocId(sap) {
     return String(sap).replace(/\//g, "-").trim();
 }
 
-function changeBranch(val) { activeBranch = val; try { if (typeof applyAppBranding === "function") applyAppBranding(); } catch(e){} applyGlobalFilter(); }
+function changeBranch(val) { activeBranch = val; applyGlobalFilter(); }
 function changeServiceType(val) { activeServiceType = val; applyGlobalFilter(); }
 
 function phoneToAuthEmail(phone) {
@@ -2401,90 +2372,6 @@ async function submitSupplierReplyModal(compId, event) {
     }
 }
 
-
-function renderBranchPeriodsList() {
-    let box = document.getElementById("branchPeriodsList");
-    if (!box) return;
-    let byBr = appSettings.tripsPeriodByBranch || {};
-    let keys = Object.keys(byBr).sort((a,b) => a.localeCompare(b, "ar"));
-    if (!keys.length) {
-        box.innerHTML = '<span style="color:#888;">لا توجد فترات خاصة بالفروع بعد.</span>';
-        return;
-    }
-    let html = '<table style="width:100%; border-collapse:collapse; font-size:12px;">';
-    keys.forEach(k => {
-        let p = byBr[k] || {};
-        let txt = "";
-        if (p.from && p.to) txt = formatPeriodDateAr(p.from) + " → " + formatPeriodDateAr(p.to);
-        else if (p.from) txt = "من " + formatPeriodDateAr(p.from);
-        else if (p.to) txt = "حتى " + formatPeriodDateAr(p.to);
-        else txt = "—";
-        html += `<tr style="border-bottom:1px solid #f0e0a0;">
-            <td style="padding:6px; font-weight:bold;">${sanitizeHTML(k)}</td>
-            <td style="padding:6px;">${sanitizeHTML(txt)}</td>
-            <td style="padding:6px; width:70px;">
-                <button type="button" onclick="removeBranchPeriodNote('${String(k).replace(/\\/g,"\\\\").replace(/'/g,"\\'")}')" style="background:#dc3545; color:#fff; border:none; border-radius:6px; padding:4px 8px; font-size:11px; width:auto; cursor:pointer;">حذف</button>
-            </td>
-        </tr>`;
-    });
-    html += '</table>';
-    box.innerHTML = html;
-    // اقتراحات الفروع من البيانات
-    let dl = document.getElementById("branchPeriodSuggestions");
-    if (dl) {
-        let branches = new Set();
-        (globalVehicles || []).forEach(v => { let b = (v["الفرع"]||"").trim(); if(b) branches.add(b); });
-        (globalTrips || []).forEach(t => { let b = (t["الفرع"]||"").trim(); if(b) branches.add(b); });
-        (globalDues || []).forEach(d => { let b = (d["الفرع"]||"").trim(); if(b) branches.add(b); });
-        Object.keys(byBr).forEach(k => branches.add(k));
-        dl.innerHTML = Array.from(branches).sort((a,b)=>a.localeCompare(b,"ar")).map(b => `<option value="${sanitizeHTML(b)}">`).join("");
-    }
-}
-async function saveBranchPeriodNote() {
-    if (currentRole !== "super_admin" && currentRole !== "admin") return;
-    if (typeof canAdminWrite === "function" && !canAdminWrite()) { showAlert("🚫 حساب مشاهدة فقط."); return; }
-    let name = ((document.getElementById("setBranchPeriodName") || {}).value || "").trim();
-    let from = ((document.getElementById("setBranchPeriodFrom") || {}).value || "").trim();
-    let to = ((document.getElementById("setBranchPeriodTo") || {}).value || "").trim();
-    if (!name) { showAlert("اكتب اسم الفرع."); return; }
-    if (!from && !to) { showAlert("حدد تاريخ البداية أو النهاية على الأقل."); return; }
-    if (from && to && from > to) { showAlert("تاريخ البداية يجب ألا يتجاوز النهاية."); return; }
-    if (!appSettings.tripsPeriodByBranch) appSettings.tripsPeriodByBranch = {};
-    appSettings.tripsPeriodByBranch[name] = { from: from, to: to };
-    try {
-        await db.collection("system").doc("appSettings").set({
-            tripsPeriodByBranch: appSettings.tripsPeriodByBranch,
-            updatedAt: Date.now(),
-            updatedBy: currentUserName || ""
-        }, { merge: true });
-        renderBranchPeriodsList();
-        applyAppBranding();
-        if (typeof logAudit === "function") logAudit("فترة فرع", "حفظ فترة لفرع: " + name, { after: from + " → " + to });
-        showAlert("✅ تم حفظ فترة فرع: " + name);
-        let n = document.getElementById("setBranchPeriodName");
-        let f = document.getElementById("setBranchPeriodFrom");
-        let t = document.getElementById("setBranchPeriodTo");
-        if (n) n.value = "";
-        if (f) f.value = "";
-        if (t) t.value = "";
-    } catch (e) { showAlert("❌ " + e.message); }
-}
-async function removeBranchPeriodNote(name) {
-    if (!name || !appSettings.tripsPeriodByBranch) return;
-    if (!confirm("حذف فترة الفرع: " + name + " ؟")) return;
-    delete appSettings.tripsPeriodByBranch[name];
-    try {
-        await db.collection("system").doc("appSettings").set({
-            tripsPeriodByBranch: appSettings.tripsPeriodByBranch,
-            updatedAt: Date.now()
-        }, { merge: true });
-        renderBranchPeriodsList();
-        applyAppBranding();
-        showAlert("تم حذف فترة الفرع.");
-    } catch (e) { showAlert("❌ " + e.message); }
-}
-
-
 async function clearTripsPeriodNote() {
     let f = document.getElementById("setTripsPeriodFrom");
     let t = document.getElementById("setTripsPeriodTo");
@@ -2667,55 +2554,21 @@ function splitRowsIntoChunks(rows) {
     return chunks;
 }
 
-/** هل المعرّف مسودة؟ */
-function isDraftDocId(id) {
-    return String(id || "").indexOf("draft__") === 0;
-}
-function toDraftDocId(id) {
-    let s = String(id || "");
-    return isDraftDocId(s) ? s : ("draft__" + s);
-}
-function fromDraftDocId(id) {
-    let s = String(id || "");
-    return isDraftDocId(s) ? s.slice(7) : s;
-}
-
-/**
- * رفع مجمّع
- * mode: "draft" (افتراضي للرفع من الأدمن) = يكتب مسودة فقط ويُبقي المنشور
- * mode: "live" = استبدال المنشور مباشرة (نشر / مسح)
- * mode: "replace-all-legacy" = السلوك القديم: مسح الكل والكتابة
- */
-async function uploadGroupedData(collectionName, groupedData, mode) {
-    if (!mode) mode = "draft";
-    let col = db.collection("data_" + collectionName);
-
-    if (mode === "draft") {
-        // احذف المسودات القديمة فقط — المنشور يبقى للموردين
-        let oldSnap = await col.get();
-        let draftRefs = oldSnap.docs.filter(d => isDraftDocId(d.id)).map(d => d.ref);
-        for (let i = 0; i < draftRefs.length; i += 400) {
-            let batch = db.batch();
-            draftRefs.slice(i, i + 400).forEach(ref => batch.delete(ref));
-            await batch.commit();
-        }
-    } else {
-        // live أو مسح: حذف المنشور (غير المسودة) أو الكل حسب الحاجة
-        let oldSnap = await col.get();
-        let refs = oldSnap.docs.filter(d => {
-            if (mode === "live") return !isDraftDocId(d.id);
-            return true; // replace-all
-        }).map(d => d.ref);
-        for (let i = 0; i < refs.length; i += 400) {
-            let batch = db.batch();
-            refs.slice(i, i + 400).forEach(ref => batch.delete(ref));
-            await batch.commit();
-        }
+async function uploadGroupedData(collectionName, groupedData) {
+    // حذف كل الوثائق القديمة على دفعات (حد Firestore batch = 500)
+    let oldSnap = await db.collection("data_" + collectionName).get();
+    let deleteRefs = oldSnap.docs.map(d => d.ref);
+    for (let i = 0; i < deleteRefs.length; i += 400) {
+        let batch = db.batch();
+        deleteRefs.slice(i, i + 400).forEach(ref => batch.delete(ref));
+        await batch.commit();
     }
 
     let docKeys = Object.keys(groupedData);
     if (docKeys.length === 0) return;
 
+    // بناء قائمة أجزاء الكتابة: كل جزء = وثيقة واحدة
+    // المفتاح قد يكون رقم ساب (سيارات) أو اسم مكتب منظّف (رحلات/مستحقات)
     let writeJobs = [];
     for (let k = 0; k < docKeys.length; k++) {
         let groupKey = docKeys[k];
@@ -2726,8 +2579,7 @@ async function uploadGroupedData(collectionName, groupedData, mode) {
         let officeClean = officeStorageKey(officeRaw) || (groupKey.indexOf("off_") === 0 ? groupKey.slice(4) : "");
         let chunks = splitRowsIntoChunks(rows);
         for (let c = 0; c < chunks.length; c++) {
-            let baseId = c === 0 ? groupKey : (groupKey + "__c" + c);
-            let docId = (mode === "draft") ? toDraftDocId(baseId) : fromDraftDocId(baseId);
+            let docId = c === 0 ? groupKey : (groupKey + "__c" + c);
             writeJobs.push({
                 docId: docId,
                 groupKey: groupKey,
@@ -2758,47 +2610,27 @@ async function uploadGroupedData(collectionName, groupedData, mode) {
             sapNumberClean: job.sapNumberClean || "unknown",
             sapNumber: job.sapNumber,
             officeNameClean: job.officeNameClean || "",
-            isDraft: mode === "draft",
-            chunkIndex: String(job.docId).indexOf("__c") >= 0 ? parseInt(String(job.docId).split("__c")[1], 10) || 0 : 0
+            chunkIndex: job.docId.indexOf("__c") >= 0 ? parseInt(job.docId.split("__c")[1], 10) || 0 : 0
         };
-        await col.doc(job.docId).set(docPayload);
+        await db.collection("data_" + collectionName).doc(job.docId).set(docPayload);
 
         let pct = Math.round(((i + 1) / totalJobs) * 100);
         let resultDiv = document.getElementById("adminResult");
         if (resultDiv && (resultDiv.innerHTML.includes("جاري الرفع") || resultDiv.innerHTML.includes("جاري حفظ") || resultDiv.innerHTML.includes("جاري حذف"))) {
-            resultDiv.innerHTML = `⏳ جاري حفظ المسودة... ${pct}%`;
+            resultDiv.innerHTML = `⏳ جاري الرفع لقاعدة البيانات... ${pct}%`;
         }
     }
 }
 
-async function downloadAllData(collectionName, options) {
-    let preferDraft = options && options.preferDraft;
-    let publishedOnly = options && options.publishedOnly;
+async function downloadAllData(collectionName) {
     let snap = await db.collection("data_" + collectionName).get();
     if (snap.empty) return [];
-    // تجميع حسب المفتاح الأساسي مع تفضيل المسودة للأدمن
-    let byBase = {};
-    snap.docs.forEach(doc => {
-        let id = doc.id;
-        let draft = isDraftDocId(id);
-        if (publishedOnly && draft) return;
-        let base = fromDraftDocId(id);
-        if (!byBase[base]) byBase[base] = { live: null, draft: null };
-        if (draft) byBase[base].draft = doc;
-        else byBase[base].live = doc;
-    });
     let fullArray = [];
-    Object.keys(byBase).forEach(base => {
-        let pair = byBase[base];
-        let chosen = null;
-        if (preferDraft && pair.draft) chosen = pair.draft;
-        else if (pair.live) chosen = pair.live;
-        else if (preferDraft && pair.draft) chosen = pair.draft;
-        if (!chosen) return;
-        try {
-            let d = chosen.data();
-            if (d && d.payload) fullArray = fullArray.concat(JSON.parse(d.payload));
-        } catch (e) { console.warn("parse payload", base, e); }
+    snap.docs.forEach(doc => {
+        if(doc.data().payload) {
+            let parsed = JSON.parse(doc.data().payload);
+            fullArray = fullArray.concat(parsed);
+        }
     });
     return fullArray;
 }
@@ -2809,10 +2641,10 @@ async function downloadSupplierDataBySap(collectionName, sapNumber) {
     if (snap.empty) return [];
     let fullArray = [];
     snap.docs.forEach(doc => {
-        if (isDraftDocId(doc.id)) return; // المورد لا يرى المسودة
-        try {
-            if (doc.data().payload) fullArray = fullArray.concat(JSON.parse(doc.data().payload));
-        } catch (e) {}
+        if(doc.data().payload) {
+            let parsed = JSON.parse(doc.data().payload);
+            fullArray = fullArray.concat(parsed);
+        }
     });
     return fullArray;
 }
@@ -2851,7 +2683,6 @@ async function downloadSupplierDataByOffice(collectionName, officeName) {
 
     async function appendFromDoc(docSnap) {
         if (!docSnap || !docSnap.exists) return;
-        if (isDraftDocId(docSnap.id)) return; // منشور فقط للمورد
         let d = docSnap.data();
         if (!d || !d.payload) return;
         let sig = d.payload.substring(0, 80) + d.payload.length;
@@ -2910,409 +2741,11 @@ function rowMatchesActiveSupplier(row, activeSap, officeKeysSet) {
     return false;
 }
 
-
-
-/** رسالة صيانة/تحديث للموردين أثناء المسح الشامل أو انتظار رفع جديد */
-function updateMaintenanceBanner(metaData, forceEmpty) {
-    let ban = document.getElementById("dataMaintenanceBanner");
-    let msgEl = document.getElementById("dataMaintenanceMsg");
-    if (!ban) return;
-    let isAdmin = (currentRole === "admin" || currentRole === "super_admin");
-    let md = metaData || window.__systemMeta || {};
-    let on = !!md.maintenanceMode;
-    if (isAdmin) {
-        ban.style.display = "none";
-        return;
-    }
-    if (on) {
-        let custom = (md.maintenanceMessage || "").trim();
-        if (msgEl) {
-            msgEl.innerHTML = (custom || "جاري رفع وتحديث البيانات الجديدة.<br>يرجى المتابعة بعد قليل لحين انتهاء الإدارة من رفع الملفات.").replace(/\n/g, "<br>");
-        }
-        ban.style.display = "block";
-        ban.style.background = "linear-gradient(135deg,#fff3cd,#ffe8a1)";
-        ban.style.borderColor = "#ffc107";
-        ban.style.color = "#856404";
-    } else if (forceEmpty) {
-        if (msgEl) {
-            msgEl.innerHTML = "لا توجد بيانات معروضة حالياً لحسابك.<br>إذا كانت الإدارة تقوم بالرفع أو التحديث، يرجى المحاولة بعد قليل.";
-        }
-        ban.style.display = "block";
-        ban.style.background = "linear-gradient(135deg,#e8f4fd,#d6ebfa)";
-        ban.style.borderColor = "#7eb6e0";
-        ban.style.color = "#0c5460";
-    } else {
-        ban.style.display = "none";
-    }
-}
-async function setDataMaintenanceMode(enabled, message) {
-    try {
-        await db.collection("system").doc("meta").set({
-            maintenanceMode: !!enabled,
-            maintenanceMessage: enabled ? (message || "جاري رفع وتحديث البيانات الجديدة. يرجى المتابعة بعد قليل لحين انتهاء الإدارة من رفع الملفات.") : "",
-            maintenanceUpdatedAt: Date.now(),
-            maintenanceBy: currentUserName || ""
-        }, { merge: true });
-    } catch (e) { console.warn("maintenance flag", e); }
-}
-
-
-async function refreshPublishStatus() {
-    let box = document.getElementById("publishStatusBox");
-    let badge = document.getElementById("publishStatusBadge");
-    try {
-        let metaDoc = await db.collection("system").doc("meta").get();
-        let md = metaDoc.exists ? (metaDoc.data() || {}) : {};
-        let pending = !!md.pendingPublish;
-        let pub = md.publishedVersion || 0;
-        let ver = md.version || 0;
-        let last = md.lastDraftAt ? new Date(md.lastDraftAt).toLocaleString("ar-EG") : "—";
-        let by = md.lastDraftBy || "—";
-        let msg = "";
-        if (pending) {
-            msg = "⚠️ توجد <b>مسودة بانتظار النشر</b>. الموردون ما زالوا على النسخة المنشورة.<br>آخر مسودة: " + last + " بواسطة " + sanitizeHTML(by);
-            if (badge) badge.innerHTML = '<span style="color:#fd7e14;">مسودة</span>';
-        } else {
-            msg = "✅ لا توجد مسودة معلّقة. الموردون على آخر نسخة منشورة.";
-            if (badge) badge.innerHTML = '<span style="color:#28a745;">منشور</span>';
-        }
-        if (box) box.innerHTML = msg;
-    } catch (e) {
-        if (box) box.textContent = "تعذر قراءة حالة النشر.";
-    }
-}
-
-async function publishDataToSuppliers() {
-    if (currentRole !== "super_admin" && currentRole !== "admin") {
-        showAlert("🚫 النشر للإدارة فقط.");
-        return;
-    }
-    if (typeof canAdminWrite === "function" && !canAdminWrite()) {
-        showAlert("🚫 حساب مشاهدة فقط.");
-        return;
-    }
-    if (!confirm("نشر المسودة للموردين؟\\nسيستبدل البيانات المنشورة الحالية بالمسودة بعد التأكيد.")) return;
-    showAlert("⏳ جاري النشر للموردين...");
-    try {
-        let cols = ["vehicles", "trips", "dues"];
-        for (let c = 0; c < cols.length; c++) {
-            let colName = cols[c];
-            let col = db.collection("data_" + colName);
-            let snap = await col.get();
-            let drafts = snap.docs.filter(d => isDraftDocId(d.id));
-            if (drafts.length === 0) continue;
-            // 1) حذف المنشور القديم
-            let liveRefs = snap.docs.filter(d => !isDraftDocId(d.id)).map(d => d.ref);
-            for (let i = 0; i < liveRefs.length; i += 400) {
-                let batch = db.batch();
-                liveRefs.slice(i, i + 400).forEach(ref => batch.delete(ref));
-                await batch.commit();
-            }
-            // 2) نسخ المسودة → منشور
-            for (let i = 0; i < drafts.length; i++) {
-                let d = drafts[i];
-                let data = d.data() || {};
-                data.isDraft = false;
-                let liveId = fromDraftDocId(d.id);
-                await col.doc(liveId).set(data);
-            }
-            // 3) حذف المسودات
-            for (let i = 0; i < drafts.length; i += 400) {
-                let batch = db.batch();
-                drafts.slice(i, i + 400).forEach(doc => batch.delete(doc.ref));
-                await batch.commit();
-            }
-        }
-        let now = Date.now();
-        await db.collection("system").doc("meta").set({
-            version: now,
-            publishedVersion: now,
-            pendingPublish: false,
-            lastPublishedAt: now,
-            lastPublishedBy: currentUserName || "الإدارة",
-            maintenanceMode: false,
-            maintenanceMessage: ""
-        }, { merge: true });
-        if (typeof logAudit === "function") logAudit("نشر بيانات", "تم نشر المسودة للموردين");
-        dataLoaded = false;
-        await loadSupplierData();
-        refreshPublishStatus();
-        showAlert("✅ تم النشر للموردين بنجاح.");
-        flashAdminResult("✅ تم النشر للموردين.", 4000);
-    } catch (e) {
-        console.error(e);
-        showAlert("❌ فشل النشر: " + e.message);
-    }
-}
-
-
 async function updateSystemVersion() {
     try {
-        // تحديث نسخة الأدمن فقط — لا ينشر للموردين تلقائياً
-        await db.collection("system").doc("meta").set({ version: Date.now(), pendingPublish: true }, { merge: true });
+        await db.collection("system").doc("meta").set({ version: Date.now() });
     } catch(e) { console.error(e); }
 }
-
-
-
-/** استخراج مفتاح موحّد لاسم/رقم مورد من صف */
-function linkingEntityKey(row) {
-    if (!row) return "";
-    let sap = normalizeValue(row["رقم المورد"] || row["رقم ساب"] || "");
-    let name = deepCleanArabic(row["اسم المكتب"] || row["اسم المورد"] || row["المورد"] || "");
-    if (sap && sap !== "unknown") return "sap:" + sap;
-    if (name) return "name:" + name;
-    return "";
-}
-function linkingEntityLabel(row) {
-    if (!row) return "—";
-    let sap = String(row["رقم المورد"] || row["رقم ساب"] || "").trim();
-    let name = String(row["اسم المكتب"] || row["اسم المورد"] || row["المورد"] || "").trim();
-    if (name && sap && sap !== "unknown") return name + " (ساب: " + sap + ")";
-    if (name) return name;
-    if (sap && sap !== "unknown") return "ساب: " + sap;
-    return "غير معروف";
-}
-function collectLinkingMap(rows) {
-    let map = new Map(); // key -> { label, count, sap, name }
-    (rows || []).forEach(r => {
-        let k = linkingEntityKey(r);
-        if (!k) return;
-        let cur = map.get(k);
-        if (!cur) {
-            map.set(k, {
-                key: k,
-                label: linkingEntityLabel(r),
-                count: 1,
-                sap: normalizeValue(r["رقم المورد"] || "") || "",
-                name: deepCleanArabic(r["اسم المكتب"] || r["اسم المورد"] || r["المورد"] || "")
-            });
-        } else {
-            cur.count++;
-        }
-    });
-    return map;
-}
-
-/** تقرير مشاكل الربط بين السيارات / الرحلات / المستحقات / حسابات الموردين */
-function buildLinkingIssuesReport() {
-    // بعد المسح الشامل تكون المصفوفات فارغة — لا ملاحظات
-    let rawV = (globalVehicles && globalVehicles.length) ? globalVehicles : [];
-    let rawT = (globalTrips && globalTrips.length) ? globalTrips : [];
-    let rawD = (globalDues && globalDues.length) ? globalDues : [];
-    if (rawV.length === 0 && rawT.length === 0 && rawD.length === 0) {
-        let emptyReport = {
-            tripsNoVehicles: [],
-            duesNoVehicles: [],
-            vehiclesNoAccount: [],
-            accountsNoVehicles: [],
-            noFileData: true,
-            totals: { vehiclesEntities: 0, tripsEntities: 0, duesEntities: 0 }
-        };
-        window.__linkingIssuesReport = emptyReport;
-        return emptyReport;
-    }
-    let vMap = collectLinkingMap(rawV);
-    let tMap = collectLinkingMap(rawT);
-    let dMap = collectLinkingMap(rawD);
-
-    // حسابات الموردين المسجّلين
-    let sMap = new Map();
-    if (globalSupplierDataMap && globalSupplierDataMap.forEach) {
-        globalSupplierDataMap.forEach((data, sap) => {
-            let k = sap ? ("sap:" + normalizeValue(sap)) : "";
-            if (!k) return;
-            sMap.set(k, {
-                key: k,
-                label: (data.ownerName || data.officeName || "") + " (ساب: " + sap + ")",
-                count: 1,
-                sap: normalizeValue(sap),
-                name: deepCleanArabic(data.officeName || data.ownerName || "")
-            });
-            // أيضاً بمفتاح الاسم
-            let nk = data.officeName ? ("name:" + deepCleanArabic(data.officeName)) : "";
-            if (nk && !sMap.has(nk)) {
-                sMap.set(nk, {
-                    key: nk,
-                    label: (data.officeName || data.ownerName || "") + " (ساب: " + sap + ")",
-                    count: 1,
-                    sap: normalizeValue(sap),
-                    name: deepCleanArabic(data.officeName || "")
-                });
-            }
-        });
-    }
-
-    function inVehicles(entry) {
-        if (!entry) return false;
-        if (entry.sap && vMap.has("sap:" + entry.sap)) return true;
-        if (entry.name && vMap.has("name:" + entry.name)) return true;
-        // تطابق مرن بالاسم
-        if (entry.name) {
-            for (let [vk, ve] of vMap) {
-                if (ve.name && (ve.name === entry.name || ve.name.includes(entry.name) || entry.name.includes(ve.name))) return true;
-            }
-        }
-        return false;
-    }
-
-    let tripsNoVehicles = [];
-    tMap.forEach(e => { if (!inVehicles(e)) tripsNoVehicles.push(e); });
-    let duesNoVehicles = [];
-    dMap.forEach(e => { if (!inVehicles(e)) duesNoVehicles.push(e); });
-
-    // إذا لا توجد أي ملفات مرفوعة (سيارات/رحلات/مستحقات) — لا ملاحظات ربط
-    let hasAnyFileData = vMap.size > 0 || tMap.size > 0 || dMap.size > 0;
-
-    // في السيارات وغير موجود كحساب مورد (ساب) — فقط عند وجود سيارات
-    let vehiclesNoAccount = [];
-    if (vMap.size > 0) {
-        vMap.forEach(e => {
-            if (e.sap && !sMap.has("sap:" + e.sap)) vehiclesNoAccount.push(e);
-        });
-    }
-
-    // حساب مورد بدون سيارات — فقط عند وجود ملف سيارات (وإلا بعد المسح الشامل كل الحسابات ستظهر خطأً)
-    let accountsNoVehicles = [];
-    if (vMap.size > 0) {
-        let seenAcc = new Set();
-        sMap.forEach(e => {
-            if (!e.sap) return;
-            if (seenAcc.has(e.sap)) return;
-            seenAcc.add(e.sap);
-            if (!vMap.has("sap:" + e.sap)) {
-                let ok = false;
-                if (e.name) {
-                    for (let [vk, ve] of vMap) {
-                        if (ve.name && (ve.name === e.name || ve.name.includes(e.name) || e.name.includes(ve.name))) { ok = true; break; }
-                    }
-                }
-                if (!ok) accountsNoVehicles.push(e);
-            }
-        });
-    }
-
-    // رحلات/مستحقات بدون سيارات: فقط إن وُجدت رحلات أو مستحقات
-    if (!hasAnyFileData) {
-        tripsNoVehicles = [];
-        duesNoVehicles = [];
-    }
-
-    let report = {
-        tripsNoVehicles: tripsNoVehicles.sort((a,b) => b.count - a.count),
-        duesNoVehicles: duesNoVehicles.sort((a,b) => b.count - a.count),
-        vehiclesNoAccount: vehiclesNoAccount.sort((a,b) => (a.label||"").localeCompare(b.label||"", "ar")),
-        accountsNoVehicles: accountsNoVehicles.sort((a,b) => (a.label||"").localeCompare(b.label||"", "ar")),
-        noFileData: !hasAnyFileData,
-        totals: {
-            vehiclesEntities: vMap.size,
-            tripsEntities: tMap.size,
-            duesEntities: dMap.size
-        }
-    };
-    window.__linkingIssuesReport = report;
-    return report;
-}
-
-function renderLinkingIssuesReport(report) {
-    let box = document.getElementById("linkIssuesBox");
-    let badge = document.getElementById("linkIssuesBadge");
-    if (!box) return;
-    if (!report) report = window.__linkingIssuesReport || buildLinkingIssuesReport();
-
-    let totalIssues = (report.tripsNoVehicles||[]).length + (report.duesNoVehicles||[]).length
-        + (report.vehiclesNoAccount||[]).length + (report.accountsNoVehicles||[]).length;
-
-    if (badge) {
-        if (totalIssues > 0) {
-            badge.style.display = "inline";
-            badge.textContent = String(totalIssues);
-        } else {
-            badge.style.display = "none";
-        }
-    }
-
-    function listHtml(arr, emptyMsg) {
-        if (!arr || !arr.length) return `<div style="color:#28a745; margin:4px 0 10px;">✓ ${emptyMsg}</div>`;
-        return `<ul style="margin:4px 0 12px 0; padding-right:18px;">` +
-            arr.map(e => `<li><b>${sanitizeHTML(e.label)}</b> — ${e.count || 0} سجل</li>`).join("") +
-            `</ul>`;
-    }
-
-    let html = "";
-    html += `<div style="font-size:11px; color:#666; margin-bottom:8px;">ملخص الكيانات: سيارات ${report.totals.vehiclesEntities} | رحلات ${report.totals.tripsEntities} | مستحقات ${report.totals.duesEntities}</div>`;
-
-    html += `<div style="font-weight:bold; color:#856404; margin-bottom:2px;">🚌 في الرحلات وغير موجود في السيارات (${(report.tripsNoVehicles||[]).length})</div>`;
-    html += listHtml(report.tripsNoVehicles, "لا توجد حالات");
-
-    html += `<div style="font-weight:bold; color:#856404; margin-bottom:2px;">💰 في المستحقات وغير موجود في السيارات (${(report.duesNoVehicles||[]).length})</div>`;
-    html += listHtml(report.duesNoVehicles, "لا توجد حالات");
-
-    html += `<div style="font-weight:bold; color:#004085; margin-bottom:2px;">🚛 في السيارات بدون حساب مورد مسجّل (${(report.vehiclesNoAccount||[]).length})</div>`;
-    html += listHtml(report.vehiclesNoAccount, "لا توجد حالات");
-
-    html += `<div style="font-weight:bold; color:#004085; margin-bottom:2px;">👤 حساب مورد بدون سيارات في الملفات (${(report.accountsNoVehicles||[]).length})</div>`;
-    html += listHtml(report.accountsNoVehicles, "لا توجد حالات");
-
-    if (report.noFileData) {
-        html = `<div style="color:#0c5460; font-weight:bold; margin-bottom:8px;">📭 لا توجد ملفات بيانات مرفوعة حالياً (سيارات / رحلات / مستحقات).<br>بعد رفع الملفات اضغط «فحص الربط الآن».</div>` + html;
-    } else if (totalIssues === 0) {
-        html = `<div style="color:#155724; font-weight:bold;">✅ لا توجد ملاحظات ربط — الأسماء متطابقة بين الملفات.</div>` + html;
-    } else {
-        html = `<div style="color:#856404; font-weight:bold; margin-bottom:8px;">⚠️ وُجدت ${totalIssues} ملاحظة — راجع الأسماء في ملف الإكسل أو حساب المورد.</div>` + html;
-    }
-    box.innerHTML = html;
-}
-
-function refreshLinkingIssuesReport() {
-    if (!dataLoaded && (currentRole === "admin" || currentRole === "super_admin")) {
-        showAlert("⏳ انتظر اكتمال تحميل البيانات ثم أعد الفحص.");
-    }
-    let report = buildLinkingIssuesReport();
-    renderLinkingIssuesReport(report);
-    let n = (report.tripsNoVehicles||[]).length + (report.duesNoVehicles||[]).length
-        + (report.vehiclesNoAccount||[]).length + (report.accountsNoVehicles||[]).length;
-    if (n > 0) {
-        showAlert("⚠️ فحص الربط: " + n + " ملاحظة. افتح تبويبة «ملاحظات الربط» للتفاصيل.");
-    } else {
-        showAlert("✅ فحص الربط: لا توجد ملاحظات.");
-    }
-}
-
-function exportLinkingIssuesToExcel() {
-    let report = window.__linkingIssuesReport || buildLinkingIssuesReport();
-    let rows = [];
-    function add(type, arr) {
-        (arr || []).forEach(e => {
-            rows.push({
-                "نوع الملاحظة": type,
-                "الاسم / المورد": e.label || "",
-                "رقم الساب": e.sap || "",
-                "عدد السجلات": e.count || 0
-            });
-        });
-    }
-    add("في الرحلات وغير موجود في السيارات", report.tripsNoVehicles);
-    add("في المستحقات وغير موجود في السيارات", report.duesNoVehicles);
-    add("في السيارات بدون حساب مورد", report.vehiclesNoAccount);
-    add("حساب مورد بدون سيارات", report.accountsNoVehicles);
-    if (!rows.length) {
-        showAlert("لا توجد ملاحظات لتصديرها.");
-        return;
-    }
-    try {
-        const ws = XLSX.utils.json_to_sheet(rows);
-        if (typeof styleExcelSheet === "function") styleExcelSheet(ws, rows);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "ملاحظات الربط");
-        let d = new Date();
-        XLSX.writeFile(wb, `Linking_Issues_${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}.xlsx`);
-        showAlert("✅ تم تصدير ملاحظات الربط.");
-    } catch (e) {
-        showAlert("❌ تعذر التصدير: " + e.message);
-    }
-}
-
 
 async function safeUploadTest(inputId, label) {
     const fileInput = document.getElementById(inputId);
@@ -3554,7 +2987,7 @@ async function safeUploadTest(inputId, label) {
             });
 
             resultDiv.innerHTML = `⏳ جاري حفظ البيانات وتوثيق الملف...`;
-            await uploadGroupedData(collectionName, groupedData, "draft");
+            await uploadGroupedData(collectionName, groupedData);
 
             await db.collection("systemFiles").doc(fileId).set({
                 id: fileId,
@@ -3562,17 +2995,11 @@ async function safeUploadTest(inputId, label) {
                 type: collectionName,
                 typeName: typeName,
                 date: uploadDate,
-                uploader: currentUserName || "الإدارة",
-                isDraft: true
+                uploader: currentUserName || "الإدارة"
             });
 
             let newVer = Date.now();
-            await db.collection("system").doc("meta").set({
-                version: newVer,
-                pendingPublish: true,
-                lastDraftAt: newVer,
-                lastDraftBy: currentUserName || "الإدارة"
-            }, { merge: true });
+            await db.collection("system").doc("meta").set({ version: newVer }, { merge: true });
 
             let matchNote = "";
             if (window.__lastUploadMatchInfo) {
@@ -3584,23 +3011,12 @@ async function safeUploadTest(inputId, label) {
                 }
             }
             if (typeof logAudit === "function") logAudit("رفع ملف بيانات", label || inputId || "ملف");
-                resultDiv.innerHTML = `✅ تم حفظ <b>مسودة</b> ${label} بنجاح (${data.length} سجل) — لم تُنشر للموردين بعد.` + matchNote + `<br><span style="color:#0f6674;font-size:12px;">📢 بعد المراجعة اضغط «نشر للموردين» من تبويبة النشر.</span>`;
+                resultDiv.innerHTML = `✅ تم رفع وتحديث ${label} بنجاح (${data.length} سجل)!` + matchNote;
             fileInput.value = "";
             
             loadUploadedFiles();
             dataLoaded = false;
             await loadSupplierData();
-            try {
-                if (typeof buildLinkingIssuesReport === "function") {
-                    let rep = buildLinkingIssuesReport();
-                    renderLinkingIssuesReport(rep);
-                    let ni = (rep.tripsNoVehicles||[]).length + (rep.duesNoVehicles||[]).length
-                        + (rep.vehiclesNoAccount||[]).length + (rep.accountsNoVehicles||[]).length;
-                    if (ni > 0 && resultDiv) {
-                        resultDiv.innerHTML += `<br><span style="color:#856404;font-size:12px;">🔗 فحص الربط: ${ni} ملاحظة — راجع تبويبة «ملاحظات الربط».</span>`;
-                    }
-                }
-            } catch (eLink) { console.warn("link report", eLink); }
 
         } catch (err) {
             console.error(err);
@@ -3655,7 +3071,7 @@ async function deleteUploadedFile(fileId, collectionName, fileName) {
             groupedData[docId].push(row);
         });
 
-        await uploadGroupedData(collectionName, groupedData, "draft");
+        await uploadGroupedData(collectionName, groupedData);
         await db.collection("systemFiles").doc(fileId).delete();
         await updateSystemVersion();
 
@@ -3839,11 +3255,8 @@ async function factoryResetSection(section) {
         return;
     }
     if (!canAdminWrite()) { showAlert("🚫 حساب مشاهدة فقط."); return; }
-    // نسخة احتياطية اختيارية فقط عند تهيئة حسابات (موردين/مشرفين) — ليست إجبارية لمسح الملفات
-    if (section === "suppliers" || section === "admins") {
-        if (confirm("هذه العملية تمس الحسابات.\nهل تريد تحميل نسخة احتياطية للحسابات أولاً؟\nموافق = نعم | إلغاء = متابعة بدون نسخة")) {
-            try { await downloadSystemBackup(); } catch (e) {}
-        }
+    if (confirm("يُنصح بنسخة احتياطية أولاً.\nموافق = تحميل نسخة احتياطية الآن\nإلغاء = المتابعة بدون نسخة")) {
+        try { await downloadSystemBackup(); } catch (e) {}
     }
     const labels = {
         complaints: "كل المقترحات والشكاوى",
@@ -3917,24 +3330,24 @@ async function wipeAllData() {
         return;
     }
     if (!canAdminWrite()) { showAlert("🚫 حساب مشاهدة فقط."); return; }
-    // لا نفرض نسخة احتياطية هنا — المسح للملفات المرفوعة فقط (وليس حسابات الموردين/المشرفين)
-    if(!confirm("⚠️ تحذير: مسح كافة بيانات السيارات والرحلات والمستحقات والملفات المرفوعة؟\n(حسابات الموردين والمشرفين لن تُحذف)")) return;
+    if (confirm("تحميل نسخة احتياطية قبل المسح؟")) {
+        try { await downloadSystemBackup(); } catch (e) {}
+    }
+    if(!confirm("⚠️ تحذير: هل أنت متأكد من مسح كافة بيانات السيارات والرحلات والمستحقات؟")) return;
     let pwd = prompt("لتأكيد المسح الشامل، اكتب كلمة 'مسح':");
     if (pwd !== "مسح") { showAlert("تم إلغاء عملية المسح."); return; }
     
     document.getElementById("adminResult").innerHTML = "⏳ جاري مسح النظام بالكامل... 0%";
     
     try {
-        // تفعيل رسالة للموردين فوراً أثناء المسح وإعادة الرفع
-        await setDataMaintenanceMode(true, "جاري رفع وتحديث البيانات الجديدة.\nيرجى المتابعة بعد قليل لحين انتهاء الإدارة من رفع الملفات.");
         // 1) مسح السيارات
-        await uploadGroupedData("vehicles", {}, "replace-all-legacy");
+        await uploadGroupedData("vehicles", {});
         document.getElementById("adminResult").innerHTML = "⏳ جاري مسح النظام بالكامل... 25%";
         // 2) مسح الرحلات
-        await uploadGroupedData("trips", {}, "replace-all-legacy");
+        await uploadGroupedData("trips", {});
         document.getElementById("adminResult").innerHTML = "⏳ جاري مسح النظام بالكامل... 50%";
         // 3) مسح المستحقات (كان ناقصاً سابقاً — سبب بقاء المبالغ بعد المسح)
-        await uploadGroupedData("dues", {}, "replace-all-legacy");
+        await uploadGroupedData("dues", {});
         document.getElementById("adminResult").innerHTML = "⏳ جاري مسح النظام بالكامل... 70%";
         
         let notesSnap = await db.collection("notes").get();
@@ -3947,16 +3360,7 @@ async function wipeAllData() {
         sysFilesSnap.docs.forEach(doc => batchSys.delete(doc.ref));
         await batchSys.commit();
 
-        let wipeTs = Date.now();
-        await db.collection("system").doc("meta").set({
-            version: wipeTs,
-            publishedVersion: wipeTs,
-            pendingPublish: false,
-            maintenanceMode: true,
-            maintenanceMessage: "جاري رفع وتحديث البيانات الجديدة. يرجى المتابعة بعد قليل لحين انتهاء الإدارة من رفع الملفات.",
-            maintenanceUpdatedAt: wipeTs,
-            maintenanceBy: currentUserName || ""
-        }, { merge: true });
+        await updateSystemVersion(); 
 
         // تصفير الذاكرة المحلية + كاش المتصفح حتى لا تبقى أرقام قديمة على الشاشة
         globalVehicles = [];
@@ -3966,24 +3370,7 @@ async function wipeAllData() {
         selectedDuesPeriod = "";
         dataLoaded = false;
         try {
-            window.__linkingIssuesReport = null;
-            if (typeof renderLinkingIssuesReport === "function") {
-                renderLinkingIssuesReport(buildLinkingIssuesReport());
-            }
-            let badge = document.getElementById("linkIssuesBadge");
-            if (badge) { badge.style.display = "none"; badge.textContent = "0"; }
-        } catch (eL) {}
-        try {
             localStorage.removeItem("elaraby_data_version");
-            localStorage.removeItem("elaraby_data_version_admin");
-            try {
-                if (typeof idbSet === "function") {
-                    idbSet("elaraby_admin_v6_vehicles", []);
-                    idbSet("elaraby_admin_v6_trips", []);
-                    idbSet("elaraby_admin_v6_dues", []);
-                }
-            } catch (eIdb) {}
-
             Object.keys(localStorage).forEach(k => {
                 if (k && (k.indexOf("elaraby_admin") === 0 || k.indexOf("elaraby_supplier") === 0)) {
                     localStorage.removeItem(k);
@@ -3997,7 +3384,7 @@ async function wipeAllData() {
         if (typeof loadSupplierData === "function") {
             try { await loadSupplierData(); } catch (e) { console.warn(e); }
         }
-        document.getElementById("adminResult").innerHTML = `✅ تم مسح وتصفير جميع البيانات (سيارات + رحلات + مستحقات) بنجاح 100%. ظهرت للموردين رسالة «جاري التحديث» حتى تنشر بيانات جديدة.`;
+        document.getElementById("adminResult").innerHTML = `✅ تم مسح وتصفير جميع البيانات (سيارات + رحلات + مستحقات) بنجاح 100%.`;
         showAlert("تم تصفير النظام بالكامل بما فيه المستحقات.");
         if (typeof logAudit === "function") logAudit("مسح شامل", "تم مسح السيارات والرحلات والمستحقات والملفات والملاحظات");
     } catch(e) { console.error(e); document.getElementById("adminResult").innerHTML = "❌ خطأ: " + e.message; }
@@ -4834,24 +4221,6 @@ function selectMsgSupplier(sap, name) {
                 </div>
             </div>
 
-            <!-- ملاحظات الربط بين الملفات -->
-            <div class="upload-accordion" data-color="orange" id="acc_link_issues" style="margin-bottom:8px; border-color:#ffc107;">
-                <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_link_issues')">
-                    <span class="upload-acc-plus">+</span>
-                    <p class="upload-acc-title">🔗 ملاحظات الربط <span id="linkIssuesBadge" style="display:none; background:#dc3545; color:#fff; font-size:10px; padding:1px 6px; border-radius:10px; margin-right:6px;">0</span></p>
-                </div>
-                <div class="upload-acc-body">
-                    <p style="font-size:11px; color:#666; margin:0 0 8px 0; line-height:1.5;">تقارن أسماء/أرقام الموردين بين <b>السيارات</b> و<b>الرحلات</b> و<b>المستحقات</b> وحسابات الموردين — لإصلاح الملف قبل الاعتماد.</p>
-                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
-                        <button type="button" class="btn-sm" onclick="refreshLinkingIssuesReport()" style="background:#fd7e14; width:auto !important;">🔍 فحص الربط الآن</button>
-                        <button type="button" class="btn-sm" onclick="exportLinkingIssuesToExcel()" style="background:#6c757d; width:auto !important;">📥 تصدير الملاحظات</button>
-                    </div>
-                    <div id="linkIssuesBox" style="font-size:12px; max-height:280px; overflow-y:auto; background:#fffdf5; border:1px solid #ffe08a; border-radius:8px; padding:10px; line-height:1.55; color:#333;">
-                        اضغط «فحص الربط الآن» بعد رفع الملفات لعرض الأسماء غير المتطابقة.
-                    </div>
-                </div>
-            </div>
-
             <!-- 4. ملاحظة فترة الرحلات (بعد المستحقات) -->
             <div class="upload-accordion" data-color="teal" id="acc_trips_period" style="margin-bottom:8px;">
                 <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_trips_period')">
@@ -4859,60 +4228,18 @@ function selectMsgSupplier(sap, name) {
                     <p class="upload-acc-title">📅 ملاحظة فترة بيانات الرحلات (للموردين)</p>
                 </div>
                 <div class="upload-acc-body">
-                    <p style="font-size:11px; color:#666; margin:0 0 10px 0; line-height:1.5;">تظهر للمورد: <b>بيانات الرحلات المعروضة عن الفترة:</b> … (خاصة بالرحلات). يمكن تحديد فترة عامة، أو فترة لكل فرع على حدة.</p>
-                    <div style="background:#e8f7f9; border:1px solid #7ec8d4; border-radius:8px; padding:10px; margin-bottom:12px;">
-                        <div style="font-size:12px; font-weight:bold; color:#0f6674; margin-bottom:6px;">📅 الفترة العامة (عند عدم اختيار فرع أو فرع بلا فترة خاصة)</div>
-                        <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end;">
-                            <div style="flex:1; min-width:120px;">
-                                <label style="font-size:11px; font-weight:bold; display:block; margin-bottom:3px;">من تاريخ</label>
-                                <input type="date" id="setTripsPeriodFrom" style="width:100%; padding:8px; border-radius:8px; border:1px solid #7ec8d4; box-sizing:border-box; font-family:tahoma; font-size:13px;">
-                            </div>
-                            <div style="flex:1; min-width:120px;">
-                                <label style="font-size:11px; font-weight:bold; display:block; margin-bottom:3px;">إلى تاريخ</label>
-                                <input type="date" id="setTripsPeriodTo" style="width:100%; padding:8px; border-radius:8px; border:1px solid #7ec8d4; box-sizing:border-box; font-family:tahoma; font-size:13px;">
-                            </div>
-                            <button type="button" class="btn-sm" onclick="saveTripsPeriodNote()" style="background:#17a2b8; width:auto !important; margin:0;">💾 حفظ العامة</button>
-                            <button type="button" class="btn-sm" onclick="clearTripsPeriodNote()" style="background:#6c757d; width:auto !important; margin:0;">مسح العامة</button>
+                    <p style="font-size:11px; color:#666; margin:0 0 10px 0; line-height:1.5;">تظهر للمورد في واجهة البيانات الجملة الثابتة:<br><b>بيانات الرحلات المعروضة عن الفترة:</b> من … إلى …<br>(خاصة بالرحلات وليست المستحقات). اختر التواريخ من التقويم لتوحيد الصيغة.</p>
+                    <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end;">
+                        <div style="flex:1; min-width:140px;">
+                            <label style="font-size:12px; font-weight:bold; display:block; margin-bottom:4px;">من تاريخ</label>
+                            <input type="date" id="setTripsPeriodFrom" style="width:100%; padding:10px; border-radius:8px; border:1px solid #7ec8d4; box-sizing:border-box; font-family:tahoma; font-size:14px;">
                         </div>
-                    </div>
-                    <div style="background:#fff8e6; border:1px solid #ffc107; border-radius:8px; padding:10px;">
-                        <div style="font-size:12px; font-weight:bold; color:#856404; margin-bottom:6px;">🏢 فترة حسب الفرع</div>
-                        <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end; margin-bottom:8px;">
-                            <div style="flex:1; min-width:110px;">
-                                <label style="font-size:11px; font-weight:bold; display:block; margin-bottom:3px;">اسم الفرع</label>
-                                <input type="text" id="setBranchPeriodName" placeholder="مثال: بنها" list="branchPeriodSuggestions" style="width:100%; padding:8px; border-radius:8px; border:1px solid #ffc107; box-sizing:border-box; font-family:tahoma; font-size:13px;">
-                                <datalist id="branchPeriodSuggestions"></datalist>
-                            </div>
-                            <div style="flex:1; min-width:110px;">
-                                <label style="font-size:11px; font-weight:bold; display:block; margin-bottom:3px;">من</label>
-                                <input type="date" id="setBranchPeriodFrom" style="width:100%; padding:8px; border-radius:8px; border:1px solid #ffc107; box-sizing:border-box; font-family:tahoma; font-size:13px;">
-                            </div>
-                            <div style="flex:1; min-width:110px;">
-                                <label style="font-size:11px; font-weight:bold; display:block; margin-bottom:3px;">إلى</label>
-                                <input type="date" id="setBranchPeriodTo" style="width:100%; padding:8px; border-radius:8px; border:1px solid #ffc107; box-sizing:border-box; font-family:tahoma; font-size:13px;">
-                            </div>
-                            <button type="button" class="btn-sm" onclick="saveBranchPeriodNote()" style="background:#fd7e14; width:auto !important; margin:0;">💾 حفظ للفرع</button>
+                        <div style="flex:1; min-width:140px;">
+                            <label style="font-size:12px; font-weight:bold; display:block; margin-bottom:4px;">إلى تاريخ</label>
+                            <input type="date" id="setTripsPeriodTo" style="width:100%; padding:10px; border-radius:8px; border:1px solid #7ec8d4; box-sizing:border-box; font-family:tahoma; font-size:14px;">
                         </div>
-                        <div id="branchPeriodsList" style="font-size:12px; max-height:160px; overflow-y:auto;"></div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- نشر البيانات للموردين -->
-            <div class="upload-accordion" data-color="green" id="acc_publish" style="margin-bottom:8px;">
-                <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_publish')">
-                    <span class="upload-acc-plus">+</span>
-                    <p class="upload-acc-title">📢 نشر البيانات للموردين <span id="publishStatusBadge" style="font-size:10px; font-weight:normal; color:#666;"></span></p>
-                </div>
-                <div class="upload-acc-body">
-                    <p style="font-size:11px; color:#666; margin:0 0 10px 0; line-height:1.55;">
-                        الرفع يُحفظ كـ <b>مسودة</b> — الموردون يستمرون في رؤية <b>آخر نسخة منشورة</b> دون انقطاع.<br>
-                        بعد التأكد من صحة الملفات اضغط <b>نشر للموردين</b> لتحديث بياناتهم.
-                    </p>
-                    <div id="publishStatusBox" style="font-size:12px; background:#f8f9fa; border:1px solid #dee2e6; border-radius:8px; padding:10px; margin-bottom:10px;">جاري التحقق…</div>
-                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                        <button type="button" class="btn-sm" onclick="publishDataToSuppliers()" style="background:#28a745; width:auto !important;">📢 نشر للموردين</button>
-                        <button type="button" class="btn-sm" onclick="refreshPublishStatus()" style="background:#6c757d; width:auto !important;">🔄 تحديث الحالة</button>
+                        <button type="button" class="btn-sm" onclick="saveTripsPeriodNote()" style="background:#17a2b8; width:auto !important; margin:0;">💾 حفظ الفترة</button>
+                        <button type="button" class="btn-sm" onclick="clearTripsPeriodNote()" style="background:#6c757d; width:auto !important; margin:0;">مسح</button>
                     </div>
                 </div>
             </div>
@@ -5109,7 +4436,7 @@ function selectMsgSupplier(sap, name) {
             <div class="upload-accordion" data-color="red" id="acc_set_factory" style="margin-bottom:10px;">
                 <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_set_factory')">
                     <span class="upload-acc-plus">+</span>
-                    <p class="upload-acc-title">🧨 تهيئة النظام</p>
+                    <p class="upload-acc-title">🧨 تهيئة النظام + نسخة احتياطية</p>
                 </div>
                 <div class="upload-acc-body">
                     <p style="font-size:10px; color:#666; margin:0 0 8px 0; line-height:1.5;">النسخة الاحتياطية ملف JSON للمراجعة والأرشفة. <b>ليست استرجاعاً تلقائياً</b> داخل البرنامج — لاستعادة بيانات التشغيل أعد رفع ملفات الإكسيل من تبويب البيانات. يمكن الرجوع لقائمة الموردين/المشرفين يدوياً من الملف إن لزم.</p>
@@ -6240,29 +5567,19 @@ async function loadSupplierData(){
        document.getElementById('loadingText').innerText = "جاري التحقق من التحديثات...";
        
        let serverVersion = 0;
-       let publishedVersion = 0;
-       let pendingPublish = false;
        try {
            let metaDoc = await db.collection("system").doc("meta").get();
            if(metaDoc.exists) {
-               let md = metaDoc.data() || {};
-               serverVersion = md.version || 0;
-               publishedVersion = md.publishedVersion || md.version || 0;
-               pendingPublish = !!md.pendingPublish;
-               window.__systemMeta = md;
-               if (typeof updateMaintenanceBanner === "function") updateMaintenanceBanner(md);
-           } else {
-               if (typeof updateMaintenanceBanner === "function") updateMaintenanceBanner({});
+               serverVersion = metaDoc.data().version || 0;
            }
+           // شريط الفترة من إعدادات الإدارة (وليس وقت النسخة)
            if (typeof applyAppBranding === "function") applyAppBranding();
-           if (typeof refreshPublishStatus === "function") refreshPublishStatus();
        } catch(e) {}
 
        let isAdmin = (currentRole === "admin" || currentRole === "super_admin");
-       // المورد يعتمد publishedVersion حتى لا يرى المسودة؛ الأدمن يرى المسودة
-       let cacheVersionKey = isAdmin ? serverVersion : publishedVersion;
-       let cachePrefix = isAdmin ? "elaraby_admin_v6_" : "elaraby_supplier_v6_" + loggedInSupplierSapGlobal + "_";
-       let localVersion = localStorage.getItem(isAdmin ? "elaraby_data_version_admin" : "elaraby_data_version") || 0;
+       // v4: فلترة وربط باسم المكتب في العرض + تحميل مباشر off_*
+       let cachePrefix = isAdmin ? "elaraby_admin_v5_" : "elaraby_supplier_v5_" + loggedInSupplierSapGlobal + "_";
+       let localVersion = localStorage.getItem("elaraby_data_version") || 0;
 
        clearOldLocalStorage();
 
@@ -6270,7 +5587,7 @@ async function loadSupplierData(){
        let cachedT = await idbGet(cachePrefix + "trips");
        let cachedD = await idbGet(cachePrefix + "dues");
 
-       if(cacheVersionKey > 0 && String(cacheVersionKey) == String(localVersion) && cachedV && cachedT && cachedD) {
+       if(serverVersion > 0 && serverVersion == localVersion && cachedV && cachedT && cachedD) {
            document.getElementById('loadingText').innerText = "جاري تحميل البيانات من الهاتف 🚀...";
            globalVehicles = cachedV;
            globalTrips = cachedT;
@@ -6280,9 +5597,9 @@ async function loadSupplierData(){
            
            if (isAdmin) {
                const [vData, tData, dData] = await Promise.all([
-                   downloadAllData("vehicles", { preferDraft: true }),
-                   downloadAllData("trips", { preferDraft: true }),
-                   downloadAllData("dues", { preferDraft: true })
+                   downloadAllData("vehicles"),
+                   downloadAllData("trips"),
+                   downloadAllData("dues")
                ]);
                globalVehicles = vData || [];
                globalTrips = tData || [];
@@ -6403,8 +5720,7 @@ async function loadSupplierData(){
                await idbSet(cachePrefix + "vehicles", globalVehicles);
                await idbSet(cachePrefix + "trips", globalTrips);
                await idbSet(cachePrefix + "dues", globalDues);
-               if (isAdmin) localStorage.setItem("elaraby_data_version_admin", String(serverVersion || cacheVersionKey || 0));
-               else localStorage.setItem("elaraby_data_version", String(publishedVersion || cacheVersionKey || 0));
+               localStorage.setItem("elaraby_data_version", serverVersion);
            } catch(e) { console.error("مساحة الهاتف لا تكفي للكاش"); }
        }
        
@@ -6474,11 +5790,6 @@ async function loadSupplierData(){
        
        dataLoaded = true; 
        document.getElementById('loadingOverlay').style.display = 'none'; 
-       try {
-           if ((currentRole === "admin" || currentRole === "super_admin") && typeof buildLinkingIssuesReport === "function") {
-               renderLinkingIssuesReport(buildLinkingIssuesReport());
-           }
-       } catch (e) {}
    }
 
    let isAdmin = (currentRole === "admin" || currentRole === "super_admin"); 
@@ -6581,7 +5892,7 @@ async function loadSupplierData(){
    }
    let branchHtml = "";
    if(branchesArr.length > 1) {
-       branchHtml = `الفرع: <select id="branchSelector" onchange="onBranchFilterChanged()" onchange="changeBranch(this.value)">
+       branchHtml = `الفرع: <select id="branchSelector" onchange="changeBranch(this.value)">
            <option value="">كل الفروع</option>
            ${branchesArr.map(b => `<option value="${b}" ${normalizeBranchName(b)===normalizeBranchName(activeBranch)?'selected':''}>${b}</option>`).join('')}
        </select>`;
@@ -6645,16 +5956,6 @@ async function loadSupplierData(){
    });
 
    document.getElementById("numVehicles").innerHTML = vehiclesKeys.size;
-   // رسالة للمورد: صيانة أو لا بيانات
-   try {
-     if (currentRole === "supplier" && typeof updateMaintenanceBanner === "function") {
-       let empty = (vehiclesKeys.size === 0 && (typeof globalTrips === "undefined" || !globalTrips.length) && (typeof globalDues === "undefined" || !globalDues.length));
-       // لو في فلتر فرع قد تكون فارغة جزئياً — نفحص الإجمالي الخام
-       let rawEmpty = (!(globalVehicles||[]).length && !(globalTrips||[]).length && !(globalDues||[]).length);
-       updateMaintenanceBanner(window.__systemMeta || {}, rawEmpty && !((window.__systemMeta||{}).maintenanceMode));
-     }
-   } catch (eM) {}
-
    let indVeh = document.getElementById("ind_vehicles");
    if(indVeh) indVeh.style.display = (vehiclesKeys.size > 0 && !isAdmin) ? 'block' : 'none';
 
@@ -6774,9 +6075,6 @@ async function loadSupplierData(){
  }
 }function clearFilter() { document.getElementById("globalFromDate").value = ""; document.getElementById("globalToDate").value = ""; loadSupplierData(); }
 function applyGlobalFilter(){ loadSupplierData().then(() => { if(activePanel && document.getElementById("popupBox").style.display==="flex"){ showData(); } }); }
-function onBranchFilterChanged() {
-    try { if (typeof applyAppBranding === "function") applyAppBranding(); } catch(e){}
-}
 
 firebase.auth().onAuthStateChanged(async function(user){
  let overlay = document.getElementById("customAlertOverlay");
@@ -6916,17 +6214,6 @@ firebase.auth().onAuthStateChanged(async function(user){
                 updateMessagesBadge();
             }
          });
-
-         // متابعة وضع الصيانة/التحديث للمورد مباشرة
-         if (window.__unsubMetaMaint) { try { window.__unsubMetaMaint(); } catch(e){} }
-         window.__unsubMetaMaint = db.collection("system").doc("meta").onSnapshot(doc => {
-            let md = doc.exists ? (doc.data() || {}) : {};
-            window.__systemMeta = md;
-            if (typeof updateMaintenanceBanner === "function") {
-                let rawEmpty = (!(globalVehicles||[]).length && !(globalTrips||[]).length && !(globalDues||[]).length);
-                updateMaintenanceBanner(md, currentRole === "supplier" && rawEmpty && !md.maintenanceMode);
-            }
-         }, err => console.warn("meta maint", err));
          
          if (currentRole === "admin" || currentRole === "super_admin") {
             db.collection("uploadedFiles").doc("PASSWORD_RESET_REQUESTS").onSnapshot(doc => {
