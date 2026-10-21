@@ -1447,7 +1447,7 @@ let dataLoaded = false;
 let adminDashFilteredSap = null; 
 let activeBranch = "";
 /** غيّر هذا الرقم مع كل إصدار منطق جديد لإبطال كاش IndexedDB تلقائياً */
-const APP_LOGIC_VERSION = "9.7";
+const APP_LOGIC_VERSION = "v1.6-link-wipe-2";
 const APP_DISPLAY_VERSION = "V1.1";
 (function invalidateStaleAppCache() {
     try {
@@ -1456,6 +1456,15 @@ const APP_DISPLAY_VERSION = "V1.1";
             localStorage.setItem("elaraby_app_logic_ver", APP_LOGIC_VERSION);
             // إبطال كاش البيانات حتى يُعاد التحميل من السيرفر
             localStorage.removeItem("elaraby_data_version");
+            localStorage.removeItem("elaraby_data_version_admin");
+            try {
+                if (typeof idbSet === "function") {
+                    idbSet("elaraby_admin_v6_vehicles", []);
+                    idbSet("elaraby_admin_v6_trips", []);
+                    idbSet("elaraby_admin_v6_dues", []);
+                }
+            } catch (eIdb) {}
+
             // مسح مفاتيح الكاش القديمة من localStorage
             Object.keys(localStorage).forEach(k => {
                 if (k.indexOf("elaraby_") === 0 && k !== "elaraby_app_logic_ver") {
@@ -3087,9 +3096,25 @@ function collectLinkingMap(rows) {
 
 /** تقرير مشاكل الربط بين السيارات / الرحلات / المستحقات / حسابات الموردين */
 function buildLinkingIssuesReport() {
-    let vMap = collectLinkingMap(globalVehicles);
-    let tMap = collectLinkingMap(globalTrips);
-    let dMap = collectLinkingMap(globalDues);
+    // بعد المسح الشامل تكون المصفوفات فارغة — لا ملاحظات
+    let rawV = (globalVehicles && globalVehicles.length) ? globalVehicles : [];
+    let rawT = (globalTrips && globalTrips.length) ? globalTrips : [];
+    let rawD = (globalDues && globalDues.length) ? globalDues : [];
+    if (rawV.length === 0 && rawT.length === 0 && rawD.length === 0) {
+        let emptyReport = {
+            tripsNoVehicles: [],
+            duesNoVehicles: [],
+            vehiclesNoAccount: [],
+            accountsNoVehicles: [],
+            noFileData: true,
+            totals: { vehiclesEntities: 0, tripsEntities: 0, duesEntities: 0 }
+        };
+        window.__linkingIssuesReport = emptyReport;
+        return emptyReport;
+    }
+    let vMap = collectLinkingMap(rawV);
+    let tMap = collectLinkingMap(rawT);
+    let dMap = collectLinkingMap(rawD);
 
     // حسابات الموردين المسجّلين
     let sMap = new Map();
@@ -3814,8 +3839,11 @@ async function factoryResetSection(section) {
         return;
     }
     if (!canAdminWrite()) { showAlert("🚫 حساب مشاهدة فقط."); return; }
-    if (confirm("يُنصح بنسخة احتياطية أولاً.\nموافق = تحميل نسخة احتياطية الآن\nإلغاء = المتابعة بدون نسخة")) {
-        try { await downloadSystemBackup(); } catch (e) {}
+    // نسخة احتياطية اختيارية فقط عند تهيئة حسابات (موردين/مشرفين) — ليست إجبارية لمسح الملفات
+    if (section === "suppliers" || section === "admins") {
+        if (confirm("هذه العملية تمس الحسابات.\nهل تريد تحميل نسخة احتياطية للحسابات أولاً؟\nموافق = نعم | إلغاء = متابعة بدون نسخة")) {
+            try { await downloadSystemBackup(); } catch (e) {}
+        }
     }
     const labels = {
         complaints: "كل المقترحات والشكاوى",
@@ -3947,6 +3975,15 @@ async function wipeAllData() {
         } catch (eL) {}
         try {
             localStorage.removeItem("elaraby_data_version");
+            localStorage.removeItem("elaraby_data_version_admin");
+            try {
+                if (typeof idbSet === "function") {
+                    idbSet("elaraby_admin_v6_vehicles", []);
+                    idbSet("elaraby_admin_v6_trips", []);
+                    idbSet("elaraby_admin_v6_dues", []);
+                }
+            } catch (eIdb) {}
+
             Object.keys(localStorage).forEach(k => {
                 if (k && (k.indexOf("elaraby_admin") === 0 || k.indexOf("elaraby_supplier") === 0)) {
                     localStorage.removeItem(k);
@@ -5072,7 +5109,7 @@ function selectMsgSupplier(sap, name) {
             <div class="upload-accordion" data-color="red" id="acc_set_factory" style="margin-bottom:10px;">
                 <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_set_factory')">
                     <span class="upload-acc-plus">+</span>
-                    <p class="upload-acc-title">🧨 تهيئة النظام + نسخة احتياطية</p>
+                    <p class="upload-acc-title">🧨 تهيئة النظام</p>
                 </div>
                 <div class="upload-acc-body">
                     <p style="font-size:10px; color:#666; margin:0 0 8px 0; line-height:1.5;">النسخة الاحتياطية ملف JSON للمراجعة والأرشفة. <b>ليست استرجاعاً تلقائياً</b> داخل البرنامج — لاستعادة بيانات التشغيل أعد رفع ملفات الإكسيل من تبويب البيانات. يمكن الرجوع لقائمة الموردين/المشرفين يدوياً من الملف إن لزم.</p>
