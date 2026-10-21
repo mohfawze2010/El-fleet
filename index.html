@@ -2904,12 +2904,12 @@ function rowMatchesActiveSupplier(row, activeSap, officeKeysSet) {
 
 
 /** رسالة صيانة/تحديث للموردين أثناء المسح الشامل أو انتظار رفع جديد */
-function updateMaintenanceBanner(metaData) {
+function updateMaintenanceBanner(metaData, forceEmpty) {
     let ban = document.getElementById("dataMaintenanceBanner");
     let msgEl = document.getElementById("dataMaintenanceMsg");
     if (!ban) return;
     let isAdmin = (currentRole === "admin" || currentRole === "super_admin");
-    let md = metaData || {};
+    let md = metaData || window.__systemMeta || {};
     let on = !!md.maintenanceMode;
     if (isAdmin) {
         ban.style.display = "none";
@@ -2918,9 +2918,20 @@ function updateMaintenanceBanner(metaData) {
     if (on) {
         let custom = (md.maintenanceMessage || "").trim();
         if (msgEl) {
-            msgEl.innerHTML = custom || "جاري رفع وتحديث البيانات الجديدة.<br>يرجى المتابعة بعد قليل لحين انتهاء الإدارة من رفع الملفات.";
+            msgEl.innerHTML = (custom || "جاري رفع وتحديث البيانات الجديدة.<br>يرجى المتابعة بعد قليل لحين انتهاء الإدارة من رفع الملفات.").replace(/\n/g, "<br>");
         }
         ban.style.display = "block";
+        ban.style.background = "linear-gradient(135deg,#fff3cd,#ffe8a1)";
+        ban.style.borderColor = "#ffc107";
+        ban.style.color = "#856404";
+    } else if (forceEmpty) {
+        if (msgEl) {
+            msgEl.innerHTML = "لا توجد بيانات معروضة حالياً لحسابك.<br>إذا كانت الإدارة تقوم بالرفع أو التحديث، يرجى المحاولة بعد قليل.";
+        }
+        ban.style.display = "block";
+        ban.style.background = "linear-gradient(135deg,#e8f4fd,#d6ebfa)";
+        ban.style.borderColor = "#7eb6e0";
+        ban.style.color = "#0c5460";
     } else {
         ban.style.display = "none";
     }
@@ -3125,36 +3136,49 @@ function buildLinkingIssuesReport() {
     let duesNoVehicles = [];
     dMap.forEach(e => { if (!inVehicles(e)) duesNoVehicles.push(e); });
 
-    // في السيارات وغير موجود كحساب مورد (ساب)
-    let vehiclesNoAccount = [];
-    vMap.forEach(e => {
-        if (e.sap && !sMap.has("sap:" + e.sap)) vehiclesNoAccount.push(e);
-    });
+    // إذا لا توجد أي ملفات مرفوعة (سيارات/رحلات/مستحقات) — لا ملاحظات ربط
+    let hasAnyFileData = vMap.size > 0 || tMap.size > 0 || dMap.size > 0;
 
-    // حساب مورد بدون أي سيارات
+    // في السيارات وغير موجود كحساب مورد (ساب) — فقط عند وجود سيارات
+    let vehiclesNoAccount = [];
+    if (vMap.size > 0) {
+        vMap.forEach(e => {
+            if (e.sap && !sMap.has("sap:" + e.sap)) vehiclesNoAccount.push(e);
+        });
+    }
+
+    // حساب مورد بدون سيارات — فقط عند وجود ملف سيارات (وإلا بعد المسح الشامل كل الحسابات ستظهر خطأً)
     let accountsNoVehicles = [];
-    let seenAcc = new Set();
-    sMap.forEach(e => {
-        if (!e.sap) return;
-        if (seenAcc.has(e.sap)) return;
-        seenAcc.add(e.sap);
-        if (!vMap.has("sap:" + e.sap)) {
-            // تحقق بالاسم
-            let ok = false;
-            if (e.name) {
-                for (let [vk, ve] of vMap) {
-                    if (ve.name && (ve.name === e.name || ve.name.includes(e.name) || e.name.includes(ve.name))) { ok = true; break; }
+    if (vMap.size > 0) {
+        let seenAcc = new Set();
+        sMap.forEach(e => {
+            if (!e.sap) return;
+            if (seenAcc.has(e.sap)) return;
+            seenAcc.add(e.sap);
+            if (!vMap.has("sap:" + e.sap)) {
+                let ok = false;
+                if (e.name) {
+                    for (let [vk, ve] of vMap) {
+                        if (ve.name && (ve.name === e.name || ve.name.includes(e.name) || e.name.includes(ve.name))) { ok = true; break; }
+                    }
                 }
+                if (!ok) accountsNoVehicles.push(e);
             }
-            if (!ok) accountsNoVehicles.push(e);
-        }
-    });
+        });
+    }
+
+    // رحلات/مستحقات بدون سيارات: فقط إن وُجدت رحلات أو مستحقات
+    if (!hasAnyFileData) {
+        tripsNoVehicles = [];
+        duesNoVehicles = [];
+    }
 
     let report = {
         tripsNoVehicles: tripsNoVehicles.sort((a,b) => b.count - a.count),
         duesNoVehicles: duesNoVehicles.sort((a,b) => b.count - a.count),
         vehiclesNoAccount: vehiclesNoAccount.sort((a,b) => (a.label||"").localeCompare(b.label||"", "ar")),
         accountsNoVehicles: accountsNoVehicles.sort((a,b) => (a.label||"").localeCompare(b.label||"", "ar")),
+        noFileData: !hasAnyFileData,
         totals: {
             vehiclesEntities: vMap.size,
             tripsEntities: tMap.size,
@@ -3205,7 +3229,9 @@ function renderLinkingIssuesReport(report) {
     html += `<div style="font-weight:bold; color:#004085; margin-bottom:2px;">👤 حساب مورد بدون سيارات في الملفات (${(report.accountsNoVehicles||[]).length})</div>`;
     html += listHtml(report.accountsNoVehicles, "لا توجد حالات");
 
-    if (totalIssues === 0) {
+    if (report.noFileData) {
+        html = `<div style="color:#0c5460; font-weight:bold; margin-bottom:8px;">📭 لا توجد ملفات بيانات مرفوعة حالياً (سيارات / رحلات / مستحقات).<br>بعد رفع الملفات اضغط «فحص الربط الآن».</div>` + html;
+    } else if (totalIssues === 0) {
         html = `<div style="color:#155724; font-weight:bold;">✅ لا توجد ملاحظات ربط — الأسماء متطابقة بين الملفات.</div>` + html;
     } else {
         html = `<div style="color:#856404; font-weight:bold; margin-bottom:8px;">⚠️ وُجدت ${totalIssues} ملاحظة — راجع الأسماء في ملف الإكسل أو حساب المورد.</div>` + html;
@@ -3863,10 +3889,8 @@ async function wipeAllData() {
         return;
     }
     if (!canAdminWrite()) { showAlert("🚫 حساب مشاهدة فقط."); return; }
-    if (confirm("تحميل نسخة احتياطية قبل المسح؟")) {
-        try { await downloadSystemBackup(); } catch (e) {}
-    }
-    if(!confirm("⚠️ تحذير: هل أنت متأكد من مسح كافة بيانات السيارات والرحلات والمستحقات؟")) return;
+    // لا نفرض نسخة احتياطية هنا — المسح للملفات المرفوعة فقط (وليس حسابات الموردين/المشرفين)
+    if(!confirm("⚠️ تحذير: مسح كافة بيانات السيارات والرحلات والمستحقات والملفات المرفوعة؟\n(حسابات الموردين والمشرفين لن تُحذف)")) return;
     let pwd = prompt("لتأكيد المسح الشامل، اكتب كلمة 'مسح':");
     if (pwd !== "مسح") { showAlert("تم إلغاء عملية المسح."); return; }
     
@@ -3913,6 +3937,14 @@ async function wipeAllData() {
         globalDuesPeriodsCache = [];
         selectedDuesPeriod = "";
         dataLoaded = false;
+        try {
+            window.__linkingIssuesReport = null;
+            if (typeof renderLinkingIssuesReport === "function") {
+                renderLinkingIssuesReport(buildLinkingIssuesReport());
+            }
+            let badge = document.getElementById("linkIssuesBadge");
+            if (badge) { badge.style.display = "none"; badge.textContent = "0"; }
+        } catch (eL) {}
         try {
             localStorage.removeItem("elaraby_data_version");
             Object.keys(localStorage).forEach(k => {
@@ -6576,6 +6608,16 @@ async function loadSupplierData(){
    });
 
    document.getElementById("numVehicles").innerHTML = vehiclesKeys.size;
+   // رسالة للمورد: صيانة أو لا بيانات
+   try {
+     if (currentRole === "supplier" && typeof updateMaintenanceBanner === "function") {
+       let empty = (vehiclesKeys.size === 0 && (typeof globalTrips === "undefined" || !globalTrips.length) && (typeof globalDues === "undefined" || !globalDues.length));
+       // لو في فلتر فرع قد تكون فارغة جزئياً — نفحص الإجمالي الخام
+       let rawEmpty = (!(globalVehicles||[]).length && !(globalTrips||[]).length && !(globalDues||[]).length);
+       updateMaintenanceBanner(window.__systemMeta || {}, rawEmpty && !((window.__systemMeta||{}).maintenanceMode));
+     }
+   } catch (eM) {}
+
    let indVeh = document.getElementById("ind_vehicles");
    if(indVeh) indVeh.style.display = (vehiclesKeys.size > 0 && !isAdmin) ? 'block' : 'none';
 
@@ -6837,6 +6879,17 @@ firebase.auth().onAuthStateChanged(async function(user){
                 updateMessagesBadge();
             }
          });
+
+         // متابعة وضع الصيانة/التحديث للمورد مباشرة
+         if (window.__unsubMetaMaint) { try { window.__unsubMetaMaint(); } catch(e){} }
+         window.__unsubMetaMaint = db.collection("system").doc("meta").onSnapshot(doc => {
+            let md = doc.exists ? (doc.data() || {}) : {};
+            window.__systemMeta = md;
+            if (typeof updateMaintenanceBanner === "function") {
+                let rawEmpty = (!(globalVehicles||[]).length && !(globalTrips||[]).length && !(globalDues||[]).length);
+                updateMaintenanceBanner(md, currentRole === "supplier" && rawEmpty && !md.maintenanceMode);
+            }
+         }, err => console.warn("meta maint", err));
          
          if (currentRole === "admin" || currentRole === "super_admin") {
             db.collection("uploadedFiles").doc("PASSWORD_RESET_REQUESTS").onSnapshot(doc => {
