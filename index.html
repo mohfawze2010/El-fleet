@@ -658,7 +658,12 @@ button.dues-sort-chip.active, .dues-sort-chip.active { box-shadow:0 0 0 2px #075
 .msg-del-btn:hover { background: #c82333 !important; }
 
 </style>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<script>
+if (typeof XLSX === "undefined" || !XLSX.style_version) {
+    document.write('<script src="/assets/xlsx-js-style.bundle.js"><\/script>');
+}
+</script>
 </head>
 
 <body>
@@ -3691,83 +3696,155 @@ function handleCardClick(panelName) {
     openPanel(panelName);
 }
 
-/** تنسيق موحّد لكل شيتات الإكسيل: RTL + توسيط + عرض تلقائي + تواريخ + هيدر */
-function styleExcelSheet(ws, dataRows) {
+/** تنسيق موحّد لكل شيتات الإكسيل: اتجاه الصفحات على اليمين (RTL) + هيدر مميز باللون والحدود + الخط بولد + ضبط المحاذاة في المنتصف لكافة الخلايا */
+/** تنسيق موحّد لكل شيتات الإكسيل: ضبط الأوتو فيت (Auto-fit) لعرض الأعمدة وارتفاع الصفوف + اتجاه اليمين RTL + هيدر مميز + خط بولد + محاذاة وسطية */
+function styleExcelSheet(ws, dataRows, wb) {
     try {
-        if (!ws) return;
-        let keys = [];
-        if (dataRows && dataRows.length > 0) {
-            keys = Object.keys(dataRows[0]);
-        } else if (ws["!ref"]) {
-            let range = XLSX.utils.decode_range(ws["!ref"]);
-            for (let C = range.s.c; C <= range.e.c; ++C) {
-                let addr = XLSX.utils.encode_cell({ r: 0, c: C });
-                if (ws[addr] && ws[addr].v != null) keys.push(String(ws[addr].v));
-            }
+        if (!ws || !ws["!ref"]) return;
+        let range = XLSX.utils.decode_range(ws["!ref"]);
+
+        // 1. اتجاه الصفحة بالكامل من اليمين لليسار (RTL) وإظهار خطوط الشبكة بوضوح
+        ws["!views"] = [{ rightToLeft: true, showGridLines: true, state: "normal" }];
+        if (wb) {
+            if (!wb.Workbook) wb.Workbook = {};
+            wb.Workbook.Views = [{ RTL: true }];
+        }
+        if (!ws["!margins"]) {
+            ws["!margins"] = { left: 0.35, right: 0.35, top: 0.45, bottom: 0.45, header: 0.25, footer: 0.25 };
         }
 
-        // اتجاه الشيت من اليمين لليسار
-        ws["!views"] = [{ rightToLeft: true, state: "normal" }];
-        if (!ws["!margins"]) ws["!margins"] = { left: 0.25, right: 0.25, top: 0.5, bottom: 0.5 };
+        // 2. فحص نوع ومحتوى كل عمود بدقة لحساب عرض مريح فسيح (Auto-fit) يمنع التقارب
+        let colWidths = [];
+        let colHeaderTitles = [];
 
-        // عرض الأعمدة (Auto-fit تقريبي)
-        ws["!cols"] = keys.map(k => {
-            let maxLen = String(k || "").length;
-            (dataRows || []).forEach(row => {
-                let v = row[k];
-                let len = v == null ? 0 : String(v).length;
-                if (len > maxLen) maxLen = len;
-            });
-            return { wch: Math.min(Math.max(maxLen + 3, 12), 42) };
-        });
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+            let maxLineLen = 0;
+            let headerTitle = "";
+            let isDateCol = false;
+            let isMoneyCol = false;
+            let isPlateOrCode = false;
 
-        if (!ws["!ref"]) return;
-        let range = XLSX.utils.decode_range(ws["!ref"]);
-        let isDateHeader = keys.map(k => {
-            let s = String(k || "");
-            return s.includes("تاريخ") || s.includes("وقت") || /^date$/i.test(s) || s === "at" || s === "الوقت";
-        });
+            for (let R = range.s.r; R <= range.e.r; ++R) {
+                let addr = XLSX.utils.encode_cell({ r: R, c: C });
+                let cell = ws[addr];
+                if (!cell || cell.v == null) continue;
 
+                let valStr = String(cell.v).trim();
+                if (R === 0) {
+                    headerTitle = valStr;
+                    if (headerTitle.includes("تاريخ") || headerTitle.includes("وقت") || headerTitle === "at" || headerTitle.toLowerCase().includes("date")) isDateCol = true;
+                    if (headerTitle.includes("مبلغ") || headerTitle.includes("خصم") || headerTitle.includes("أجر") || headerTitle.includes("الاجر") || headerTitle.includes("المستحق")) isMoneyCol = true;
+                    if (headerTitle.includes("كود") || headerTitle.includes("لوحة") || headerTitle.includes("لوحات") || headerTitle.includes("RFID")) isPlateOrCode = true;
+                }
+
+                // حساب طول الأسطر داخل الخلية (في حال وجود أسطر متعددة)
+                let lines = valStr.split(/\r?\n/);
+                lines.forEach(line => {
+                    let cleanLen = line.trim().length;
+                    if (cleanLen > maxLineLen) maxLineLen = cleanLen;
+                });
+            }
+
+            colHeaderTitles[C] = headerTitle;
+
+            // مسافات أمان متناسقة وفسيحة لمنع أي تداخل بالأحرف العربية أو ظهور علامات ### بالأرقام والتواريخ
+            let padding = isDateCol ? 7 : (isMoneyCol ? 6 : (isPlateOrCode ? 6 : 5));
+            let minWidth = isDateCol ? 22 : (isMoneyCol ? 18 : (isPlateOrCode ? 18 : 16));
+            let calculatedWidth = Math.min(Math.max(maxLineLen + padding, minWidth), 68);
+
+            colWidths.push({ wch: calculatedWidth });
+        }
+        ws["!cols"] = colWidths;
+
+        // 3. ضبط ارتفاع الصفوف ديناميكياً (Auto Row Height) لمنع تقارب الصفوف
         let rowsMeta = [];
         for (let R = range.s.r; R <= range.e.r; ++R) {
-            rowsMeta.push({ hpt: R === 0 ? 24 : 20 });
+            let maxLinesInRow = 1;
+            for (let C = range.s.c; C <= range.e.c; ++C) {
+                let addr = XLSX.utils.encode_cell({ r: R, c: C });
+                let cell = ws[addr];
+                if (cell && cell.v != null) {
+                    let lines = String(cell.v).split(/\r?\n/).length;
+                    if (lines > maxLinesInRow) maxLinesInRow = lines;
+                }
+            }
+
+            if (R === 0) {
+                // الهيدر: ارتفاع فسيح (34pt للسطر الواحد، ويتمدد في حال تعدد الأسطر)
+                let headerHeight = maxLinesInRow > 1 ? (30 + (maxLinesInRow - 1) * 16) : 34;
+                rowsMeta.push({ hpt: headerHeight });
+            } else {
+                // صفوف البيانات: ارتفاع مريح وفسيح (26pt للسطر الواحد لمنع أي تقارب بين الصفوف)
+                let dataHeight = maxLinesInRow > 1 ? (20 + maxLinesInRow * 15) : 26;
+                rowsMeta.push({ hpt: dataHeight });
+            }
+
+            // تطبيق الستايل على جميع خلايا الصف
             for (let C = range.s.c; C <= range.e.c; ++C) {
                 let addr = XLSX.utils.encode_cell({ r: R, c: C });
                 if (!ws[addr]) {
                     ws[addr] = { t: "s", v: "" };
                 }
                 let cell = ws[addr];
-                if (!cell.s) cell.s = {};
-                cell.s.alignment = {
-                    horizontal: "center",
-                    vertical: "center",
-                    wrapText: true,
-                    readingOrder: 2
-                };
+
                 if (R === 0) {
-                    cell.s.font = { bold: true, color: { rgb: "FFFFFF" }, sz: 11 };
-                    cell.s.fill = { patternType: "solid", fgColor: { rgb: "075BB5" } };
+                    // هيدر مميز: أزرق ملكي فاخر، خط بولد أبيض، محاذاة في المنتصف تماماً، حدود مميزة
+                    cell.s = {
+                        fill: { patternType: "solid", fgColor: { rgb: "075BB5" } },
+                        font: { name: "Segoe UI", sz: 11.5, bold: true, color: { rgb: "FFFFFF" } },
+                        alignment: {
+                            horizontal: "center",
+                            vertical: "center",
+                            wrapText: true,
+                            readingOrder: 2
+                        },
+                        border: {
+                            top: { style: "medium", color: { rgb: "054382" } },
+                            bottom: { style: "medium", color: { rgb: "054382" } },
+                            left: { style: "thin", color: { rgb: "3A82D6" } },
+                            right: { style: "thin", color: { rgb: "3A82D6" } }
+                        }
+                    };
                 } else {
-                    cell.s.font = cell.s.font || { sz: 10 };
-                    // تنسيق التاريخ للأعمدة المناسبة
-                    if (isDateHeader[C] && cell.v !== undefined && cell.v !== null && cell.v !== "") {
-                        let parsed = null;
+                    let isEven = R % 2 === 0;
+                    let headerTitle = colHeaderTitles[C] || "";
+                    let isDeduction = headerTitle.includes("خصم") || headerTitle.includes("الخصومات");
+
+                    let fontColor = "1A202C";
+                    if (isDeduction && cell.v && cell.v !== "0" && cell.v !== 0 && String(cell.v).trim() !== "") {
+                        fontColor = "C53030";
+                    }
+
+                    // خط بولد ومحاذاة وسطية في كافة الخلايا مع حدود أنيقة خفيفة
+                    cell.s = {
+                        fill: { patternType: "solid", fgColor: { rgb: isEven ? "F4F7FB" : "FFFFFF" } },
+                        font: { name: "Segoe UI", sz: 10.5, bold: true, color: { rgb: fontColor } },
+                        alignment: {
+                            horizontal: "center",
+                            vertical: "center",
+                            wrapText: true,
+                            readingOrder: 2
+                        },
+                        border: {
+                            top: { style: "thin", color: { rgb: "D0D7DE" } },
+                            bottom: { style: "thin", color: { rgb: "D0D7DE" } },
+                            left: { style: "thin", color: { rgb: "D0D7DE" } },
+                            right: { style: "thin", color: { rgb: "D0D7DE" } }
+                        }
+                    };
+
+                    // ضبط التواريخ
+                    if (headerTitle && (headerTitle.includes("تاريخ") || headerTitle.includes("وقت")) && cell.v != null && cell.v !== "") {
                         if (typeof cell.v === "number" && cell.v > 20000 && cell.v < 60000) {
-                            // excel serial already
                             cell.t = "n";
                             cell.z = "yyyy-mm-dd";
                         } else {
                             let raw = String(cell.v).trim();
                             let d = new Date(raw);
                             if (!isNaN(d.getTime()) && d.getFullYear() > 1990) {
-                                // SheetJS date
                                 cell.t = "d";
                                 cell.v = d;
                                 cell.z = "yyyy-mm-dd HH:mm";
-                            } else {
-                                // إبقاء النص مع توسيط
-                                cell.t = "s";
-                                cell.v = raw;
                             }
                         }
                     }
@@ -3777,6 +3854,41 @@ function styleExcelSheet(ws, dataRows) {
         ws["!rows"] = rowsMeta;
     } catch (e) { console.warn("styleExcelSheet", e); }
 }
+
+// ضامن تلقائي شامل: يضمن اتجاه اليمين RTL والأوتو فيت لكافة المصنفات والملفات المخرجة
+(function setupXLSXAutoStyler() {
+    function hookXLSX() {
+        if (typeof XLSX === "undefined" || !XLSX.writeFile) {
+            setTimeout(hookXLSX, 200);
+            return;
+        }
+        if (XLSX._autoStylerInstalled) return;
+        const _baseWriteFile = XLSX.writeFile;
+        XLSX.writeFile = function(wb, fileName, opts) {
+            try {
+                if (wb) {
+                    if (!wb.Workbook) wb.Workbook = {};
+                    wb.Workbook.Views = [{ RTL: true }];
+                    if (wb.SheetNames && wb.Sheets) {
+                        wb.SheetNames.forEach(function(sName) {
+                            var ws = wb.Sheets[sName];
+                            if (ws) {
+                                if (!ws["!views"]) ws["!views"] = [{ rightToLeft: true, showGridLines: true }];
+                                else ws["!views"][0] = Object.assign(ws["!views"][0] || {}, { rightToLeft: true, showGridLines: true });
+                                styleExcelSheet(ws, null, wb);
+                            }
+                        });
+                    }
+                }
+            } catch(e) {
+                console.warn("Auto-style on writeFile failed:", e);
+            }
+            return _baseWriteFile.call(this, wb, fileName, opts);
+        };
+        XLSX._autoStylerInstalled = true;
+    }
+    hookXLSX();
+})();
 /** ترتيب أعمدة تصدير المورد مطابقاً لنموذج الشيت المعتمد — مع استبعاد أي عمود غير موجود */
 function pickExportRow(src, orderedKeys, aliases) {
     let row = {};
