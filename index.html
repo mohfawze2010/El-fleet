@@ -819,6 +819,13 @@ if (typeof XLSX === "undefined" || !XLSX.style_version) {
                 <div class="exit-text" style="margin-top:8px;">الرخص</div>
             </div>
 
+            <div class="exit-container hide" id="scheduleBtn" onclick="openSchedulePanel()" title="جدولة التشغيل والإيقاف">
+                <div class="exit-icon-circle" style="color:#0d6efd; border: 2px solid #0d6efd; position:relative; border-radius: 6px; width: 44px; height: 30px; background: #f0f7ff;">
+                    📅<span id="scheduleBadge" class="msg-badge pulse-badge-anim" style="top: -6px; right: -6px; display:none;">0</span>
+                </div>
+                <div class="exit-text" style="margin-top:8px;">جدولة</div>
+            </div>
+
             <div class="exit-container" id="changePassBtn" onclick="changeMyPassword()" title="تعديل الرقم السري" style="text-align:center;">
                 <div class="exit-icon-circle icon-text-blue">🔒</div>
                 <div class="exit-text" style="text-align:center; margin-top:5px; max-width:72px; line-height:1.25; white-space:normal;">تعديل الرقم السري</div>
@@ -4426,6 +4433,7 @@ if(currentRole==="admin" || currentRole==="super_admin"){
  document.getElementById("complaintBtn").classList.add("hide");
  document.getElementById("changePassBtn").classList.remove("hide"); 
  document.getElementById("licenseNotificationBtn").classList.remove("hide");
+ document.getElementById("scheduleBtn").classList.remove("hide");
  
  applyAdminPermissionsUI();
  
@@ -4441,13 +4449,14 @@ if(currentRole==="admin" || currentRole==="super_admin"){
  document.getElementById("showRole").innerHTML="الصلاحية: Supplier";
  document.getElementById("supplierExportBtn").classList.remove("hide");
  let _exLblB = document.getElementById("exportBtnLabel");
- if (_exLblB) _exLblB.textContent = "تنزيل";
+ if (_exLblB) _exLblB.textContent = "تصدير";
  document.getElementById("supplierExportBtn").title = "تحميل كشف حسابي";
  document.getElementById("complaintBtn").classList.remove("hide");
  document.getElementById("adminNotificationBtn").classList.add("hide");
  document.getElementById("msgIconWrap").classList.remove("hide");
  document.getElementById("changePassBtn").classList.remove("hide"); 
  document.getElementById("licenseNotificationBtn").classList.remove("hide");
+ document.getElementById("scheduleBtn").classList.add("hide");
 }
 
 hideAll(); dash.classList.remove("hide"); loadSupplierData();
@@ -6672,6 +6681,9 @@ async function loadSupplierData(){
    updateMessagesBadge();
    
    if (typeof checkLicenseNotifications === 'function') checkLicenseNotifications();
+   if (typeof refreshScheduleBadge === 'function') {
+       try { refreshScheduleBadge(); } catch (eSch) {}
+   }
    
  }catch(e){ 
      console.error(e); 
@@ -6748,6 +6760,7 @@ firebase.auth().onAuthStateChanged(async function(user){
              document.getElementById("complaintBtn").classList.add("hide");
              document.getElementById("changePassBtn").classList.remove("hide"); 
              document.getElementById("licenseNotificationBtn").classList.remove("hide");
+             if(document.getElementById("scheduleBtn")) document.getElementById("scheduleBtn").classList.remove("hide");
              
              applyAdminPermissionsUI();
 
@@ -6803,6 +6816,7 @@ firebase.auth().onAuthStateChanged(async function(user){
              document.getElementById("msgIconWrap").classList.remove("hide");
              document.getElementById("changePassBtn").classList.remove("hide"); 
              document.getElementById("licenseNotificationBtn").classList.remove("hide");
+             if(document.getElementById("scheduleBtn")) document.getElementById("scheduleBtn").classList.add("hide");
 
              if (unsubAdminLicenses) unsubAdminLicenses();
              unsubAdminLicenses = db.collection("uploadedFiles").doc("ALL_LICENSE_UPDATES")
@@ -8777,6 +8791,1048 @@ async function handleLicenseImagesUpload(event, plate, code, vId) {
         statusText.style.color = "#dc3545";
     }
 }
+
+/* ========== جدولة التشغيل/الإيقاف (وحدة مستقلة — تحميل عند الفتح فقط) ========== */
+let globalScheduleItems = [];
+let _scheduleLoadedAt = 0;
+const SCHEDULE_CACHE_MS = 60000; // كاش دقيقة واحدة لتقليل القراءة
+
+function scheduleTodayStr() {
+    try {
+        return new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Cairo" });
+    } catch (e) {
+        let d = new Date();
+        return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+    }
+}
+function scheduleParseDate(v) {
+    if (v === undefined || v === null || v === "") return "";
+    if (typeof v === "number" && typeof XLSX !== "undefined" && XLSX.SSF) {
+        try {
+            let dt = XLSX.SSF.parse_date_code(v);
+            if (dt) return dt.y + "-" + String(dt.m).padStart(2,"0") + "-" + String(dt.d).padStart(2,"0");
+        } catch (e) {}
+    }
+    let s = String(v).trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    let m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+    if (m) {
+        let a = parseInt(m[1],10), b = parseInt(m[2],10), y = parseInt(m[3],10);
+        if (y < 100) y += 2000;
+        // إن اليوم > 12 فالأول يوم
+        let day, month;
+        if (a > 12) { day = a; month = b; }
+        else if (b > 12) { day = b; month = a; }
+        else { day = a; month = b; } // افتراض يوم/شهر شائع محلياً
+        return y + "-" + String(month).padStart(2,"0") + "-" + String(day).padStart(2,"0");
+    }
+    let t = Date.parse(s);
+    if (!isNaN(t)) {
+        let d = new Date(t);
+        return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+    }
+    return "";
+}
+function scheduleNormStatus(v) {
+    let s = String(v || "").trim();
+    // إيقاف: متوقف / إيقاف / توقف / stop
+    if (/متوقف|إيقاف|ايقاف|توقف|موقوف|stop|off|halt|down/i.test(s)) return "stop";
+    // تشغيل: تشغيل / يعمل / run
+    if (/تشغيل|يعمل|شغال|شغّال|run|on|operate|active/i.test(s)) return "run";
+    return "";
+}
+
+function scheduleColLetter(idx) {
+    let s = "";
+    let n = idx;
+    while (n >= 0) {
+        s = String.fromCharCode(65 + (n % 26)) + s;
+        n = Math.floor(n / 26) - 1;
+    }
+    return s;
+}
+/** قائمة منسدلة لعمود الموقف + خلايا مرجع للنسخ إن لم تظهر القائمة في Excel */
+function schedulePrepareStatusColumn(ws, rows) {
+    try {
+        if (!ws || !rows || !rows.length) return;
+        let headers = Object.keys(rows[0] || {});
+        let statusIdx = headers.findIndex(h => /الموقف|الحالة|status/i.test(h));
+        if (statusIdx < 0) statusIdx = headers.indexOf("الموقف");
+        let nRows = rows.length;
+        let lastDataRow = nRows + 1; // صف 1 عناوين
+
+        if (statusIdx >= 0) {
+            let col = scheduleColLetter(statusIdx);
+            let sqref = col + "2:" + col + Math.max(lastDataRow, 500);
+            // Data Validation — قائمة متوقف / تشغيل
+            let dv = {
+                sqref: sqref,
+                type: "list",
+                allowBlank: true,
+                showDropDown: false,
+                showErrorMessage: true,
+                showInputMessage: true,
+                formula1: '"متوقف,تشغيل"',
+                promptTitle: "الموقف",
+                prompt: "اختر من القائمة: متوقف أو تشغيل",
+                errorTitle: "قيمة غير مسموحة",
+                error: "اكتب أو اختر فقط: متوقف أو تشغيل"
+            };
+            if (!ws["!dataValidation"]) ws["!dataValidation"] = [];
+            if (Array.isArray(ws["!dataValidation"])) ws["!dataValidation"].push(dv);
+            else ws["!dataValidation"] = [dv];
+            // بعض إصدارات المكتبة تستخدم الاسم بالجمع
+            ws["!dataValidations"] = ws["!dataValidation"];
+        }
+
+        // خلايا مجاورة على يمين الجدول للنسخ اليدوي
+        let refColIdx = headers.length + 1; // عمود فارغ ثم مرجع
+        let refCol = scheduleColLetter(refColIdx);
+        let refCol2 = scheduleColLetter(refColIdx + 1);
+        ws[refCol + "1"] = { t: "s", v: "انسخ_للموقف" };
+        ws[refCol + "2"] = { t: "s", v: "متوقف" };
+        ws[refCol + "3"] = { t: "s", v: "تشغيل" };
+        ws[refCol2 + "1"] = { t: "s", v: "ملاحظة" };
+        ws[refCol2 + "2"] = { t: "s", v: "الصق في عمود الموقف أو اختر من السهم" };
+        ws[refCol2 + "3"] = { t: "s", v: "لا تستخدم كلمات أخرى" };
+
+        // توسيع نطاق الورقة
+        let refEnd = refCol2 + "5";
+        if (ws["!ref"]) {
+            try {
+                let range = XLSX.utils.decode_range(ws["!ref"]);
+                let r2 = XLSX.utils.decode_cell(refEnd);
+                if (r2.c > range.e.c) range.e.c = r2.c;
+                if (r2.r > range.e.r) range.e.r = r2.r;
+                ws["!ref"] = XLSX.utils.encode_range(range);
+            } catch (eR) {}
+        }
+        if (!ws["!cols"]) ws["!cols"] = [];
+        while (ws["!cols"].length <= refColIdx + 1) ws["!cols"].push({});
+        ws["!cols"][refColIdx] = { wch: 14 };
+        ws["!cols"][refColIdx + 1] = { wch: 36 };
+    } catch (e) {
+        console.warn("schedulePrepareStatusColumn", e);
+    }
+}
+function scheduleAppendGuideSheet(wb) {
+    try {
+        let guide = [
+            { "البند": "1", "التوضيح": "عمود الموقف: اختر من السهم (قائمة) إن ظهرت في Excel" },
+            { "البند": "2", "التوضيح": "أو انسخ من العمود «انسخ_للموقف»: متوقف   أو   تشغيل" },
+            { "البند": "3", "التوضيح": "لا تكتب أي كلمة غير هاتين — وإلا لن يُقبل الصف" },
+            { "البند": "4", "التوضيح": "تاريخ التنفيذ مطلوب مع الموقف لكل صف تريد جدولته" }
+        ];
+        let ws = XLSX.utils.json_to_sheet(guide);
+        XLSX.utils.book_append_sheet(wb, ws, "تعليمات_الموقف");
+    } catch (e) {}
+}
+
+function scheduleStatusLabel(st) {
+    return st === "stop" ? "متوقف" : (st === "run" ? "تشغيل" : "—");
+}
+function scheduleIsVisibleToSupplier(item, today) {
+    if (!item) return false;
+    let vf = item.visibleFrom || item.executionDate || "";
+    if (vf && today < vf) return false;
+    // إخفاء المنتهي بعد 2 يوم من التنفيذ لتقليل الضوضاء
+    if (item.adminFinal && item.executionDate) {
+        try {
+            let ed = new Date(item.executionDate + "T12:00:00");
+            let td = new Date(today + "T12:00:00");
+            let diff = (td - ed) / 86400000;
+            if (diff > 2) return false;
+        } catch (e) {}
+    }
+    return true;
+}
+function scheduleGetMyIdentity() {
+    let sap = normalizeValue(loggedInSupplierSapGlobal || "");
+    let officeKeys = new Set();
+    // مفاتيح المكتب من حساب المورد + من السيارات المحمّلة له
+    try {
+        if (window.__activeOfficeKeys && window.__activeOfficeKeys.forEach) {
+            window.__activeOfficeKeys.forEach(k => { if (k) officeKeys.add(k); });
+        } else if (Array.isArray(window.__activeOfficeKeys)) {
+            window.__activeOfficeKeys.forEach(k => { if (k) officeKeys.add(k); });
+        }
+    } catch (e) {}
+    if (sap && globalSupplierDataMap && globalSupplierDataMap.get(sap)) {
+        let sd = globalSupplierDataMap.get(sap);
+        let a = deepCleanArabic(sd.officeName || "");
+        let b = deepCleanArabic(sd.ownerName || "");
+        if (a) officeKeys.add(a);
+        if (b) officeKeys.add(b);
+    }
+    // من واجهة العرض
+    try {
+        let ow = (document.getElementById("showOwner") || {}).innerText || "";
+        let of = (document.getElementById("showOffice") || {}).innerText || "";
+        ow = deepCleanArabic(ow.replace(/^المورد:\s*/u, ""));
+        of = deepCleanArabic(of.replace(/^المكتب:\s*/u, ""));
+        if (ow) officeKeys.add(ow);
+        if (of) officeKeys.add(of);
+    } catch (e2) {}
+    return { sap, officeKeys };
+}
+function scheduleBelongsToSupplier(item, sap, myCodes, myPlates, officeKeys) {
+    if (!item) return false;
+    let isap = normalizeValue(item.supplierSap || "");
+    if (sap && isap && isap === sap) return true;
+    let code = normalizeValue(item.code || "");
+    let plate = normalizeValue(item.plate || "");
+    if (code && myCodes && myCodes.has(code)) return true;
+    if (plate && myPlates && myPlates.has(plate)) return true;
+    // ربط بالاسم/المكتب (مثل بدوية) حتى لو الساب مختلف أو الاسم المختصر مختلف
+    let keys = officeKeys || new Set();
+    if (keys.size) {
+        let nm = deepCleanArabic(item.supplierName || "");
+        if (nm && keys.has(nm)) return true;
+        let oc = deepCleanArabic(item.officeClean || item.officeName || "");
+        if (oc && keys.has(oc)) return true;
+    }
+    return false;
+}
+function scheduleBuildMyVehicleKeys() {
+    // عند المورد: globalVehicles غالباً مفلترة لحسابه — خذ كل الأكواد كما هي
+    let codes = new Set();
+    let plates = new Set();
+    (globalVehicles || []).forEach(v => {
+        let c = normalizeValue(v["كود الحافلة"] || v["كود"] || "");
+        let p = normalizeValue(v["رقم اللوحة"] || v["رقم اللوحات"] || "");
+        if (c) codes.add(c);
+        if (p) plates.add(p);
+    });
+    return { codes, plates };
+}
+function scheduleResolveSapFromFleet(code, plate) {
+    let c = normalizeValue(code || "");
+    let p = normalizeValue(plate || "");
+    for (let v of (globalVehicles || [])) {
+        let vc = normalizeValue(v["كود الحافلة"] || v["كود"] || "");
+        let vp = normalizeValue(v["رقم اللوحة"] || v["رقم اللوحات"] || "");
+        if ((c && vc === c) || (p && vp === p)) {
+            return normalizeValue(v["رقم المورد"] || "") || "";
+        }
+    }
+    return "";
+}
+
+async function loadScheduleItems(force) {
+    let now = Date.now();
+    if (!force && globalScheduleItems.length && (now - _scheduleLoadedAt) < SCHEDULE_CACHE_MS) {
+        return globalScheduleItems;
+    }
+    try {
+        let snap = await db.collection("schedulePlans").orderBy("executionDate", "desc").limit(500).get();
+        let arr = [];
+        snap.forEach(doc => {
+            let d = doc.data() || {};
+            d.id = doc.id;
+            arr.push(d);
+        });
+        globalScheduleItems = arr;
+        _scheduleLoadedAt = now;
+    } catch (e) {
+        console.warn("loadScheduleItems", e);
+        // بدون فهرس orderBy — جلب عادي
+        try {
+            let snap2 = await db.collection("schedulePlans").limit(500).get();
+            let arr = [];
+            snap2.forEach(doc => { let d = doc.data()||{}; d.id = doc.id; arr.push(d); });
+            arr.sort((a,b) => String(b.executionDate||"").localeCompare(String(a.executionDate||"")));
+            globalScheduleItems = arr;
+            _scheduleLoadedAt = now;
+        } catch (e2) {
+            console.warn(e2);
+            globalScheduleItems = [];
+        }
+    }
+    return globalScheduleItems;
+}
+
+async function refreshScheduleBadge() {
+    let badge = document.getElementById("scheduleBadge");
+    let btn = document.getElementById("scheduleBtn");
+    if (!badge && !btn) return;
+    try {
+        let items = await loadScheduleItems(false);
+        let today = scheduleTodayStr();
+        let isAdmin = (currentRole === "admin" || currentRole === "super_admin");
+        if (isAdmin) {
+            if (btn) btn.classList.remove("hide");
+            let n = items.filter(it => !it.adminFinal && scheduleIsVisibleToSupplier(it, today)).length;
+            if (badge) {
+                if (n > 0) { badge.style.display = "inline"; badge.textContent = String(n); }
+                else { badge.style.display = "none"; }
+            }
+        } else {
+            let idn = scheduleGetMyIdentity();
+            let sap = idn.sap || normalizeValue(loggedInSupplierSapGlobal || "");
+            let keys = scheduleBuildMyVehicleKeys();
+            let mine = items.filter(it =>
+                scheduleBelongsToSupplier(it, sap, keys.codes, keys.plates, idn.officeKeys) &&
+                scheduleIsVisibleToSupplier(it, today)
+            );
+            let pendingReply = mine.filter(it => !it.supplierReply && !it.adminFinal).length;
+            if (btn) {
+                if (mine.length > 0) btn.classList.remove("hide");
+                else btn.classList.add("hide");
+            }
+            if (badge) {
+                if (pendingReply > 0) { badge.style.display = "inline"; badge.textContent = String(pendingReply); }
+                else { badge.style.display = "none"; }
+            }
+        }
+    } catch (e) { console.warn("schedule badge", e); }
+}
+
+function toggleScheduleUploadBox() {
+    window.__scheduleUploadOpen = !window.__scheduleUploadOpen;
+    let body = document.getElementById("scheduleUploadBody");
+    let ch = document.getElementById("scheduleUploadChevron");
+    if (body) body.style.display = window.__scheduleUploadOpen ? "block" : "none";
+    if (ch) ch.textContent = window.__scheduleUploadOpen ? "▲ إخفاء" : "▼ عرض";
+    if (window.__scheduleUploadOpen && typeof renderScheduleSupplierPicks === "function") {
+        try { renderScheduleSupplierPicks(); } catch (e) {}
+    }
+}
+function openSchedulePanel() {
+    activePanel = "الجدولة";
+    document.getElementById("popupBox").style.display = "flex";
+    try { history.pushState(null, null, "#schedule"); } catch (e) {}
+    let si = document.getElementById("searchInput");
+    if (si) {
+        si.style.display = "block";
+        si.value = "";
+        si.placeholder = "🔍 بحث بالكود أو اللوحة أو المورد أو التاريخ...";
+    }
+    document.getElementById("popupCount").style.display = "none";
+    let hint = document.getElementById("failedTripsHint");
+    if (hint) hint.style.display = "none";
+    let loadBtn = document.getElementById("loadMoreBtn");
+    if (loadBtn) loadBtn.classList.add("hide");
+    document.getElementById("popupTitle").innerHTML = "📅 جدولة التشغيل والإيقاف";
+    document.getElementById("popupResult").innerHTML = "<div style='text-align:center;padding:20px;color:#075bb5;'>⏳ جاري التحميل...</div>";
+    renderSchedulePanel();
+}
+
+async function renderSchedulePanel() {
+    let box = document.getElementById("popupResult");
+    if (!box) return;
+    let isAdmin = (currentRole === "admin" || currentRole === "super_admin");
+    let preservedFilter = ((document.getElementById("scheduleAdminFilter") || {}).value) || "active";
+    let preservedStatus = ((document.getElementById("scheduleStatusFilter") || {}).value) || "all";
+    let preservedDate = ((document.getElementById("scheduleDateFilter") || {}).value) || "";
+    let preservedSort = ((document.getElementById("scheduleSortFilter") || {}).value) || "date_desc";
+    try {
+        await loadScheduleItems(true);
+        let today = scheduleTodayStr();
+        let items = globalScheduleItems.slice();
+        let html = "";
+
+        if (isAdmin) {
+            let uploadOpen = (window.__scheduleUploadOpen === true);
+            html += `<div style="background:#f0f7ff;border:1px solid #b8daff;border-radius:10px;margin-bottom:12px;overflow:hidden;">
+                <div onclick="toggleScheduleUploadBox()" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;padding:10px 12px;user-select:none;">
+                    <span style="font-size:13px;font-weight:bold;color:#075bb5;">📤 رفع ملف / اختيار مورد للقالب</span>
+                    <span id="scheduleUploadChevron" style="font-size:12px;color:#075bb5;">${uploadOpen ? "▲ إخفاء" : "▼ عرض"}</span>
+                </div>
+                <div id="scheduleUploadBody" style="display:${uploadOpen ? "block" : "none"};padding:0 12px 12px;border-top:1px solid #c5ddf7;">
+                    <div style="font-size:13px;font-weight:bold;color:#075bb5;margin:10px 0 8px;">1️⃣ اختر المورد → صدّر قالباً ببياناته</div>
+                    <div style="font-size:11px;color:#555;margin-bottom:8px;line-height:1.55;">القالب يملأ: اسم المورد، رقم الساب، الكود، اللوحة، الفرع، اسم الخط. وأنت تملأ: <b>الموقف</b> و<b>تاريخ التنفيذ</b> والوردية.</div>
+                    <input type="text" id="scheduleSupplierSearch" oninput="renderScheduleSupplierPicks()" placeholder="🔍 ابحث باسم المورد أو المكتب أو رقم الساب..." style="width:100%;margin:0 0 8px 0;padding:8px;font-size:12px;box-sizing:border-box;border:1px solid #bcd;border-radius:8px;">
+                    <div id="scheduleSupplierPicks" style="max-height:140px;overflow-y:auto;margin-bottom:10px;font-size:12px;"></div>
+                    <div style="font-size:11px;color:#333;background:#fff;border:1px solid #cde;border-radius:6px;padding:8px;margin-bottom:8px;line-height:1.6;">
+                        <b>عمود «الموقف»:</b> <span style="color:#dc3545;font-weight:bold;">متوقف</span> أو <span style="color:#28a745;font-weight:bold;">تشغيل</span> فقط
+                    </div>
+                    <div style="font-size:13px;font-weight:bold;color:#075bb5;margin-bottom:8px;">2️⃣ رفع الملف بعد تعبئة الموقف والتاريخ</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;">
+                        <input type="file" id="scheduleFileInput" accept=".xlsx,.xls,.csv" style="width:auto;flex:1;min-width:140px;margin:0;font-size:12px;">
+                    </div>
+                    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;">
+                        <label style="font-size:11px;color:#333;">بدء ظهور التنبيه للمورد:</label>
+                        <select id="scheduleVisibleMode" style="width:auto;margin:0;padding:6px 8px;font-size:12px;border-radius:6px;">
+                            <option value="day_before">اليوم السابق للتنفيذ</option>
+                            <option value="immediate">فوراً بعد الرفع</option>
+                            <option value="custom">من تاريخ محدد</option>
+                        </select>
+                        <input type="date" id="scheduleVisibleCustom" style="width:auto;margin:0;padding:6px;font-size:12px;display:none;">
+                    </div>
+                    <button type="button" onclick="uploadScheduleFile()" style="width:100%;margin:0;padding:10px;background:#0d6efd;font-size:13px;">📤 رفع وتطبيق الجدولة</button>
+                    <div id="scheduleUploadMsg" style="font-size:12px;margin-top:8px;color:#555;"></div>
+                </div>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;align-items:center;">
+                <select id="scheduleAdminFilter" onchange="renderSchedulePanel()" style="width:auto;flex:1;min-width:110px;margin:0;padding:7px;font-size:12px;">
+                    <option value="active">الظاهرة / بانتظار</option>
+                    <option value="pending_reply">بانتظار رد المورد</option>
+                    <option value="pending_admin">بانتظار قرار الإدارة</option>
+                    <option value="closed">مغلقة</option>
+                    <option value="all">الكل</option>
+                </select>
+                <select id="scheduleStatusFilter" onchange="renderSchedulePanel()" style="width:auto;margin:0;padding:7px;font-size:12px;">
+                    <option value="all">الموقف: الكل</option>
+                    <option value="stop">متوقف فقط</option>
+                    <option value="run">تشغيل فقط</option>
+                </select>
+                <input type="date" id="scheduleDateFilter" onchange="renderSchedulePanel()" title="تاريخ التنفيذ" style="width:auto;margin:0;padding:6px;font-size:12px;">
+                <select id="scheduleSortFilter" onchange="renderSchedulePanel()" style="width:auto;margin:0;padding:7px;font-size:12px;">
+                    <option value="date_desc">ترتيب: الأحدث تنفيذ</option>
+                    <option value="date_asc">ترتيب: الأقدم تنفيذ</option>
+                    <option value="stop_first">متوقف أولاً</option>
+                    <option value="run_first">تشغيل أولاً</option>
+                </select>
+                <button type="button" onclick="exportScheduleReport()" style="width:auto;margin:0;padding:8px 12px;background:#28a745;font-size:12px;">📥 تصدير</button>
+                <button type="button" onclick="renderSchedulePanel()" style="width:auto;margin:0;padding:8px 12px;background:#6c757d;font-size:12px;">🔄</button>
+            </div>`;
+            let modeSel = null;
+            setTimeout(() => {
+                let m = document.getElementById("scheduleVisibleMode");
+                let c = document.getElementById("scheduleVisibleCustom");
+                if (m && c) {
+                    m.onchange = function(){ c.style.display = m.value === "custom" ? "inline-block" : "none"; };
+                }
+            }, 0);
+
+            let filter = preservedFilter || "active";
+            let stF = preservedStatus || "all";
+            let dateF = preservedDate || "";
+            let sortF = preservedSort || "date_desc";
+
+            let filtered = items.filter(it => {
+                if (filter === "all") { /* ok */ }
+                else if (filter === "closed") { if (!it.adminFinal) return false; }
+                else if (filter === "pending_reply") {
+                    if (!(!it.adminFinal && !it.supplierReply && scheduleIsVisibleToSupplier(it, today))) return false;
+                } else if (filter === "pending_admin") {
+                    if (!(!it.adminFinal && !!it.supplierReply)) return false;
+                } else {
+                    if (!(!it.adminFinal && scheduleIsVisibleToSupplier(it, today))) return false;
+                }
+                if (stF === "stop" && it.plannedStatus !== "stop") return false;
+                if (stF === "run" && it.plannedStatus !== "run") return false;
+                if (dateF && String(it.executionDate || "") !== dateF) return false;
+                return true;
+            });
+            filtered = scheduleSortItems(filtered, sortF);
+
+            // ملفات مرفوعة — إمكانية المسح
+            let fileMap = {};
+            items.forEach(it => {
+                let fn = it.fileName || "(بدون اسم ملف)";
+                if (!fileMap[fn]) fileMap[fn] = 0;
+                fileMap[fn]++;
+            });
+            let fileNames = Object.keys(fileMap).sort();
+            if (fileNames.length) {
+                html += `<div style="background:#fff8f0;border:1px solid #f0d0a0;border-radius:8px;padding:8px;margin-bottom:10px;font-size:12px;">
+                    <div style="font-weight:bold;color:#856404;margin-bottom:6px;">🗑️ ملفات مرفوعة (مسح عند الخطأ)</div>`;
+                fileNames.forEach(fn => {
+                    let safe = String(fn).replace(/\\/g, "\\").replace(/'/g, "\\'");
+                    html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">
+                        <span style="flex:1;">${sanitizeHTML(fn)} <span style="color:#888;">(${fileMap[fn]} بند)</span></span>
+                        <button type="button" style="width:auto;margin:0;padding:4px 10px;background:#dc3545;font-size:11px;"
+                            onclick="deleteScheduleByFileName('${safe}')">مسح الملف</button>
+                    </div>`;
+                });
+                html += `</div>`;
+            }
+            html += `<div style="font-size:12px;color:#666;margin-bottom:8px;">المعروض: <b>${filtered.length}</b> · اليوم (مصر): <b>${today}</b></div>`;
+            if (!filtered.length) {
+                html += `<div style="text-align:center;color:#888;padding:16px;">لا توجد بنود لهذه التصفية.</div>`;
+            } else {
+                filtered.forEach(it => { html += scheduleCardHtml(it, true, today); });
+            }
+        } else {
+            // مورد
+            let idn = scheduleGetMyIdentity();
+            let sap = idn.sap || normalizeValue(loggedInSupplierSapGlobal || "");
+            let keys = scheduleBuildMyVehicleKeys();
+            let mine = items.filter(it => scheduleBelongsToSupplier(it, sap, keys.codes, keys.plates, idn.officeKeys) && scheduleIsVisibleToSupplier(it, today));
+            let stF = preservedStatus || "all";
+            let dateF = preservedDate || "";
+            let sortF = preservedSort || "date_desc";
+            if (stF === "stop") mine = mine.filter(it => it.plannedStatus === "stop");
+            if (stF === "run") mine = mine.filter(it => it.plannedStatus === "run");
+            if (dateF) mine = mine.filter(it => String(it.executionDate || "") === dateF);
+            mine = scheduleSortItems(mine, sortF);
+
+            html += `<div style="background:#fff8e6;border:1px solid #ffe0a3;border-radius:10px;padding:10px;margin-bottom:12px;font-size:12px;line-height:1.6;color:#333;">
+                تظهر هنا فقط أكوادك المجدولة. إن لم يوجد بند فلا تغيير على التشغيل المعتاد.
+            </div>`;
+            html += `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;align-items:center;">
+                <select id="scheduleStatusFilter" onchange="renderSchedulePanel()" style="width:auto;margin:0;padding:7px;font-size:12px;">
+                    <option value="all">الموقف: الكل</option>
+                    <option value="stop">متوقف فقط</option>
+                    <option value="run">تشغيل فقط</option>
+                </select>
+                <input type="date" id="scheduleDateFilter" onchange="renderSchedulePanel()" title="تاريخ التنفيذ" style="width:auto;margin:0;padding:6px;font-size:12px;">
+                <select id="scheduleSortFilter" onchange="renderSchedulePanel()" style="width:auto;margin:0;padding:7px;font-size:12px;">
+                    <option value="date_desc">الأحدث تنفيذ</option>
+                    <option value="date_asc">الأقدم تنفيذ</option>
+                    <option value="stop_first">متوقف أولاً</option>
+                    <option value="run_first">تشغيل أولاً</option>
+                </select>
+            </div>`;
+            html += `<div style="font-size:12px;color:#666;margin-bottom:8px;">بنودك الظاهرة: <b>${mine.length}</b></div>`;
+            if (!mine.length) {
+                html += `<div style="text-align:center;color:#888;padding:20px;">لا توجد جدولة على أكوادك حالياً.</div>`;
+            } else {
+                mine.forEach(it => { html += scheduleCardHtml(it, false, today); });
+            }
+        }
+
+        box.innerHTML = html;
+        let fEl = document.getElementById("scheduleAdminFilter");
+        if (fEl && isAdmin) fEl.value = preservedFilter || "active";
+        let stEl = document.getElementById("scheduleStatusFilter");
+        if (stEl) stEl.value = preservedStatus || "all";
+        let dEl = document.getElementById("scheduleDateFilter");
+        if (dEl) dEl.value = preservedDate || "";
+        let soEl = document.getElementById("scheduleSortFilter");
+        if (soEl) soEl.value = preservedSort || "date_desc";
+        if (isAdmin && typeof renderScheduleSupplierPicks === "function") {
+            try { renderScheduleSupplierPicks(); } catch (eP) {}
+        }
+        refreshScheduleBadge();
+    } catch (e) {
+        console.error(e);
+        box.innerHTML = `<div style="color:#dc3545;padding:12px;">❌ تعذر التحميل: ${sanitizeHTML(e.message || e)}<br><span style="font-size:11px;color:#666;">إن ظهرت رسالة صلاحيات، أضف قواعد Firestore لمجموعة schedulePlans.</span></div>`;
+    }
+}
+
+function scheduleSortItems(arr, sortF) {
+    let a = (arr || []).slice();
+    if (sortF === "stop_first") {
+        a.sort((x,y) => (x.plannedStatus === "stop" ? 0 : 1) - (y.plannedStatus === "stop" ? 0 : 1) || String(x.executionDate||"").localeCompare(String(y.executionDate||"")));
+    } else if (sortF === "run_first") {
+        a.sort((x,y) => (x.plannedStatus === "run" ? 0 : 1) - (y.plannedStatus === "run" ? 0 : 1) || String(x.executionDate||"").localeCompare(String(y.executionDate||"")));
+    } else if (sortF === "date_asc") {
+        a.sort((x,y) => String(x.executionDate||"").localeCompare(String(y.executionDate||"")));
+    } else {
+        a.sort((x,y) => String(y.executionDate||"").localeCompare(String(x.executionDate||"")));
+    }
+    return a;
+}
+function scheduleCardHtml(it, isAdmin, today) {
+    let planned = it.plannedStatus === "stop" ? "متوقف" : "تشغيل";
+    let color = it.plannedStatus === "stop" ? "#dc3545" : "#28a745";
+    let bg = it.plannedStatus === "stop" ? "#fff5f5" : "#f3fff6";
+    let rowBg = it.plannedStatus === "stop" ? "#ffeaea" : "#eafff0";
+    let finalL = it.adminFinal ? scheduleStatusLabel(it.adminFinal) : "";
+    // رد المورد: معترض / موافق — لا يُخلط مع متوقف/تشغيل
+    let replyShort = "";
+    if (it.adminFinal) {
+        replyShort = "🔒 " + finalL;
+    } else if (it.supplierReply) {
+        replyShort = it.supplierReply.type === "object" ? "⚠️ معترض" : "✅ موافق";
+    } else {
+        replyShort = "⏳";
+    }
+    let line = it.lineName || it.routeName || "";
+    let shift = it.shift || "";
+    let idSafe = String(it.id || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+    let html = `<div class="detail-card sch-row" style="padding:0;margin-bottom:6px;border:1px solid ${color}55;border-right:4px solid ${color};background:${rowBg};border-radius:8px;overflow:hidden;">
+        <div onclick="toggleScheduleRow('${idSafe}')" style="cursor:pointer;display:flex;align-items:center;gap:6px;padding:8px 10px;font-size:12px;flex-wrap:wrap;">
+            <span style="color:#888;font-size:11px;">▾</span>
+            <span style="background:${color};color:#fff;padding:1px 7px;border-radius:4px;font-size:10px;font-weight:bold;">${planned}</span>
+            <span style="font-weight:bold;color:#222;">${sanitizeHTML(it.code || "—")}</span>
+            <span style="color:#555;">| ${sanitizeHTML(it.plate || "—")}</span>
+            ${line ? `<span style="color:#075bb5;">| ${sanitizeHTML(line)}</span>` : ""}
+            ${shift ? `<span style="color:#6f42c1;font-weight:bold;">| ${sanitizeHTML(shift)}</span>` : ""}
+            <span style="margin-right:auto;font-size:11px;color:#666;">📅 ${sanitizeHTML(it.executionDate || "")}</span>
+            <span style="font-size:11px;">${replyShort}</span>
+        </div>
+        <div id="sch_body_${it.id}" style="display:none;padding:8px 10px 10px;border-top:1px dashed #ccc;background:${bg};font-size:12px;line-height:1.65;color:#333;">
+            ${isAdmin && it.supplierName ? `مورد: <b>${sanitizeHTML(it.supplierName)}</b>${it.supplierSap ? " (" + sanitizeHTML(it.supplierSap) + ")" : ""}<br>` : ""}
+            ${line ? `اسم الخط: <b>${sanitizeHTML(line)}</b><br>` : ""}
+            ${shift ? `الوردية: <b style="color:#6f42c1;">${sanitizeHTML(shift)}</b><br>` : ""}
+            تاريخ التنفيذ: <b>${sanitizeHTML(it.executionDate || "—")}</b>
+            ${it.branch ? " · فرع: " + sanitizeHTML(it.branch) : ""}
+            ${isAdmin ? `<br>ظهور من: <b>${sanitizeHTML(it.visibleFrom || "—")}</b>` : ""}
+            ${it.planNote ? "<br>ملاحظة: " + sanitizeHTML(it.planNote) : ""}
+            <br>رد المورد: <b>${it.supplierReply ? sanitizeHTML((it.supplierReply.type === "object" ? "معترض" : "موافق") + (it.supplierReply.text ? ": " + it.supplierReply.text : "")) : "—"}</b>
+            <br>القرار النهائي: <b style="color:${it.adminFinal==='stop'?'#dc3545':(it.adminFinal==='run'?'#28a745':'#666')}">${sanitizeHTML(finalL || "—")}</b>
+            ${isAdmin && it.fileName ? `<br><span style="font-size:10px;color:#888;">ملف: ${sanitizeHTML(it.fileName)}</span>` : ""}
+`;
+
+    if (!isAdmin && !it.adminFinal && !it.supplierReply) {
+        html += `<div style="margin-top:8px;" onclick="event.stopPropagation()">
+            <textarea id="sch_reply_${it.id}" placeholder="سبب الاعتراض أو ملاحظة (اختياري عند الموافقة)" style="width:100%;min-height:44px;font-size:12px;margin:0 0 6px 0;box-sizing:border-box;"></textarea>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                <button type="button" style="flex:1;margin:0;background:#28a745;padding:7px;font-size:12px;" onclick="submitScheduleReply('${idSafe}','agree')">✅ موافق</button>
+                <button type="button" style="flex:1;margin:0;background:#f0ad4e;padding:7px;font-size:12px;" onclick="submitScheduleReply('${idSafe}','object')">⚠️ معترض</button>
+            </div>
+        </div>`;
+    } else if (!isAdmin && it.supplierReply && !it.adminFinal) {
+        html += `<div style="margin-top:6px;font-size:11px;color:#856404;">تم إرسال ردك (${it.supplierReply.type === "object" ? "معترض" : "موافق"}) — بانتظار قرار الإدارة.</div>`;
+    }
+
+    if (isAdmin && !it.adminFinal) {
+        html += `<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;" onclick="event.stopPropagation()">
+            <button type="button" style="flex:1;margin:0;background:#28a745;padding:7px;font-size:12px;" onclick="setScheduleFinal('${idSafe}','run')">✅ نهائي: تشغيل</button>
+            <button type="button" style="flex:1;margin:0;background:#dc3545;padding:7px;font-size:12px;" onclick="setScheduleFinal('${idSafe}','stop')">🛑 نهائي: متوقف</button>
+            <button type="button" style="width:auto;margin:0;background:#6c757d;padding:7px 10px;font-size:11px;" onclick="deleteScheduleItem('${idSafe}')">🗑️</button>
+        </div>`;
+    } else if (isAdmin) {
+        html += `<div style="margin-top:6px;" onclick="event.stopPropagation()">
+            <button type="button" style="width:auto;margin:0;background:#6c757d;padding:5px 10px;font-size:11px;" onclick="deleteScheduleItem('${idSafe}')">🗑️ حذف البند</button>
+        </div>`;
+    }
+    html += `</div></div>`;
+    return html;
+}
+
+function toggleScheduleRow(id) {
+    let el = document.getElementById("sch_body_" + id);
+    if (!el) return;
+    el.style.display = (el.style.display === "none" || !el.style.display) ? "block" : "none";
+}
+
+async function deleteScheduleItem(id) {
+    if (!confirm("حذف هذا البند من الجدولة؟")) return;
+    try {
+        await db.collection("schedulePlans").doc(id).delete();
+        _scheduleLoadedAt = 0;
+        if (typeof logAudit === "function") logAudit("حذف بند جدولة", id);
+        await renderSchedulePanel();
+        showAlert("✅ تم الحذف.");
+    } catch (e) {
+        showAlert("❌ " + (e.message || e));
+    }
+}
+
+async function deleteScheduleByFileName(fileName) {
+    if (!fileName) return;
+    if (!confirm("حذف كل بنود الملف:\n" + fileName + "\n؟ لا يمكن التراجع.")) return;
+    try {
+        let items = await loadScheduleItems(true);
+        let targets = items.filter(it => (it.fileName || "") === fileName);
+        if (!targets.length) { showAlert("لا بنود لهذا الملف."); return; }
+        for (let i = 0; i < targets.length; i += 400) {
+            let chunk = targets.slice(i, i + 400);
+            let b = db.batch();
+            chunk.forEach(it => b.delete(db.collection("schedulePlans").doc(it.id)));
+            await b.commit();
+        }
+        if (typeof logAudit === "function") logAudit("حذف ملف جدولة", fileName + " — " + targets.length + " بند");
+        _scheduleLoadedAt = 0;
+        await renderSchedulePanel();
+        showAlert("✅ تم حذف " + targets.length + " بند من الملف.");
+    } catch (e) {
+        showAlert("❌ " + (e.message || e));
+    }
+}
+
+function renderScheduleSupplierPicks() {
+    let box = document.getElementById("scheduleSupplierPicks");
+    let inp = document.getElementById("scheduleSupplierSearch");
+    if (!box) return;
+    let q = robustNormalize((inp && inp.value) || "");
+    let list = [];
+    if (globalSupplierDataMap && globalSupplierDataMap.size) {
+        globalSupplierDataMap.forEach((d, sap) => {
+            list.push({
+                sap: sap || normalizeValue(d.sapNumber || ""),
+                owner: d.ownerName || "",
+                office: d.officeName || "",
+                phone: d.phone || ""
+            });
+        });
+    }
+    let h = `<div style="margin-bottom:8px;">
+        <button type="button" style="width:100%;margin:0;padding:8px;background:#0d6efd;font-size:12px;"
+            onclick="downloadScheduleTemplateAll()">📥 تحميل قالب كل السيارات (كل الموردين)</button>
+    </div>`;
+    if (q) {
+        list = list.filter(s => robustNormalize(s.owner + " " + s.office + " " + s.sap + " " + s.phone).indexOf(q) >= 0);
+        list.sort((a,b) => (a.office || a.owner || "").localeCompare(b.office || b.owner || "", "ar"));
+        list = list.slice(0, 40);
+        if (!list.length) {
+            h += "<span style='color:#888;'>لا موردين مطابقين للبحث.</span>";
+        } else {
+            h += "<div style='font-size:11px;color:#666;margin-bottom:4px;'>اضغط على المورد لتحميل قالبه فوراً:</div>";
+            list.forEach(s => {
+                let label = sanitizeHTML((s.office || s.owner || "—") + (s.owner && s.office && s.owner !== s.office ? " — " + s.owner : "") + " | ساب: " + (s.sap || "—"));
+                let safeSap = String(s.sap || "").replace(/\\/g, "\\").replace(/'/g, "\\'");
+                h += `<div onclick="downloadScheduleTemplateForSupplier('${safeSap}')" style="cursor:pointer;padding:8px;border-bottom:1px solid #e8eef5;background:#fff;border-radius:6px;margin-bottom:4px;">
+                    <span style="color:#075bb5;font-weight:bold;">📄 ${label}</span>
+                </div>`;
+            });
+        }
+    } else {
+        h += "<div style='font-size:11px;color:#888;'>ابحث باسم المكتب/المورد أو الساب ثم اضغط النتيجة — أو حمّل كل السيارات بالزر أعلاه.</div>";
+    }
+    box.innerHTML = h;
+}
+
+function scheduleVehiclesForSap(sap, sup) {
+    sap = normalizeValue(sap || "");
+    let offKeys = [];
+    if (sup) {
+        let o1 = deepCleanArabic(sup.officeName || "");
+        let o2 = deepCleanArabic(sup.ownerName || "");
+        if (o1) offKeys.push(o1);
+        if (o2) offKeys.push(o2);
+    }
+    return (globalVehicles || []).filter(v => {
+        let vs = normalizeValue(v["رقم المورد"] || "");
+        if (sap && vs && vs === sap) return true;
+        let on = deepCleanArabic(v["اسم المورد"] || v["المورد"] || v["اسم المكتب"] || "");
+        if (offKeys.length && on && offKeys.indexOf(on) >= 0) return true;
+        return false;
+    });
+}
+
+function scheduleLineFromVehicle(v) {
+    return String(v["اسم الخط"] || v["خط السير"] || v["وصف الخط"] || v["الخط"] || v["وصف الحافلة"] || v["وصف"] || "").trim();
+}
+function scheduleRowsFromVehicles(vehicles, sap, owner, office) {
+    let displayName = office || owner || "";
+    let rows = vehicles.map(v => ({
+        "اسم المورد": displayName || String(v["اسم المورد"] || ""),
+        "رقم المورد (ساب)": sap || normalizeValue(v["رقم المورد"] || ""),
+        "كود الحافلة": v["كود الحافلة"] || v["كود"] || "",
+        "رقم اللوحة": v["رقم اللوحة"] || v["رقم اللوحات"] || "",
+        "اسم الخط": scheduleLineFromVehicle(v),
+        "الفرع": v["الفرع"] || v["اسم الفرع"] || office || "",
+        "الموقف": "",
+        "تاريخ التنفيذ": "",
+        "الوردية": "",
+        "ملاحظة": ""
+    }));
+    let seen = new Set();
+    return rows.filter(r => {
+        let k = normalizeValue(r["كود الحافلة"]) + "|" + normalizeValue(r["رقم اللوحة"]);
+        if (!normalizeValue(r["كود الحافلة"]) && !normalizeValue(r["رقم اللوحة"])) return false;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+    });
+}
+
+function downloadScheduleTemplateAll() {
+    try {
+        let vehicles = globalVehicles || [];
+        if (!vehicles.length) {
+            showAlert("لا توجد سيارات محمّلة. افتح بيانات السيارات أو ارفع ملف السيارات أولاً.");
+            return;
+        }
+        let rows = scheduleRowsFromVehicles(vehicles, "", "", "");
+        // محاولة ملء الساب/الاسم من الصف نفسه
+        rows = vehicles.map(v => {
+            let sap = normalizeValue(v["رقم المورد"] || "");
+            let nm = String(v["اسم المورد"] || v["المورد"] || "");
+            if (sap && globalSupplierDataMap && globalSupplierDataMap.get(sap)) {
+                let sd = globalSupplierDataMap.get(sap);
+                nm = sd.officeName || sd.ownerName || nm;
+            }
+            return {
+                "اسم المورد": nm,
+                "رقم المورد (ساب)": sap,
+                "كود الحافلة": v["كود الحافلة"] || v["كود"] || "",
+                "رقم اللوحة": v["رقم اللوحة"] || v["رقم اللوحات"] || "",
+                "اسم الخط": scheduleLineFromVehicle(v),
+                "الفرع": v["الفرع"] || v["اسم الفرع"] || "",
+                "الموقف": "",
+                "تاريخ التنفيذ": "",
+                "الوردية": "",
+                "ملاحظة": ""
+            };
+        });
+        let seen = new Set();
+        rows = rows.filter(r => {
+            let k = normalizeValue(r["كود الحافلة"]) + "|" + normalizeValue(r["رقم اللوحة"]);
+            if (!normalizeValue(r["كود الحافلة"]) && !normalizeValue(r["رقم اللوحة"])) return false;
+            if (seen.has(k)) return false;
+            seen.add(k);
+            return true;
+        });
+        const ws = XLSX.utils.json_to_sheet(rows);
+        if (typeof schedulePrepareStatusColumn === "function") schedulePrepareStatusColumn(ws, rows);
+        if (typeof styleExcelSheet === "function") styleExcelSheet(ws, rows);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "جدولة");
+        if (typeof scheduleAppendGuideSheet === "function") scheduleAppendGuideSheet(wb);
+        XLSX.writeFile(wb, "قالب_جدولة_كل_السيارات.xlsx");
+        showAlert("✅ تم تنزيل قالب بـ " + rows.length + " سيارة. املأ الموقف وتاريخ التنفيذ ثم ارفع.");
+    } catch (e) {
+        showAlert("❌ " + (e.message || e));
+    }
+}
+
+function downloadScheduleTemplateForSupplier(sapKey) {
+    try {
+        let sap = normalizeValue(sapKey || "");
+        if (!sap) { showAlert("رقم ساب غير صالح."); return; }
+        let sup = (globalSupplierDataMap && globalSupplierDataMap.get(sap)) || null;
+        let owner = (sup && sup.ownerName) || "";
+        let office = (sup && sup.officeName) || "";
+        let vehicles = scheduleVehiclesForSap(sap, sup);
+        if (!vehicles.length) {
+            showAlert("لا سيارات لهذا المورد في البيانات المحمّلة. حدّث ملف السيارات أو ابحث بالمكتب.");
+            return;
+        }
+        let rows = scheduleRowsFromVehicles(vehicles, sap, owner, office);
+        const ws = XLSX.utils.json_to_sheet(rows);
+        if (typeof schedulePrepareStatusColumn === "function") schedulePrepareStatusColumn(ws, rows);
+        if (typeof styleExcelSheet === "function") styleExcelSheet(ws, rows);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "جدولة");
+        if (typeof scheduleAppendGuideSheet === "function") scheduleAppendGuideSheet(wb);
+        let safeName = (office || owner || sap || "مورد").replace(/[\\/:*?"<>|]/g, "_").slice(0, 40);
+        XLSX.writeFile(wb, "قالب_جدولة_" + safeName + ".xlsx");
+        showAlert("✅ قالب " + rows.length + " كود لـ «" + (office || owner) + "». املأ الموقف وتاريخ التنفيذ ثم ارفع.");
+    } catch (e) {
+        console.error(e);
+        showAlert("❌ " + (e.message || e));
+    }
+}
+
+function downloadScheduleTemplate() {
+    // قالب عام فارغ (احتياطي)
+    try {
+        let row = {
+            "اسم المورد": "",
+            "رقم المورد (ساب)": "",
+            "كود الحافلة": "",
+            "رقم اللوحة": "",
+            "اسم الخط": "",
+            "الفرع": "",
+            "الموقف": "",
+            "تاريخ التنفيذ": "",
+            "الوردية": "",
+            "ملاحظة": ""
+        };
+        const ws = XLSX.utils.json_to_sheet([row]);
+        if (typeof schedulePrepareStatusColumn === "function") schedulePrepareStatusColumn(ws, [row]);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "جدولة");
+        if (typeof scheduleAppendGuideSheet === "function") scheduleAppendGuideSheet(wb);
+        XLSX.writeFile(wb, "قالب_جدولة_فارغ.xlsx");
+    } catch (e) { showAlert("❌ " + e.message); }
+}
+
+async function uploadScheduleFile() {
+    let input = document.getElementById("scheduleFileInput");
+    let msg = document.getElementById("scheduleUploadMsg");
+    if (!input || !input.files || !input.files[0]) {
+        showAlert("اختر ملف Excel أولاً.");
+        return;
+    }
+    let mode = (document.getElementById("scheduleVisibleMode") || {}).value || "day_before";
+    let customDate = (document.getElementById("scheduleVisibleCustom") || {}).value || "";
+    if (mode === "custom" && !customDate) {
+        showAlert("حدد تاريخ بدء الظهور.");
+        return;
+    }
+    if (msg) msg.innerHTML = "⏳ جاري القراءة والحفظ...";
+    try {
+        let file = input.files[0];
+        let buf = await file.arrayBuffer();
+        let wb = XLSX.read(new Uint8Array(buf), { type: "array" });
+        let sheet = wb.Sheets[wb.SheetNames[0]];
+        let rows = XLSX.utils.sheet_to_json(sheet);
+        if (!rows.length) throw new Error("الملف فارغ");
+
+        let today = scheduleTodayStr();
+        let batch = [];
+        let skipped = 0;
+        rows.forEach((r, idx) => {
+            let code = String(r["كود الحافلة"] || r["كود"] || r["code"] || "").trim();
+            let plate = String(r["رقم اللوحة"] || r["اللوحة"] || r["plate"] || "").trim();
+            let st = scheduleNormStatus(r["الموقف"] || r["الحالة"] || r["status"] || "");
+            let exec = scheduleParseDate(r["تاريخ التنفيذ"] || r["التاريخ"] || r["executionDate"] || "");
+            if ((!code && !plate) || !st || !exec) { skipped++; return; }
+            let visibleFrom = today;
+            if (mode === "day_before") {
+                try {
+                    let d = new Date(exec + "T12:00:00");
+                    d.setDate(d.getDate() - 1);
+                    visibleFrom = d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+                } catch (e) { visibleFrom = today; }
+            } else if (mode === "immediate") {
+                visibleFrom = today;
+            } else if (mode === "custom") {
+                visibleFrom = customDate;
+            }
+            // أولوية الربط: ساب الشيت → أسطول → اسم المكتب
+            let sapSheet = normalizeValue(r["رقم المورد (ساب)"] || r["رقم المورد"] || r["الساب"] || r["SAP"] || r["sap"] || "");
+            let nameSheet = String(r["اسم المورد"] || r["المورد"] || r["اسم المكتب"] || "").trim();
+            let sap = sapSheet || scheduleResolveSapFromFleet(code, plate);
+            let name = nameSheet;
+            let officeClean = deepCleanArabic(nameSheet || "");
+            if (sap && globalSupplierDataMap && globalSupplierDataMap.get(sap)) {
+                let sd = globalSupplierDataMap.get(sap);
+                // الاسم الظاهر للمطابقة: المكتب أولاً (مثل بدوية) ثم المالك
+                if (!name) name = sd.officeName || sd.ownerName || "";
+                let oc2 = deepCleanArabic(sd.officeName || "");
+                let oc3 = deepCleanArabic(sd.ownerName || "");
+                if (oc2) officeClean = oc2;
+                else if (oc3 && !officeClean) officeClean = oc3;
+            } else if (nameSheet && globalSupplierDataMap) {
+                // محاولة إيجاد الساب من اسم المكتب/المورد
+                globalSupplierDataMap.forEach((sd, k) => {
+                    if (sap) return;
+                    let o1 = deepCleanArabic(sd.officeName || "");
+                    let o2 = deepCleanArabic(sd.ownerName || "");
+                    let ns = deepCleanArabic(nameSheet);
+                    if (ns && (ns === o1 || ns === o2)) {
+                        sap = normalizeValue(sd.sapNumber || k);
+                        name = sd.officeName || sd.ownerName || nameSheet;
+                        officeClean = o1 || o2 || officeClean;
+                    }
+                });
+            }
+
+            let lineName = String(r["اسم الخط"] || r["خط السير"] || r["وصف الخط"] || r["الخط"] || "").trim();
+            if (!lineName && code) {
+                let vHit = (globalVehicles || []).find(v => normalizeValue(v["كود الحافلة"] || v["كود"] || "") === normalizeValue(code));
+                if (vHit) lineName = scheduleLineFromVehicle(vHit);
+            }
+            batch.push({
+                code: code,
+                plate: plate,
+                lineName: lineName,
+                plannedStatus: st,
+                executionDate: exec,
+                visibleFrom: visibleFrom,
+                shift: String(r["الوردية"] || r["وردية"] || "").trim(),
+                branch: String(r["الفرع"] || "").trim(),
+                planNote: String(r["ملاحظة"] || r["ملاحظات"] || "").trim(),
+                supplierSap: sap || "",
+                supplierName: name || "",
+                officeClean: officeClean || deepCleanArabic(name || ""),
+                supplierReply: null,
+                adminFinal: null,
+                adminFinalBy: "",
+                adminFinalAt: "",
+                uploadedAt: new Date().toISOString(),
+                uploadedBy: currentUserName || "إدارة",
+                fileName: file.name || ""
+            });
+        });
+
+        if (!batch.length) throw new Error("لا صفوف صالحة. تأكد من الموقف وتاريخ التنفيذ والكود/اللوحة.");
+
+        // كتابة على دفعات (حد 400)
+        for (let i = 0; i < batch.length; i += 400) {
+            let chunk = batch.slice(i, i + 400);
+            let b = db.batch();
+            chunk.forEach(row => {
+                let ref = db.collection("schedulePlans").doc();
+                b.set(ref, row);
+            });
+            await b.commit();
+        }
+
+        if (typeof logAudit === "function") {
+            logAudit("رفع جدولة تشغيل", file.name + " — " + batch.length + " بند", { after: "visible=" + mode });
+        }
+        if (msg) msg.innerHTML = `✅ تم حفظ <b>${batch.length}</b> بند` + (skipped ? ` (تُخطّي ${skipped} صف غير مكتمل)` : "");
+        input.value = "";
+        _scheduleLoadedAt = 0;
+        await renderSchedulePanel();
+        showAlert("✅ تم رفع الجدولة بنجاح (" + batch.length + " بند).");
+    } catch (e) {
+        console.error(e);
+        if (msg) msg.innerHTML = "❌ " + (e.message || e);
+        showAlert("❌ فشل الرفع: " + (e.message || e));
+    }
+}
+
+async function submitScheduleReply(id, type) {
+    let ta = document.getElementById("sch_reply_" + id);
+    let text = ta ? ta.value.trim() : "";
+    if (type === "object" && !text) {
+        showAlert("عند الاعتراض يُفضّل كتابة سبب المشكلة التشغيلية.");
+    }
+    try {
+        await db.collection("schedulePlans").doc(id).update({
+            supplierReply: {
+                type: type,
+                text: text,
+                at: new Date().toISOString(),
+                bySap: loggedInSupplierSapGlobal || "",
+                byName: (document.getElementById("showOwner") || {}).innerText || ""
+            }
+        });
+        showAlert("✅ تم إرسال ردك.");
+        _scheduleLoadedAt = 0;
+        await renderSchedulePanel();
+    } catch (e) {
+        showAlert("❌ " + (e.message || e));
+    }
+}
+
+async function setScheduleFinal(id, finalStatus) {
+    if (!confirm("تأكيد القرار النهائي: " + scheduleStatusLabel(finalStatus) + " ؟")) return;
+    try {
+        await db.collection("schedulePlans").doc(id).update({
+            adminFinal: finalStatus,
+            adminFinalBy: currentUserName || "إدارة",
+            adminFinalAt: new Date().toISOString()
+        });
+        if (typeof logAudit === "function") logAudit("قرار جدولة نهائي", id + " → " + finalStatus);
+        _scheduleLoadedAt = 0;
+        await renderSchedulePanel();
+        showAlert("✅ تم تسجيل القرار النهائي.");
+    } catch (e) {
+        showAlert("❌ " + (e.message || e));
+    }
+}
+
+async function exportScheduleReport() {
+    try {
+        await loadScheduleItems(true);
+        let rows = (globalScheduleItems || []).map(it => ({
+            "كود الحافلة": it.code || "",
+            "رقم اللوحة": it.plate || "",
+            "اسم الخط": it.lineName || "",
+            "الموقف المخطط": scheduleStatusLabel(it.plannedStatus),
+            "تاريخ التنفيذ": it.executionDate || "",
+            "ظهور من": it.visibleFrom || "",
+            "الوردية": it.shift || "",
+            "الفرع": it.branch || "",
+            "رقم المورد": it.supplierSap || "",
+            "اسم المورد": it.supplierName || "",
+            "نوع رد المورد": it.supplierReply ? (it.supplierReply.type === "object" ? "معترض" : "موافق") : "",
+            "نص رد المورد": it.supplierReply ? (it.supplierReply.text || "") : "",
+            "وقت رد المورد": it.supplierReply ? (it.supplierReply.at || "") : "",
+            "القرار النهائي": it.adminFinal ? scheduleStatusLabel(it.adminFinal) : "",
+            "من اعتمد": it.adminFinalBy || "",
+            "وقت الاعتماد": it.adminFinalAt || "",
+            "ملاحظة التشغيل": it.planNote || "",
+            "ملف المصدر": it.fileName || ""
+        }));
+        if (!rows.length) { showAlert("لا بيانات للتصدير."); return; }
+        const ws = XLSX.utils.json_to_sheet(rows);
+        if (typeof schedulePrepareStatusColumn === "function") schedulePrepareStatusColumn(ws, rows);
+        if (typeof styleExcelSheet === "function") styleExcelSheet(ws, rows);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "نتائج الجدولة");
+        let d = new Date();
+        XLSX.writeFile(wb, "Schedule_Results_" + d.getFullYear() + "-" + (d.getMonth()+1) + "-" + d.getDate() + ".xlsx");
+        showAlert("✅ تم تصدير التقرير.");
+    } catch (e) {
+        showAlert("❌ " + (e.message || e));
+    }
+}
+
+// شارة خفيفة بعد الدخول (لا تُحمّل مع كل فلتر)
+setTimeout(function(){
+    try {
+        if (firebase.auth().currentUser && typeof refreshScheduleBadge === "function") {
+            // بعد تحميل بيانات المورد/الأسطول
+            setTimeout(function(){ refreshScheduleBadge(); }, 2000);
+            refreshScheduleBadge();
+        }
+    } catch(e){}
+}, 2500);
+
+// دعم البحث داخل شاشة الجدولة عبر filterPopupResults إن وُجدت بطاقات
+
 </script>
 
 </body>
