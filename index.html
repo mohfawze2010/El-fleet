@@ -4759,6 +4759,24 @@ function selectMsgSupplier(sap, name) {
                         <input type="file" id="duesFile" accept=".xlsx,.xls,.csv">
                         <button type="button" class="btn-sm" onclick="safeUploadTest('duesFile','ملف المستحقات')" style="background:#28a745;">📤 رفع</button>
                     </div>
+                    <!-- فحص فروقات المستحقات: إجمالي المرفوع × ما يظهر للموردين (خفيف — ذاكرة فقط) -->
+                    <div style="margin-top:14px; padding:12px; border-radius:10px; border:1px dashed #17a2b8; background:#f0fbfd;">
+                        <div style="font-size:12px; font-weight:bold; color:#0f6674; margin-bottom:6px;">🔎 فحص فروقات المستحقات (مرفوع × ظاهر للموردين)</div>
+                        <p style="font-size:11px; color:#555; margin:0 0 8px 0; line-height:1.55;">يحسب إجمالي المبالغ المرفوعة ويقارنها بما سيظهر لكل مورد مسجّل حسب <b>الفترة</b>. يحدد من لا تظهر له البيانات والسبب، مع إمكانية التصدير والإخفاء.</p>
+                        <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:6px;">
+                            <label style="font-size:11px; color:#555; white-space:nowrap;">الفترة:</label>
+                            <select id="duesDiagPeriod" style="flex:1; min-width:140px; margin:0; padding:8px 10px; font-size:12px; border-radius:8px; border:1px solid #b8dce3; width:auto;">
+                                <option value="">كل الفترات</option>
+                            </select>
+                            <input type="text" id="duesDiagQuery" placeholder="فلترة بالاسم (اختياري)" style="flex:1; min-width:120px; margin:0; padding:8px 10px; font-size:12px; border-radius:8px; border:1px solid #b8dce3;">
+                        </div>
+                        <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+                            <button type="button" class="btn-sm" onclick="diagnoseDuesVisibilityGap()" style="background:#17a2b8; margin:0;">🔍 فحص الفروقات</button>
+                            <button type="button" class="btn-sm" id="duesDiagExportBtn" onclick="exportDuesVisibilityGapExcel()" style="background:#28a745; margin:0; display:none;">📥 تصدير المشكلات Excel</button>
+                            <button type="button" class="btn-sm" id="duesDiagHideBtn" onclick="hideDuesVisibilityGap()" style="background:#6c757d; margin:0; display:none;">✕ إخفاء النتائج</button>
+                        </div>
+                        <div id="duesDiagResult" style="display:none; margin-top:10px; font-size:12px; line-height:1.7; color:#333; background:#fff; border:1px solid #cce8ee; border-radius:8px; padding:10px 12px; max-height:420px; overflow-y:auto;"></div>
+                    </div>
                 </div>
             </div>
 
@@ -8109,6 +8127,430 @@ async function exportNotesReport() {
     }
 }
 
+
+
+/**
+ * فحص خفيف (ذاكرة فقط): إجمالي المستحقات المرفوعة مقابل ما يظهر للموردين المسجّلين.
+ * يدعم فلتر الفترة، إخفاء النتائج، وتصدير Excel للمشكلات.
+ * آخر نتيجة تُحفظ في window.__duesGapLastReport للتصدير.
+ */
+function hideDuesVisibilityGap() {
+    let outEl = document.getElementById("duesDiagResult");
+    if (outEl) {
+        outEl.style.display = "none";
+        outEl.innerHTML = "";
+    }
+    let exp = document.getElementById("duesDiagExportBtn");
+    let hid = document.getElementById("duesDiagHideBtn");
+    if (exp) exp.style.display = "none";
+    if (hid) hid.style.display = "none";
+}
+
+function populateDuesDiagPeriods() {
+    let sel = document.getElementById("duesDiagPeriod");
+    if (!sel) return;
+    let prev = sel.value || "";
+    let periods = new Set();
+    (globalDues || []).forEach(d => {
+        let p = (typeof getRawDuesPeriod === "function" ? getRawDuesPeriod(d) : (d["الفترة"] || "")) || "";
+        p = String(p).trim();
+        if (p) periods.add(p);
+    });
+    let list = Array.from(periods).sort((a, b) => String(b).localeCompare(String(a)));
+    sel.innerHTML = '<option value="">كل الفترات</option>';
+    list.forEach(p => {
+        let opt = document.createElement("option");
+        opt.value = p;
+        opt.textContent = (typeof formatDuesPeriodLabel === "function" ? formatDuesPeriodLabel(p) : p) + " (" + p + ")";
+        sel.appendChild(opt);
+    });
+    if (prev && list.indexOf(prev) >= 0) sel.value = prev;
+}
+
+function diagnoseDuesVisibilityGap() {
+    let outEl = document.getElementById("duesDiagResult");
+    if (!outEl) return;
+    outEl.style.display = "block";
+    outEl.innerHTML = "⏳ جاري الحساب من البيانات المحمّلة...";
+    populateDuesDiagPeriods();
+
+    try {
+        let filterQ = ((document.getElementById("duesDiagQuery") || {}).value || "").trim();
+        let filterNorm = filterQ ? robustNormalize(filterQ) : "";
+        let filterClean = filterQ ? deepCleanArabic(filterQ) : "";
+        let periodFilter = ((document.getElementById("duesDiagPeriod") || {}).value || "").trim();
+
+        let allDuesRaw = Array.isArray(globalDues) ? globalDues : [];
+        if (!allDuesRaw.length) {
+            outEl.innerHTML = "⚠️ لا توجد مستحقات محمّلة في الذاكرة. ارفع ملف المستحقات أو انتظر اكتمال التحميل ثم أعد الفحص.";
+            window.__duesGapLastReport = null;
+            return;
+        }
+
+        // تطبيق فلتر الفترة أولاً
+        let allDues = allDuesRaw.filter(d => {
+            if (!periodFilter) return true;
+            let p = (typeof getRawDuesPeriod === "function" ? getRawDuesPeriod(d) : (d["الفترة"] || "")) || "";
+            return String(p).trim() === periodFilter;
+        });
+
+        if (!allDues.length) {
+            outEl.innerHTML = "⚠️ لا توجد صفوف مستحقات" + (periodFilter ? " في الفترة «" + sanitizeHTML(periodFilter) + "»" : "") + ".";
+            window.__duesGapLastReport = null;
+            let exp = document.getElementById("duesDiagExportBtn");
+            let hid = document.getElementById("duesDiagHideBtn");
+            if (exp) exp.style.display = "none";
+            if (hid) hid.style.display = "inline-flex";
+            return;
+        }
+
+        let suppliers = [];
+        if (globalSupplierDataMap && globalSupplierDataMap.size) {
+            globalSupplierDataMap.forEach((sd, sap) => {
+                let keys = new Set();
+                officeNameVariants(sd.officeName || "").forEach(k => keys.add(k));
+                officeNameVariants(sd.ownerName || "").forEach(k => keys.add(k));
+                let dc1 = deepCleanArabic(sd.officeName || "");
+                let dc2 = deepCleanArabic(sd.ownerName || "");
+                if (dc1) keys.add(dc1);
+                if (dc2) keys.add(dc2);
+                suppliers.push({ sap: sap, owner: sd.ownerName || "", office: sd.officeName || "", keys: keys });
+            });
+        }
+
+        function rowAmount(d) {
+            return typeof parseDuesMoney === "function" ? parseDuesMoney(d["مبلغ الرحلات"] || d["المبلغ"] || 0) : 0;
+        }
+        function rowName(d) {
+            return String(d["اسم المكتب"] || d["اسم المورد"] || d["المورد"] || "").trim();
+        }
+        function rowSap(d) {
+            let s = normalizeValue(d["رقم المورد"] || "");
+            return (s && s !== "unknown") ? s : "";
+        }
+        function rowPeriod(d) {
+            return (typeof getRawDuesPeriod === "function" ? getRawDuesPeriod(d) : (d["الفترة"] || "")) || "(بدون فترة)";
+        }
+
+        let totalUploaded = 0;
+        let totalRows = allDues.length;
+        allDues.forEach(d => { totalUploaded += rowAmount(d); });
+
+        let matchedAmount = 0;
+        let matchedRows = 0;
+        let orphanRows = [];
+        let perSupplier = suppliers.map(s => ({
+            sap: s.sap, owner: s.owner, office: s.office,
+            amount: 0, rows: 0, periods: new Set(), namesInSheet: new Set()
+        }));
+
+        allDues.forEach(d => {
+            let amt = rowAmount(d);
+            let name = rowName(d);
+            let period = rowPeriod(d);
+            let matchedAny = false;
+            for (let i = 0; i < suppliers.length; i++) {
+                let s = suppliers[i];
+                if (rowMatchesActiveSupplier(d, s.sap, s.keys)) {
+                    matchedAny = true;
+                    perSupplier[i].amount += amt;
+                    perSupplier[i].rows += 1;
+                    perSupplier[i].periods.add(period);
+                    if (name) perSupplier[i].namesInSheet.add(name);
+                }
+            }
+            if (matchedAny) {
+                matchedAmount += amt;
+                matchedRows += 1;
+            } else {
+                orphanRows.push(d);
+            }
+        });
+
+        let orphanAmount = totalUploaded - matchedAmount;
+
+        let orphanByName = new Map();
+        orphanRows.forEach(d => {
+            let name = rowName(d) || "(بدون اسم)";
+            let sap = rowSap(d) || "";
+            let period = rowPeriod(d);
+            let key = name + "||" + sap + "||" + period;
+            if (!orphanByName.has(key)) {
+                orphanByName.set(key, {
+                    name: name, sap: sap, period: period,
+                    amount: 0, rows: 0, branches: new Set(), codesSample: []
+                });
+            }
+            let g = orphanByName.get(key);
+            g.amount += rowAmount(d);
+            g.rows += 1;
+            let br = typeof getDuesBranch === "function" ? getDuesBranch(d) : (d["الفرع"] || "");
+            if (br) g.branches.add(String(br));
+            let code = normalizeValue(d["كود الحافلة"] || d["كود"] || "");
+            if (code && g.codesSample.length < 8) g.codesSample.push(code);
+        });
+
+        function guessReason(name, sap) {
+            let reasons = [];
+            if (!name || name === "(بدون اسم)") reasons.push("لا يوجد اسم مورد في الصف");
+            if (!sap) {
+                reasons.push("رقم المورد (الساب) فارغ في الشيت — الاعتماد على تطابق الاسم فقط");
+            } else {
+                let sapKnown = suppliers.some(s => s.sap === sap);
+                if (!sapKnown) reasons.push("رقم الساب «" + sap + "» غير مسجّل في حسابات الموردين");
+            }
+            if (name && name !== "(بدون اسم)") {
+                let clean = deepCleanArabic(name);
+                let softHit = null;
+                for (let i = 0; i < suppliers.length; i++) {
+                    let s = suppliers[i];
+                    let oClean = deepCleanArabic(s.owner || "");
+                    let fClean = deepCleanArabic(s.office || "");
+                    if (clean && (oClean.includes(clean) || clean.includes(oClean) || fClean.includes(clean) || clean.includes(fClean))) {
+                        softHit = s;
+                        break;
+                    }
+                    let rn = robustNormalize(name);
+                    let ro = robustNormalize(s.owner || "");
+                    let rf = robustNormalize(s.office || "");
+                    if (rn && ((ro && (ro.includes(rn) || rn.includes(ro))) || (rf && (rf.includes(rn) || rn.includes(rf))))) {
+                        softHit = softHit || s;
+                    }
+                }
+                if (softHit) {
+                    reasons.push("اسم قريب من حساب «" + (softHit.owner || softHit.office) + "» (ساب " + softHit.sap + ") لكن المفتاح لا يتطابق — وحّد الاسم أو املأ الساب");
+                } else if (!suppliers.length) {
+                    reasons.push("لا توجد حسابات موردين محمّلة للمقارنة");
+                } else {
+                    reasons.push("لا يوجد حساب مورد مسجّل بهذا الاسم أو الساب");
+                }
+            }
+            if (!reasons.length) reasons.push("سبب غير محدد — راجع الاسم والساب يدوياً");
+            return reasons;
+        }
+
+        function passFilter(name, sap, owner, office) {
+            if (!filterNorm && !filterClean) return true;
+            let blob = robustNormalize([name, sap, owner, office].join(" "));
+            let cblob = deepCleanArabic([name, owner, office].join(""));
+            if (filterNorm && blob.includes(filterNorm)) return true;
+            if (filterClean && cblob.includes(filterClean)) return true;
+            return false;
+        }
+
+        let suppliersWithData = perSupplier.filter(s => s.rows > 0);
+        let orphanList = Array.from(orphanByName.values()).sort((a, b) => b.amount - a.amount);
+
+        if (filterNorm || filterClean) {
+            suppliersWithData = suppliersWithData.filter(s => passFilter("", s.sap, s.owner, s.office));
+            orphanList = orphanList.filter(g => passFilter(g.name, g.sap, "", ""));
+        }
+
+        // حفظ للتصدير
+        let exportProblemRows = [];
+        orphanList.forEach(g => {
+            let reasons = guessReason(g.name, g.sap);
+            exportProblemRows.push({
+                "الفترة": g.period,
+                "الاسم في الشيت": g.name,
+                "رقم المورد (ساب)": g.sap || "",
+                "عدد الصفوف": g.rows,
+                "المبلغ": g.amount,
+                "الفروع": Array.from(g.branches).join(" | "),
+                "أكواد عيّنة": g.codesSample.join(" | "),
+                "السبب المحتمل": reasons.join(" ؛ "),
+                "نوع السجل": "غير ظاهر لأي مورد مسجّل"
+            });
+        });
+        // أيضاً صفوف تفصيلية من اليتيم (اختياري للمراجعة)
+        orphanRows.forEach(d => {
+            if (filterNorm || filterClean) {
+                if (!passFilter(rowName(d), rowSap(d), "", "")) return;
+            }
+            exportProblemRows.push({
+                "الفترة": rowPeriod(d),
+                "الاسم في الشيت": rowName(d),
+                "رقم المورد (ساب)": rowSap(d),
+                "عدد الصفوف": 1,
+                "المبلغ": rowAmount(d),
+                "الفروع": (typeof getDuesBranch === "function" ? getDuesBranch(d) : (d["الفرع"] || "")),
+                "أكواد عيّنة": normalizeValue(d["كود الحافلة"] || d["كود"] || ""),
+                "السبب المحتمل": guessReason(rowName(d) || "(بدون اسم)", rowSap(d)).join(" ؛ "),
+                "نوع السجل": "صف تفصيلي يتيم"
+            });
+        });
+
+        window.__duesGapLastReport = {
+            periodFilter: periodFilter || "كل الفترات",
+            totalUploaded: totalUploaded,
+            matchedAmount: matchedAmount,
+            orphanAmount: orphanAmount,
+            totalRows: totalRows,
+            matchedRows: matchedRows,
+            suppliersWithData: suppliersWithData.map(s => ({
+                owner: s.owner, office: s.office, sap: s.sap,
+                amount: s.amount, rows: s.rows,
+                periods: Array.from(s.periods)
+            })),
+            orphanSummary: orphanList.map(g => ({
+                name: g.name, sap: g.sap, period: g.period,
+                amount: g.amount, rows: g.rows,
+                branches: Array.from(g.branches),
+                codesSample: g.codesSample.slice(),
+                reasons: guessReason(g.name, g.sap)
+            })),
+            exportProblemRows: exportProblemRows
+        };
+
+        let fmt = n => (typeof formatMoneyInt === "function" ? formatMoneyInt(n) : Math.trunc(n || 0).toLocaleString("en-US"));
+        let periodLabel = periodFilter
+            ? (typeof formatDuesPeriodLabel === "function" ? formatDuesPeriodLabel(periodFilter) : periodFilter)
+            : "كل الفترات";
+
+        let html = "";
+        html += `<div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px;">`;
+        html += `<div style="font-weight:bold; color:#0f6674;">نتيجة الفحص — الفترة: <span style="color:#075bb5;">${sanitizeHTML(periodLabel)}</span></div>`;
+        html += `<button type="button" onclick="hideDuesVisibilityGap()" style="width:auto; margin:0; padding:6px 12px; font-size:11px; background:#6c757d; border-radius:6px;">✕ إخفاء</button>`;
+        html += `</div>`;
+
+        html += `<div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px;">`;
+        html += `<div style="background:#e8f5e9; border:1px solid #c3e6cb; border-radius:8px; padding:8px 10px;"><div style="font-size:11px; color:#155724;">إجمالي المرفوع</div><div style="font-size:16px; font-weight:bold; color:#155724;">${fmt(totalUploaded)} ج</div><div style="font-size:10px; color:#666;">${totalRows} صف</div></div>`;
+        html += `<div style="background:#e7f1ff; border:1px solid #b8daff; border-radius:8px; padding:8px 10px;"><div style="font-size:11px; color:#004085;">يطابق حسابات الموردين</div><div style="font-size:16px; font-weight:bold; color:#004085;">${fmt(matchedAmount)} ج</div><div style="font-size:10px; color:#666;">${matchedRows} صف · ${suppliersWithData.length} مورد</div></div>`;
+        html += `</div>`;
+
+        let gapColor = orphanAmount > 0 ? "#dc3545" : "#28a745";
+        html += `<div style="background:${orphanAmount > 0 ? '#fff5f5' : '#f0fff4'}; border:1px solid ${orphanAmount > 0 ? '#f5c6cb' : '#c3e6cb'}; border-radius:8px; padding:10px 12px; margin-bottom:10px;">`;
+        html += `<div style="font-size:13px;">الفرق = <b style="color:${gapColor}; font-size:15px;">${fmt(orphanAmount)} ج</b></div>`;
+        if (orphanAmount > 0) {
+            html += `<div style="font-size:11px; color:#842029; margin-top:4px;">مبلغ في الملف <b>لا يظهر لأي مورد مسجّل</b> في هذه الفترة.</div>`;
+        } else {
+            html += `<div style="font-size:11px; color:#155724; margin-top:4px;">كل المبالغ تطابق حساب مورد واحد على الأقل.</div>`;
+        }
+        if (!suppliers.length) {
+            html += `<div style="font-size:11px; color:#856404; margin-top:6px; background:#fff3cd; padding:6px 8px; border-radius:6px;">⚠️ حسابات الموردين غير محمّلة. افتح تبويب الموردين أو انتظر اكتمال التحميل ثم أعد الفحص.</div>`;
+        }
+        html += `</div>`;
+
+        html += `<div style="font-weight:bold; margin:8px 0 4px;">الموردون الظاهر لهم مستحقات (${suppliersWithData.length})</div>`;
+        if (!suppliersWithData.length) {
+            html += `<div style="font-size:11px; color:#666;">لا يوجد.</div>`;
+        } else {
+            html += `<table style="width:100%; border-collapse:collapse; font-size:11px;"><thead><tr style="background:#e9f5ff;"><th style="padding:4px; border:1px solid #ddd; text-align:right;">المورد</th><th style="padding:4px; border:1px solid #ddd;">ساب</th><th style="padding:4px; border:1px solid #ddd;">صفوف</th><th style="padding:4px; border:1px solid #ddd;">المبلغ</th><th style="padding:4px; border:1px solid #ddd;">فترات</th></tr></thead><tbody>`;
+            suppliersWithData.sort((a,b) => b.amount - a.amount).forEach(s => {
+                html += `<tr><td style="padding:4px; border:1px solid #ddd;">${sanitizeHTML(s.owner || s.office || "—")}<div style="font-size:10px; color:#888;">${sanitizeHTML(s.office || "")}</div></td><td style="padding:4px; border:1px solid #ddd; direction:ltr;">${sanitizeHTML(s.sap)}</td><td style="padding:4px; border:1px solid #ddd; text-align:center;">${s.rows}</td><td style="padding:4px; border:1px solid #ddd; font-weight:bold;">${fmt(s.amount)}</td><td style="padding:4px; border:1px solid #ddd; font-size:10px;">${Array.from(s.periods).map(p => sanitizeHTML(p)).join(" · ")}</td></tr>`;
+            });
+            html += `</tbody></table>`;
+        }
+
+        html += `<div style="font-weight:bold; margin:12px 0 4px; color:#c0392b;">مشكلات — لا تظهر لأي مورد (${orphanList.length} · ${fmt(orphanAmount)} ج)</div>`;
+        if (!orphanList.length) {
+            html += `<div style="font-size:11px; color:#155724;">لا يوجد.</div>`;
+        } else {
+            html += `<table style="width:100%; border-collapse:collapse; font-size:11px;"><thead><tr style="background:#f8d7da;"><th style="padding:4px; border:1px solid #ddd; text-align:right;">الاسم في الشيت</th><th style="padding:4px; border:1px solid #ddd;">الفترة</th><th style="padding:4px; border:1px solid #ddd;">ساب</th><th style="padding:4px; border:1px solid #ddd;">صفوف</th><th style="padding:4px; border:1px solid #ddd;">المبلغ</th><th style="padding:4px; border:1px solid #ddd; text-align:right;">السبب</th></tr></thead><tbody>`;
+            orphanList.forEach(g => {
+                let reasons = guessReason(g.name, g.sap);
+                html += `<tr><td style="padding:4px; border:1px solid #ddd;">${sanitizeHTML(g.name)}</td><td style="padding:4px; border:1px solid #ddd;">${sanitizeHTML(g.period)}</td><td style="padding:4px; border:1px solid #ddd; direction:ltr;">${sanitizeHTML(g.sap || "—")}</td><td style="padding:4px; border:1px solid #ddd; text-align:center;">${g.rows}</td><td style="padding:4px; border:1px solid #ddd; font-weight:bold; color:#c0392b;">${fmt(g.amount)}</td><td style="padding:4px; border:1px solid #ddd; font-size:10px; color:#842029;">${reasons.map(r => "• " + sanitizeHTML(r)).join("<br>")}</td></tr>`;
+            });
+            html += `</tbody></table>`;
+            html += `<div style="margin-top:8px; font-size:11px; color:#555; background:#f8f9fa; padding:8px; border-radius:8px; line-height:1.6;"><b>حل سريع:</b> وحّد اسم المورد في الشيت مع الحساب، أو املأ <b>رقم المورد (الساب)</b> ثم أعد الرفع. استخدم «تصدير المشكلات Excel» للمراجعة.</div>`;
+        }
+
+        outEl.innerHTML = html;
+
+        let exp = document.getElementById("duesDiagExportBtn");
+        let hid = document.getElementById("duesDiagHideBtn");
+        if (exp) exp.style.display = (orphanList.length || suppliersWithData.length) ? "inline-flex" : "none";
+        if (hid) hid.style.display = "inline-flex";
+
+    } catch (e) {
+        console.error(e);
+        outEl.innerHTML = "❌ خطأ أثناء الفحص: " + (typeof sanitizeHTML === "function" ? sanitizeHTML(e.message || String(e)) : (e.message || String(e)));
+        window.__duesGapLastReport = null;
+    }
+}
+
+function exportDuesVisibilityGapExcel() {
+    let rep = window.__duesGapLastReport;
+    if (!rep || !rep.exportProblemRows || !rep.exportProblemRows.length) {
+        // إن لم توجد مشكلات، صدّر ملخص الموردين الظاهرين إن وُجد
+        if (!rep || (!rep.orphanSummary || !rep.orphanSummary.length) && (!rep.suppliersWithData || !rep.suppliersWithData.length)) {
+            showAlert("لا توجد نتائج للتصدير. نفّذ الفحص أولاً.");
+            return;
+        }
+    }
+    try {
+        let wb = XLSX.utils.book_new();
+
+        // شيت 1: ملخص
+        let summaryRows = [{
+            "الفترة المفحوصة": rep.periodFilter,
+            "إجمالي المرفوع": rep.totalUploaded,
+            "يطابق الموردين": rep.matchedAmount,
+            "الفرق (مشكلة)": rep.orphanAmount,
+            "عدد الصفوف": rep.totalRows,
+            "صفوف مطابقة": rep.matchedRows,
+            "عدد الموردين الظاهر لهم": (rep.suppliersWithData || []).length,
+            "عدد أسماء المشكلات": (rep.orphanSummary || []).length
+        }];
+        let wsSum = XLSX.utils.json_to_sheet(summaryRows);
+        if (typeof styleExcelSheet === "function") styleExcelSheet(wsSum, summaryRows);
+        XLSX.utils.book_append_sheet(wb, wsSum, "ملخص");
+
+        // شيت 2: مشكلات مجمّعة
+        let problemAgg = (rep.orphanSummary || []).map(g => ({
+            "الفترة": g.period,
+            "الاسم في الشيت": g.name,
+            "رقم المورد (ساب)": g.sap || "",
+            "عدد الصفوف": g.rows,
+            "المبلغ": g.amount,
+            "الفروع": (g.branches || []).join(" | "),
+            "أكواد عيّنة": (g.codesSample || []).join(" | "),
+            "السبب المحتمل": (g.reasons || []).join(" ؛ ")
+        }));
+        if (problemAgg.length) {
+            let wsP = XLSX.utils.json_to_sheet(problemAgg);
+            if (typeof styleExcelSheet === "function") styleExcelSheet(wsP, problemAgg);
+            XLSX.utils.book_append_sheet(wb, wsP, "المشكلات");
+        }
+
+        // شيت 3: موردون ظاهر لهم
+        let okRows = (rep.suppliersWithData || []).map(s => ({
+            "اسم المورد": s.owner || "",
+            "اسم المكتب": s.office || "",
+            "رقم الساب": s.sap || "",
+            "عدد الصفوف": s.rows,
+            "المبلغ الظاهر": s.amount,
+            "الفترات": (s.periods || []).join(" | ")
+        }));
+        if (okRows.length) {
+            let wsOk = XLSX.utils.json_to_sheet(okRows);
+            if (typeof styleExcelSheet === "function") styleExcelSheet(wsOk, okRows);
+            XLSX.utils.book_append_sheet(wb, wsOk, "ظاهر للموردين");
+        }
+
+        // شيت 4: تفصيلي يتيم إن وُجد
+        let detail = (rep.exportProblemRows || []).filter(r => r["نوع السجل"] === "صف تفصيلي يتيم");
+        if (detail.length) {
+            let wsD = XLSX.utils.json_to_sheet(detail);
+            if (typeof styleExcelSheet === "function") styleExcelSheet(wsD, detail);
+            XLSX.utils.book_append_sheet(wb, wsD, "تفصيلي يتيم");
+        }
+
+        let d = new Date();
+        let stamp = d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+        let periodPart = String(rep.periodFilter || "all").replace(/[^\w\u0600-\u06FF\-]+/g, "_").slice(0, 30);
+        XLSX.writeFile(wb, "Dues_Visibility_Gap_" + periodPart + "_" + stamp + ".xlsx");
+        showAlert("✅ تم تصدير تقرير الفروقات.");
+    } catch (e) {
+        console.error(e);
+        showAlert("❌ تعذر التصدير: " + (e.message || e));
+    }
+}
+
+/** توافق مع الاستدعاءات القديمة */
+async function diagnoseSupplierDuesVisibility() {
+    diagnoseDuesVisibilityGap();
+}
 
 function downloadExcelTemplate(type) {
     let headers = [];
