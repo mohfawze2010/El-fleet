@@ -1123,6 +1123,22 @@ function canManageLicenses() {
     if (currentRole === "super_admin") return true;
     return currentRole === "admin" && adminPermissions && adminPermissions.licenses === true;
 }
+/** رفع بيانات الجدولة (قوالب + رفع ملف + حذف بنود/ملفات) */
+function canScheduleUpload() {
+    if (currentRole === "super_admin") return true;
+    return currentRole === "admin" && adminPermissions && adminPermissions.scheduleUpload === true;
+}
+/** الرد/القرار النهائي على نتائج الجدولة */
+function canScheduleReply() {
+    if (currentRole === "super_admin") return true;
+    return currentRole === "admin" && adminPermissions && adminPermissions.scheduleReply === true;
+}
+/** أي صلاحية جدولة (عرض الزر واللوحة) */
+function canAccessSchedule() {
+    if (currentRole === "super_admin") return true;
+    if (currentRole !== "admin" || !adminPermissions) return false;
+    return adminPermissions.scheduleUpload === true || adminPermissions.scheduleReply === true;
+}
 function canDeletePasswordRequests() {
     if (currentRole === "super_admin") return true;
     // صلاحية مستقلة فقط — لا ترتبط بإدارة الموردين
@@ -1426,7 +1442,7 @@ async function promoteAdminToSuper(uid, name) {
     try {
         await db.collection("users").doc(uid).update({
             role: "super_admin",
-            permissions: { data: true, suppliers: true, msgs: true, reports: true, complaints: true, wipe: true, licenses: true, pwdDelete: true },
+            permissions: { data: true, suppliers: true, msgs: true, reports: true, complaints: true, wipe: true, licenses: true, scheduleUpload: true, scheduleReply: true, pwdDelete: true, audit: true },
             promotedAt: Date.now(),
             promotedBy: currentUserName || "super_admin"
         });
@@ -1454,7 +1470,7 @@ async function demoteSuperToAdmin(uid, name) {
             role: "admin",
             permissions: {
                 data: true, suppliers: true, msgs: true, reports: true, complaints: true,
-                wipe: false, licenses: false, pwdDelete: false
+                wipe: false, licenses: false, scheduleUpload: false, scheduleReply: false, pwdDelete: false
             },
             demotedAt: Date.now(),
             demotedBy: currentUserName || "super_admin"
@@ -4210,6 +4226,8 @@ function applyAdminPermissionsUI() {
         document.getElementById("msgIconWrap").classList.remove("hide");
         let wipeEl = document.getElementById("acc_wipe");
         if (wipeEl) wipeEl.style.display = "";
+        let schBtnSA = document.getElementById("scheduleBtn");
+        if (schBtnSA) schBtnSA.classList.remove("hide");
     } else if (currentRole === "admin") {
         document.getElementById("btn-tab-admins").classList.add("hide"); 
         
@@ -4266,6 +4284,11 @@ function applyAdminPermissionsUI() {
         if (tabData && !(adminPermissions && adminPermissions.data)) {
             tabData.classList.remove("active");
             if (btnData) btnData.classList.remove("active");
+        }
+        let schBtn = document.getElementById("scheduleBtn");
+        if (schBtn) {
+            if (typeof canAccessSchedule === "function" && canAccessSchedule()) schBtn.classList.remove("hide");
+            else schBtn.classList.add("hide");
         }
     }
 }
@@ -4433,7 +4456,12 @@ if(currentRole==="admin" || currentRole==="super_admin"){
  document.getElementById("complaintBtn").classList.add("hide");
  document.getElementById("changePassBtn").classList.remove("hide"); 
  document.getElementById("licenseNotificationBtn").classList.remove("hide");
- document.getElementById("scheduleBtn").classList.remove("hide");
+ // ظهور زر الجدولة حسب الصلاحية (داخل applyAdminPermissionsUI أيضاً)
+ if (typeof canAccessSchedule === "function" && canAccessSchedule()) {
+     document.getElementById("scheduleBtn").classList.remove("hide");
+ } else {
+     let _sb = document.getElementById("scheduleBtn"); if (_sb) _sb.classList.add("hide");
+ }
  
  applyAdminPermissionsUI();
  
@@ -4695,6 +4723,8 @@ function selectMsgSupplier(sap, name) {
                             <label class="perm-item" title="تقرير الرحلات الفاشلة وتصديره">📊 تقرير الرحلات الفاشلة<input type="checkbox" id="chk_reports"></label>
                             <label class="perm-item" style="border-color:#f5c6cb; color:#842029;" title="مسح كل بيانات السيارات والرحلات والمستحقات المرفوعة">🗑 مسح البيانات المرفوعة<input type="checkbox" id="chk_wipe"></label>
                             <label class="perm-item" title="تنظيف صور الرخص وتحرير مساحة التخزين">🪪 تنظيف صور الرخص<input type="checkbox" id="chk_licenses"></label>
+                            <label class="perm-item" title="رفع ملفات جدولة التشغيل/الإيقاف وتحميل القوالب وحذف البنود">📅 رفع بيانات الجدولة<input type="checkbox" id="chk_scheduleUpload"></label>
+                            <label class="perm-item" title="اعتماد القرار النهائي (تشغيل/متوقف) على بنود الجدولة">✅ الرد على نتائج الجدولة<input type="checkbox" id="chk_scheduleReply"></label>
                             <label class="perm-item" title="زر مسح طلب نسيان كلمة السر من قائمة الإشعارات فقط — لا يحذف المورد">🔑 مسح إشعار طلب الباسورد<input type="checkbox" id="chk_pwdDelete"></label>
                             <label class="perm-item" title="عرض سجل العمليات (من فعل ماذا ومتى)">📋 عرض سجل العمليات<input type="checkbox" id="chk_audit"></label>
                             <label class="perm-item" style="border-color:#ffc107; color:#856404;" title="يمنع أي تعديل أو حذف أو إنشاء — عرض فقط">👁 مشاهدة فقط (بدون تعديل)<input type="checkbox" id="chk_readonly"></label>
@@ -5136,6 +5166,8 @@ async function createNewAdmin() {
     let p_complaints = document.getElementById("chk_complaints").checked;
     let p_wipe = document.getElementById("chk_wipe") ? document.getElementById("chk_wipe").checked : false;
     let p_licenses = document.getElementById("chk_licenses") ? document.getElementById("chk_licenses").checked : false;
+    let p_scheduleUpload = document.getElementById("chk_scheduleUpload") ? document.getElementById("chk_scheduleUpload").checked : false;
+    let p_scheduleReply = document.getElementById("chk_scheduleReply") ? document.getElementById("chk_scheduleReply").checked : false;
     let p_pwdDelete = document.getElementById("chk_pwdDelete") ? document.getElementById("chk_pwdDelete").checked : false;
     let p_audit = document.getElementById("chk_audit") ? document.getElementById("chk_audit").checked : false;
     let p_readonly = document.getElementById("chk_readonly") ? document.getElementById("chk_readonly").checked : false;
@@ -5168,7 +5200,7 @@ async function createNewAdmin() {
                 phone: phone, 
                 role: "admin",
                 assignedPassword: pass,
-                permissions: { data: p_data, suppliers: p_suppliers, msgs: p_msgs, reports: p_reports, complaints: p_complaints, wipe: p_wipe, licenses: p_licenses, pwdDelete: p_pwdDelete, audit: p_audit, readonly: p_readonly },
+                permissions: { data: p_data, suppliers: p_suppliers, msgs: p_msgs, reports: p_reports, complaints: p_complaints, wipe: p_wipe, licenses: p_licenses, scheduleUpload: p_scheduleUpload, scheduleReply: p_scheduleReply, pwdDelete: p_pwdDelete, audit: p_audit, readonly: p_readonly },
                 createdAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             document.getElementById("adminResult").innerHTML = "✅ تم إضافة المشرف بنجاح!";
@@ -5199,9 +5231,11 @@ async function loadAdminsList() {
             if(d.phone) globalAdminsMap.set(d.phone, d);
             if(d.role !== "admin" && d.role !== "super_admin") return;
             
-            let p = d.permissions || {data:true, suppliers:true, msgs:true, reports:true, complaints:true, wipe:false, licenses:false, pwdDelete:false, audit:false, readonly:false};
+            let p = d.permissions || {data:true, suppliers:true, msgs:true, reports:true, complaints:true, wipe:false, licenses:false, scheduleUpload:false, scheduleReply:false, pwdDelete:false, audit:false, readonly:false};
             if (p.wipe === undefined) p.wipe = false;
             if (p.licenses === undefined) p.licenses = false;
+            if (p.scheduleUpload === undefined) p.scheduleUpload = false;
+            if (p.scheduleReply === undefined) p.scheduleReply = false;
             if (p.pwdDelete === undefined) p.pwdDelete = false;
             if (p.audit === undefined) p.audit = false;
             if (p.readonly === undefined) p.readonly = false;
@@ -5226,6 +5260,8 @@ async function loadAdminsList() {
                         <label class="perm-item" title="التقارير">تقرير الرحلات الفاشلة<input type="checkbox" id="edit_p_rep_${doc.id}" ${p.reports?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
                         <label class="perm-item" style="border-color:#f5c6cb; color:#842029;" title="مسح البيانات المرفوعة">مسح البيانات المرفوعة<input type="checkbox" id="edit_p_wipe_${doc.id}" ${p.wipe?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
                         <label class="perm-item" title="الرخص">تنظيف صور الرخص<input type="checkbox" id="edit_p_lic_${doc.id}" ${p.licenses?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                        <label class="perm-item" title="رفع بيانات الجدولة">📅 رفع بيانات الجدولة<input type="checkbox" id="edit_p_schUp_${doc.id}" ${p.scheduleUpload?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                        <label class="perm-item" title="الرد على نتائج الجدولة">✅ الرد على نتائج الجدولة<input type="checkbox" id="edit_p_schRep_${doc.id}" ${p.scheduleReply?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
                         <label class="perm-item" title="مسح إشعار طلب الباسورد فقط">مسح إشعار طلب الباسورد<input type="checkbox" id="edit_p_pwd_${doc.id}" ${p.pwdDelete?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
                         <label class="perm-item" title="سجل العمليات">عرض سجل العمليات<input type="checkbox" id="edit_p_audit_${doc.id}" ${p.audit?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
                         <label class="perm-item" style="border-color:#ffc107; color:#856404;" title="بدون تعديل">مشاهدة فقط<input type="checkbox" id="edit_p_ro_${doc.id}" ${p.readonly?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
@@ -5304,6 +5340,8 @@ async function updateAdminPerms(uid) {
             complaints: document.getElementById("edit_p_comp_" + uid).checked,
             wipe: document.getElementById("edit_p_wipe_" + uid) ? document.getElementById("edit_p_wipe_" + uid).checked : false,
             licenses: document.getElementById("edit_p_lic_" + uid) ? document.getElementById("edit_p_lic_" + uid).checked : false,
+            scheduleUpload: document.getElementById("edit_p_schUp_" + uid) ? document.getElementById("edit_p_schUp_" + uid).checked : false,
+            scheduleReply: document.getElementById("edit_p_schRep_" + uid) ? document.getElementById("edit_p_schRep_" + uid).checked : false,
             pwdDelete: document.getElementById("edit_p_pwd_" + uid) ? document.getElementById("edit_p_pwd_" + uid).checked : false,
             audit: document.getElementById("edit_p_audit_" + uid) ? document.getElementById("edit_p_audit_" + uid).checked : false,
             readonly: document.getElementById("edit_p_ro_" + uid) ? document.getElementById("edit_p_ro_" + uid).checked : false
@@ -6760,7 +6798,10 @@ firebase.auth().onAuthStateChanged(async function(user){
              document.getElementById("complaintBtn").classList.add("hide");
              document.getElementById("changePassBtn").classList.remove("hide"); 
              document.getElementById("licenseNotificationBtn").classList.remove("hide");
-             if(document.getElementById("scheduleBtn")) document.getElementById("scheduleBtn").classList.remove("hide");
+             if (document.getElementById("scheduleBtn")) {
+                 if (typeof canAccessSchedule === "function" && canAccessSchedule()) document.getElementById("scheduleBtn").classList.remove("hide");
+                 else document.getElementById("scheduleBtn").classList.add("hide");
+             }
              
              applyAdminPermissionsUI();
 
@@ -8795,7 +8836,7 @@ async function handleLicenseImagesUpload(event, plate, code, vId) {
 /* ========== جدولة التشغيل/الإيقاف (وحدة مستقلة — تحميل عند الفتح فقط) ========== */
 let globalScheduleItems = [];
 let _scheduleLoadedAt = 0;
-const SCHEDULE_CACHE_MS = 60000; // كاش دقيقة واحدة لتقليل القراءة
+const SCHEDULE_CACHE_MS = 180000; // كاش 3 دقائق — التحديث اليدوي عبر زر «تحديث» فقط
 
 function scheduleTodayStr() {
     try {
@@ -9060,7 +9101,10 @@ async function refreshScheduleBadge() {
         let today = scheduleTodayStr();
         let isAdmin = (currentRole === "admin" || currentRole === "super_admin");
         if (isAdmin) {
-            if (btn) btn.classList.remove("hide");
+            if (btn) {
+                if (typeof canAccessSchedule === "function" && canAccessSchedule()) btn.classList.remove("hide");
+                else btn.classList.add("hide");
+            }
             let n = items.filter(it => !it.adminFinal && scheduleIsVisibleToSupplier(it, today)).length;
             if (badge) {
                 if (n > 0) { badge.style.display = "inline"; badge.textContent = String(n); }
@@ -9098,6 +9142,11 @@ function toggleScheduleUploadBox() {
     }
 }
 function openSchedulePanel() {
+    let isAdminLike = (currentRole === "admin" || currentRole === "super_admin");
+    if (isAdminLike && typeof canAccessSchedule === "function" && !canAccessSchedule()) {
+        showAlert("🚫 لا تملك صلاحية الوصول للجدولة. اطلب من مدير النظام تفعيل «رفع بيانات الجدولة» أو «الرد على نتائج الجدولة».");
+        return;
+    }
     activePanel = "الجدولة";
     document.getElementById("popupBox").style.display = "flex";
     try { history.pushState(null, null, "#schedule"); } catch (e) {}
@@ -9117,7 +9166,14 @@ function openSchedulePanel() {
     renderSchedulePanel();
 }
 
-async function renderSchedulePanel() {
+/** تحديث يدوي فقط (يوفّر القراءات — لا تحديث تلقائي متكرر) */
+async function forceRefreshSchedulePanel() {
+    let box = document.getElementById("popupResult");
+    if (box) box.innerHTML = "<div style='text-align:center;padding:20px;color:#075bb5;'>⏳ جاري التحديث من السيرفر...</div>";
+    await renderSchedulePanel(true);
+}
+
+async function renderSchedulePanel(forceLoad) {
     let box = document.getElementById("popupResult");
     if (!box) return;
     let isAdmin = (currentRole === "admin" || currentRole === "super_admin");
@@ -9125,14 +9181,33 @@ async function renderSchedulePanel() {
     let preservedStatus = ((document.getElementById("scheduleStatusFilter") || {}).value) || "all";
     let preservedDate = ((document.getElementById("scheduleDateFilter") || {}).value) || "";
     let preservedSort = ((document.getElementById("scheduleSortFilter") || {}).value) || "date_desc";
+    let preservedSupplier = ((document.getElementById("scheduleSupplierFilter") || {}).value) || "";
+    let preservedDateFrom = ((document.getElementById("scheduleDateFrom") || {}).value) || "";
+    let preservedDateTo = ((document.getElementById("scheduleDateTo") || {}).value) || "";
+    // افتراضي تاريخ: من 7 أيام مضت إلى 30 يوماً قادمة (مرة واحدة عند أول فتح إن لم يُحدَّد)
+    if (!preservedDateFrom && !preservedDateTo && !window.__scheduleDateRangeInit) {
+        try {
+            let t = new Date();
+            let from = new Date(t); from.setDate(from.getDate() - 7);
+            let to = new Date(t); to.setDate(to.getDate() + 30);
+            let iso = (d) => d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+            preservedDateFrom = iso(from);
+            preservedDateTo = iso(to);
+            window.__scheduleDateRangeInit = true;
+        } catch (eDr) {}
+    }
     try {
-        await loadScheduleItems(true);
+        // افتراضي: من الكاش — forceLoad=true فقط عند زر «تحديث» أو بعد عمليات الكتابة
+        await loadScheduleItems(!!forceLoad);
         let today = scheduleTodayStr();
         let items = globalScheduleItems.slice();
         let html = "";
 
         if (isAdmin) {
+            let allowUpload = (typeof canScheduleUpload === "function") ? canScheduleUpload() : (currentRole === "super_admin");
+            let allowReply = (typeof canScheduleReply === "function") ? canScheduleReply() : (currentRole === "super_admin");
             let uploadOpen = (window.__scheduleUploadOpen === true);
+            if (allowUpload) {
             html += `<div style="background:#f0f7ff;border:1px solid #b8daff;border-radius:10px;margin-bottom:12px;overflow:hidden;">
                 <div onclick="toggleScheduleUploadBox()" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;padding:10px 12px;user-select:none;">
                     <span style="font-size:13px;font-weight:bold;color:#075bb5;">📤 رفع ملف / اختيار مورد للقالب</span>
@@ -9159,11 +9234,14 @@ async function renderSchedulePanel() {
                         </select>
                         <input type="date" id="scheduleVisibleCustom" style="width:auto;margin:0;padding:6px;font-size:12px;display:none;">
                     </div>
-                    <button type="button" onclick="uploadScheduleFile()" style="width:100%;margin:0;padding:10px;background:#0d6efd;font-size:13px;">📤 رفع وتطبيق الجدولة</button>
+                    <button type="button" onclick="uploadScheduleFile()" style="width:100%;margin:0;padding:7px 10px;background:#0d6efd;font-size:12px;border-radius:8px;">📤 رفع وتطبيق الجدولة</button>
                     <div id="scheduleUploadMsg" style="font-size:12px;margin-top:8px;color:#555;"></div>
                 </div>
-            </div>
-            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;align-items:center;">
+            </div>`;
+            } else if (!allowReply) {
+                html += `<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px;color:#856404;">⚠️ لا تملك صلاحية رفع الجدولة ولا الرد على النتائج. يمكنك العرض فقط إن ظهرت الشاشة.</div>`;
+            }
+            html += `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;align-items:center;">
                 <select id="scheduleAdminFilter" onchange="renderSchedulePanel()" style="width:auto;flex:1;min-width:110px;margin:0;padding:7px;font-size:12px;">
                     <option value="active">الظاهرة / بانتظار</option>
                     <option value="pending_reply">بانتظار رد المورد</option>
@@ -9176,15 +9254,22 @@ async function renderSchedulePanel() {
                     <option value="stop">متوقف فقط</option>
                     <option value="run">تشغيل فقط</option>
                 </select>
-                <input type="date" id="scheduleDateFilter" onchange="renderSchedulePanel()" title="تاريخ التنفيذ" style="width:auto;margin:0;padding:6px;font-size:12px;">
+                <select id="scheduleSupplierFilter" onchange="renderSchedulePanel()" style="width:auto;min-width:120px;max-width:200px;margin:0;padding:7px;font-size:12px;" title="تصفية بمورد">
+                    <option value="">كل الموردين</option>
+                </select>
+                <span style="font-size:11px;color:#555;">من</span>
+                <input type="date" id="scheduleDateFrom" onchange="renderSchedulePanel()" title="من تاريخ التنفيذ" style="width:auto;margin:0;padding:6px;font-size:12px;">
+                <span style="font-size:11px;color:#555;">إلى</span>
+                <input type="date" id="scheduleDateTo" onchange="renderSchedulePanel()" title="إلى تاريخ التنفيذ" style="width:auto;margin:0;padding:6px;font-size:12px;">
+                <input type="date" id="scheduleDateFilter" onchange="renderSchedulePanel()" title="تاريخ تنفيذ محدد (اختياري)" style="width:auto;margin:0;padding:6px;font-size:12px;display:none;">
                 <select id="scheduleSortFilter" onchange="renderSchedulePanel()" style="width:auto;margin:0;padding:7px;font-size:12px;">
                     <option value="date_desc">ترتيب: الأحدث تنفيذ</option>
                     <option value="date_asc">ترتيب: الأقدم تنفيذ</option>
                     <option value="stop_first">متوقف أولاً</option>
                     <option value="run_first">تشغيل أولاً</option>
                 </select>
-                <button type="button" onclick="exportScheduleReport()" style="width:auto;margin:0;padding:8px 12px;background:#28a745;font-size:12px;">📥 تصدير</button>
-                <button type="button" onclick="renderSchedulePanel()" style="width:auto;margin:0;padding:8px 12px;background:#6c757d;font-size:12px;">🔄</button>
+                <button type="button" onclick="exportScheduleReport()" style="width:auto;margin:0;padding:6px 10px;background:#17a2b8;font-size:11px;">📥 تصدير</button>
+                <button type="button" onclick="forceRefreshSchedulePanel()" title="تحديث من السيرفر" style="width:auto;margin:0;padding:6px 10px;background:#6c757d;font-size:11px;">🔄 تحديث</button>
             </div>`;
             let modeSel = null;
             setTimeout(() => {
@@ -9198,7 +9283,19 @@ async function renderSchedulePanel() {
             let filter = preservedFilter || "active";
             let stF = preservedStatus || "all";
             let dateF = preservedDate || "";
+            let dateFrom = preservedDateFrom || "";
+            let dateTo = preservedDateTo || "";
+            let sapF = preservedSupplier || "";
             let sortF = preservedSort || "date_desc";
+
+            // بناء قائمة الموردين للفلتر (إن وُجد أكثر من مورد)
+            let supplierOpts = new Map();
+            items.forEach(it => {
+                let k = normalizeValue(it.supplierSap || "") || deepCleanArabic(it.supplierName || "") || "";
+                if (!k) return;
+                let label = (it.supplierName || "مورد") + (it.supplierSap ? " (" + it.supplierSap + ")" : "");
+                if (!supplierOpts.has(k)) supplierOpts.set(k, label);
+            });
 
             let filtered = items.filter(it => {
                 if (filter === "all") { /* ok */ }
@@ -9213,6 +9310,14 @@ async function renderSchedulePanel() {
                 if (stF === "stop" && it.plannedStatus !== "stop") return false;
                 if (stF === "run" && it.plannedStatus !== "run") return false;
                 if (dateF && String(it.executionDate || "") !== dateF) return false;
+                let ed = String(it.executionDate || "");
+                if (dateFrom && ed && ed < dateFrom) return false;
+                if (dateTo && ed && ed > dateTo) return false;
+                if (sapF) {
+                    let k1 = normalizeValue(it.supplierSap || "");
+                    let k2 = deepCleanArabic(it.supplierName || "");
+                    if (sapF !== k1 && sapF !== k2) return false;
+                }
                 return true;
             });
             filtered = scheduleSortItems(filtered, sortF);
@@ -9232,8 +9337,8 @@ async function renderSchedulePanel() {
                     let safe = String(fn).replace(/\\/g, "\\").replace(/'/g, "\\'");
                     html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">
                         <span style="flex:1;">${sanitizeHTML(fn)} <span style="color:#888;">(${fileMap[fn]} بند)</span></span>
-                        <button type="button" style="width:auto;margin:0;padding:4px 10px;background:#dc3545;font-size:11px;"
-                            onclick="deleteScheduleByFileName('${safe}')">مسح الملف</button>
+                        ${allowUpload ? `<button type="button" style="width:auto;margin:0;padding:4px 10px;background:#dc3545;font-size:11px;"
+                            onclick="deleteScheduleByFileName('${safe}')">مسح الملف</button>` : ""}
                     </div>`;
                 });
                 html += `</div>`;
@@ -9261,19 +9366,33 @@ async function renderSchedulePanel() {
             html += `<div style="background:#fff8e6;border:1px solid #ffe0a3;border-radius:10px;padding:10px;margin-bottom:12px;font-size:12px;line-height:1.6;color:#333;">
                 تظهر هنا فقط أكوادك المجدولة. إن لم يوجد بند فلا تغيير على التشغيل المعتاد.
             </div>`;
+            // فلتر تاريخ افتراضي للمورد أيضاً
+            if (preservedDateFrom || preservedDateTo) {
+                mine = mine.filter(it => {
+                    let ed = String(it.executionDate || "");
+                    if (preservedDateFrom && ed && ed < preservedDateFrom) return false;
+                    if (preservedDateTo && ed && ed > preservedDateTo) return false;
+                    return true;
+                });
+            }
             html += `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;align-items:center;">
                 <select id="scheduleStatusFilter" onchange="renderSchedulePanel()" style="width:auto;margin:0;padding:7px;font-size:12px;">
                     <option value="all">الموقف: الكل</option>
                     <option value="stop">متوقف فقط</option>
                     <option value="run">تشغيل فقط</option>
                 </select>
-                <input type="date" id="scheduleDateFilter" onchange="renderSchedulePanel()" title="تاريخ التنفيذ" style="width:auto;margin:0;padding:6px;font-size:12px;">
+                <span style="font-size:11px;color:#555;">من</span>
+                <input type="date" id="scheduleDateFrom" onchange="renderSchedulePanel()" title="من تاريخ" style="width:auto;margin:0;padding:6px;font-size:12px;">
+                <span style="font-size:11px;color:#555;">إلى</span>
+                <input type="date" id="scheduleDateTo" onchange="renderSchedulePanel()" title="إلى تاريخ" style="width:auto;margin:0;padding:6px;font-size:12px;">
+                <input type="date" id="scheduleDateFilter" onchange="renderSchedulePanel()" title="تاريخ التنفيذ" style="width:auto;margin:0;padding:6px;font-size:12px;display:none;">
                 <select id="scheduleSortFilter" onchange="renderSchedulePanel()" style="width:auto;margin:0;padding:7px;font-size:12px;">
                     <option value="date_desc">الأحدث تنفيذ</option>
                     <option value="date_asc">الأقدم تنفيذ</option>
                     <option value="stop_first">متوقف أولاً</option>
                     <option value="run_first">تشغيل أولاً</option>
                 </select>
+                <button type="button" onclick="forceRefreshSchedulePanel()" title="تحديث من السيرفر" style="width:auto;margin:0;padding:6px 10px;background:#6c757d;font-size:11px;">🔄 تحديث</button>
             </div>`;
             html += `<div style="font-size:12px;color:#666;margin-bottom:8px;">بنودك الظاهرة: <b>${mine.length}</b></div>`;
             if (!mine.length) {
@@ -9290,8 +9409,39 @@ async function renderSchedulePanel() {
         if (stEl) stEl.value = preservedStatus || "all";
         let dEl = document.getElementById("scheduleDateFilter");
         if (dEl) dEl.value = preservedDate || "";
+        let dfEl = document.getElementById("scheduleDateFrom");
+        if (dfEl) dfEl.value = preservedDateFrom || "";
+        let dtEl = document.getElementById("scheduleDateTo");
+        if (dtEl) dtEl.value = preservedDateTo || "";
         let soEl = document.getElementById("scheduleSortFilter");
         if (soEl) soEl.value = preservedSort || "date_desc";
+        // تعبئة فلتر الموردين عند الأدمن إن وُجد أكثر من مورد
+        let supSel = document.getElementById("scheduleSupplierFilter");
+        if (supSel && isAdmin) {
+            try {
+                let sOpts = new Map();
+                (globalScheduleItems || []).forEach(it => {
+                    let k = normalizeValue(it.supplierSap || "") || deepCleanArabic(it.supplierName || "") || "";
+                    if (!k) return;
+                    let label = (it.supplierName || "مورد") + (it.supplierSap ? " (" + it.supplierSap + ")" : "");
+                    if (!sOpts.has(k)) sOpts.set(k, label);
+                });
+                if (sOpts.size > 1) {
+                    supSel.style.display = "";
+                    let cur = preservedSupplier || "";
+                    let optsHtml = '<option value="">كل الموردين</option>';
+                    Array.from(sOpts.entries()).sort((a,b) => String(a[1]).localeCompare(String(b[1]), "ar")).forEach(([k, lab]) => {
+                        optsHtml += '<option value="' + sanitizeHTML(k) + '">' + sanitizeHTML(lab) + '</option>';
+                    });
+                    supSel.innerHTML = optsHtml;
+                    if (cur) supSel.value = cur;
+                } else {
+                    // مورد واحد أو لا يوجد — إخفاء الفلتر
+                    supSel.style.display = "none";
+                    supSel.innerHTML = '<option value="">كل الموردين</option>';
+                }
+            } catch (eSup) { console.warn(eSup); }
+        }
         if (isAdmin && typeof renderScheduleSupplierPicks === "function") {
             try { renderScheduleSupplierPicks(); } catch (eP) {}
         }
@@ -9369,13 +9519,19 @@ function scheduleCardHtml(it, isAdmin, today) {
         html += `<div style="margin-top:6px;font-size:11px;color:#856404;">تم إرسال ردك (${it.supplierReply.type === "object" ? "معترض" : "موافق"}) — بانتظار قرار الإدارة.</div>`;
     }
 
+    let allowReplyCard = (typeof canScheduleReply === "function") ? canScheduleReply() : (currentRole === "super_admin");
+    let allowUploadCard = (typeof canScheduleUpload === "function") ? canScheduleUpload() : (currentRole === "super_admin");
     if (isAdmin && !it.adminFinal) {
-        html += `<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;" onclick="event.stopPropagation()">
-            <button type="button" style="flex:1;margin:0;background:#28a745;padding:7px;font-size:12px;" onclick="setScheduleFinal('${idSafe}','run')">✅ نهائي: تشغيل</button>
-            <button type="button" style="flex:1;margin:0;background:#dc3545;padding:7px;font-size:12px;" onclick="setScheduleFinal('${idSafe}','stop')">🛑 نهائي: متوقف</button>
-            <button type="button" style="width:auto;margin:0;background:#6c757d;padding:7px 10px;font-size:11px;" onclick="deleteScheduleItem('${idSafe}')">🗑️</button>
-        </div>`;
-    } else if (isAdmin) {
+        html += `<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;" onclick="event.stopPropagation()">`;
+        if (allowReplyCard) {
+            html += `<button type="button" style="flex:1;margin:0;background:#28a745;padding:7px;font-size:12px;" onclick="setScheduleFinal('${idSafe}','run')">✅ نهائي: تشغيل</button>
+            <button type="button" style="flex:1;margin:0;background:#dc3545;padding:7px;font-size:12px;" onclick="setScheduleFinal('${idSafe}','stop')">🛑 نهائي: متوقف</button>`;
+        }
+        if (allowUploadCard) {
+            html += `<button type="button" style="width:auto;margin:0;background:#6c757d;padding:7px 10px;font-size:11px;" onclick="deleteScheduleItem('${idSafe}')">🗑️</button>`;
+        }
+        html += `</div>`;
+    } else if (isAdmin && allowUploadCard) {
         html += `<div style="margin-top:6px;" onclick="event.stopPropagation()">
             <button type="button" style="width:auto;margin:0;background:#6c757d;padding:5px 10px;font-size:11px;" onclick="deleteScheduleItem('${idSafe}')">🗑️ حذف البند</button>
         </div>`;
@@ -9391,6 +9547,10 @@ function toggleScheduleRow(id) {
 }
 
 async function deleteScheduleItem(id) {
+    if (typeof canScheduleUpload === "function" && !canScheduleUpload()) {
+        showAlert("🚫 لا تملك صلاحية حذف بنود الجدولة.");
+        return;
+    }
     if (!confirm("حذف هذا البند من الجدولة؟")) return;
     try {
         await db.collection("schedulePlans").doc(id).delete();
@@ -9404,6 +9564,10 @@ async function deleteScheduleItem(id) {
 }
 
 async function deleteScheduleByFileName(fileName) {
+    if (typeof canScheduleUpload === "function" && !canScheduleUpload()) {
+        showAlert("🚫 لا تملك صلاحية حذف ملفات الجدولة.");
+        return;
+    }
     if (!fileName) return;
     if (!confirm("حذف كل بنود الملف:\n" + fileName + "\n؟ لا يمكن التراجع.")) return;
     try {
@@ -9442,8 +9606,8 @@ function renderScheduleSupplierPicks() {
         });
     }
     let h = `<div style="margin-bottom:8px;">
-        <button type="button" style="width:100%;margin:0;padding:8px;background:#0d6efd;font-size:12px;"
-            onclick="downloadScheduleTemplateAll()">📥 تحميل قالب كل السيارات (كل الموردين)</button>
+        <button type="button" style="width:auto;max-width:100%;margin:0;padding:6px 12px;background:#28a745;font-size:11px;border-radius:8px;"
+            onclick="downloadScheduleTemplateAll()">📥 تحميل قالب كل السيارات</button>
     </div>`;
     if (q) {
         list = list.filter(s => robustNormalize(s.owner + " " + s.office + " " + s.sap + " " + s.phone).indexOf(q) >= 0);
@@ -9615,6 +9779,10 @@ function downloadScheduleTemplate() {
 }
 
 async function uploadScheduleFile() {
+    if (typeof canScheduleUpload === "function" && !canScheduleUpload()) {
+        showAlert("🚫 لا تملك صلاحية رفع بيانات الجدولة.");
+        return;
+    }
     let input = document.getElementById("scheduleFileInput");
     let msg = document.getElementById("scheduleUploadMsg");
     if (!input || !input.files || !input.files[0]) {
@@ -9767,6 +9935,10 @@ async function submitScheduleReply(id, type) {
 }
 
 async function setScheduleFinal(id, finalStatus) {
+    if (typeof canScheduleReply === "function" && !canScheduleReply()) {
+        showAlert("🚫 لا تملك صلاحية الرد على نتائج الجدولة.");
+        return;
+    }
     if (!confirm("تأكيد القرار النهائي: " + scheduleStatusLabel(finalStatus) + " ؟")) return;
     try {
         await db.collection("schedulePlans").doc(id).update({
