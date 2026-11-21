@@ -56,6 +56,7 @@ document.addEventListener("keydown", function(event) {
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check-compat.js"></script>
 
 <style>
 body {font-family:tahoma;background:#f3f6fb;margin:0;padding:15px}
@@ -1018,6 +1019,14 @@ appId:"1:750424180328:web:44511a696ba43923249ddd"
 };
 
 firebase.initializeApp(firebaseConfig);
+// Firebase App Check (reCAPTCHA v3): يتأكد أن الطلبات صادرة من هذه الصفحة وليست من سكريبت خارجي.
+// ضع مفتاح الموقع (Site Key) من Firebase Console → App Check هنا. فارغ = غير مفعّل.
+const APPCHECK_SITE_KEY = "";
+try {
+    if (APPCHECK_SITE_KEY && firebase.appCheck) {
+        firebase.appCheck().activate(new firebase.appCheck.ReCaptchaV3Provider(APPCHECK_SITE_KEY), true);
+    }
+} catch (e) { console.warn("appcheck", e); }
 const auth = firebase.auth();
 const db = firebase.firestore();
 const storage = firebase.storage();
@@ -2823,8 +2832,8 @@ function utf8ByteLength(str) {
 }
 
 /** كتابة/حذف على دفعات تتقلص تلقائياً لو تجاوزت قواعد الأمان حد الاستدعاءات */
-async function commitOpsAdaptive(ops, applyFn) {
-    let size = 400, i = 0;
+async function commitOpsAdaptive(ops, applyFn, startSize) {
+    let size = startSize || 400, i = 0;
     while (i < ops.length) {
         const slice = ops.slice(i, i + size);
         const batch = db.batch();
@@ -3552,6 +3561,40 @@ async function wipeAllData() {
     } catch(e) { console.error(e); document.getElementById("adminResult").innerHTML = "❌ خطأ: " + e.message; }
 }
 
+/* ===== كلمات المرور المسجلة: مجموعة منفصلة credentials (لا تظهر في مستندات الموردين/المشرفين) ===== */
+let globalCreds = {};
+let _credsLoaded = false;
+function credOf(uid) { return (uid && globalCreds[uid]) || ""; }
+async function saveCredential(uid, role, pass) {
+    if (!uid || !pass) return;
+    await db.collection("credentials").doc(uid).set({ password: pass, role: role, passwordUpdatedAt: Date.now() });
+}
+/** يجلب كلمات المرور التي يحق للمستخدم الحالي رؤيتها (الموردين: صلاحية الموردين — المشرفين: سوبر أدمن فقط) */
+async function ensureCreds(force) {
+    if (_credsLoaded && !force) return;
+    const out = {};
+    const isSup = (currentRole === "super_admin") || (currentRole === "admin" && adminPermissions && adminPermissions.suppliers === true);
+    try { if (isSup) (await db.collection("credentials").where("role", "==", "supplier").get()).forEach(d => { out[d.id] = d.data().password; }); } catch (e) { console.warn("creds sup", e); }
+    try { if (currentRole === "super_admin") (await db.collection("credentials").where("role", "==", "admin").get()).forEach(d => { out[d.id] = d.data().password; }); } catch (e) { console.warn("creds adm", e); }
+    globalCreds = out;
+    _credsLoaded = true;
+}
+/** نقل لمرة واحدة (سوبر أدمن): من حقل assignedPassword داخل المستندات إلى credentials ثم حذف الحقل */
+async function migrateCredentialsOnce() {
+    try {
+        if (currentRole !== "super_admin") return;
+        try { if (localStorage.getItem("elaraby_cred_migrated") === "1") return; } catch (e) {}
+        const ops = [];
+        (await db.collection("users").get()).forEach(d => { const pw = d.data().assignedPassword; if (pw) ops.push({ id: d.id, role: "admin", pw: pw, ref: d.ref }); });
+        (await db.collection("suppliers").get()).forEach(d => { const pw = d.data().assignedPassword; if (pw) ops.push({ id: d.id, role: "supplier", pw: pw, ref: d.ref }); });
+        await commitOpsAdaptive(ops, (b, o) => {
+            b.set(db.collection("credentials").doc(o.id), { password: o.pw, role: o.role, passwordUpdatedAt: Date.now() });
+            b.update(o.ref, { assignedPassword: firebase.firestore.FieldValue.delete() });
+        }, 200);
+        try { localStorage.setItem("elaraby_cred_migrated", "1"); } catch (e) {}
+    } catch (e) { console.warn("cred migrate", e); }
+}
+
 async function changeMyPassword() {
     let newPass = prompt("أدخل كلمة المرور الجديدة (6 خانات على الأقل):");
     if(!newPass) return;
@@ -3562,7 +3605,8 @@ async function changeMyPassword() {
         if(user) {
             await user.updatePassword(newPass);
             let userCol = (currentRole === "admin" || currentRole === "super_admin") ? "users" : "suppliers";
-            await db.collection(userCol).doc(user.uid).update({ assignedPassword: newPass, passwordUpdatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+            await saveCredential(user.uid, (userCol === "users") ? "admin" : "supplier", newPass);
+            try { await db.collection(userCol).doc(user.uid).update({ passwordUpdatedAt: firebase.firestore.FieldValue.serverTimestamp() }); } catch (e) {}
             showAlert("✅ تم تغيير الرقم السري بنجاح!");
         }
     } catch(e) {
@@ -4256,9 +4300,9 @@ if (user.user.email === "mohfawze2010@gmail.com") {
         ownerName: "محمد فوزي",
         role: "super_admin", 
         permissions: adminPermissions,
-        phone: phone,
-        assignedPassword: loginPass.value
+        phone: phone
     }, {merge: true});
+    saveCredential(user.user.uid, "admin", loginPass.value).catch(e => console.warn("cred", e));
 } else if(roleDoc.exists && (roleDoc.data().role === "admin" || roleDoc.data().role === "super_admin")){ 
     let rData = roleDoc.data();
     if(rData.role === "super_admin") {
@@ -5063,10 +5107,10 @@ async function createNewAdmin() {
                 ownerName: name, 
                 phone: phone, 
                 role: "admin",
-                assignedPassword: pass,
                 permissions: { data: p_data, suppliers: p_suppliers, msgs: p_msgs, reports: p_reports, complaints: p_complaints, wipe: p_wipe, licenses: p_licenses, scheduleUpload: p_scheduleUpload, scheduleReply: p_scheduleReply, pwdDelete: p_pwdDelete, audit: p_audit, readonly: p_readonly },
                 createdAt: firebase.firestore.FieldValue.serverTimestamp()
             });
+            try { await saveCredential(uid, "admin", pass); } catch (e) { console.warn("cred", e); }
             document.getElementById("adminResult").innerHTML = "✅ تم إضافة المشرف بنجاح!";
             if (typeof logAudit === "function") logAudit("إضافة مشرف جديد", "تم إنشاء حساب مشرف");
             document.getElementById("newAdminName").value = ""; 
@@ -5083,6 +5127,7 @@ async function loadAdminsList() {
     resultContainer.innerHTML = "⏳ جاري تحميل المشرفين...";
     try {
         const snap = await db.collection("users").get();
+        await ensureCreds();
         globalAdminsMap.clear();
         if(snap.empty) { resultContainer.innerHTML = "<span style='font-size:12px; color:#666;'>لا يوجد مشرفين إضافيين حتى الآن.</span>"; return; }
         
@@ -5106,7 +5151,7 @@ async function loadAdminsList() {
             let isMe = (doc.id === myUid);
             let roleBadge = d.role === "super_admin" ? "👑 مدير نظام" : "🛡️ مشرف";
             let searchTarget = (d.ownerName || "") + " " + (d.phone || "");
-            let currentAdminPass = sanitizeHTML(d.assignedPassword) || "غير مسجل";
+            let currentAdminPass = sanitizeHTML(credOf(doc.id)) || (currentRole === "super_admin" ? "غير مسجل" : "🔒 لمدير النظام فقط");
 
             html += `
             <div class="admin-item" data-search="${robustNormalize(searchTarget)}" style="background:#f3f6fb; border:1px solid #ddd; padding:10px; border-radius:8px; margin-top:8px;">
@@ -5226,6 +5271,7 @@ async function deleteAdminUser(uid, name) {
     if(!confirm(`هل أنت متأكد من إزالة المشرف "${name}"؟\nملاحظة: هذا سيمنعه من الدخول للوحة الإدارة.`)) return;
     try {
         await db.collection("users").doc(uid).delete();
+        try { await db.collection("credentials").doc(uid).delete(); } catch (e) {}
         showAlert("✅ تم حذف المشرف بنجاح.");
         loadAdminsList();
     } catch(e) { console.error(e); showAlert("❌ خطأ أثناء الحذف."); }
@@ -5264,10 +5310,11 @@ async function createManualSupplier() {
             let uid = data.localId;
             await db.collection("suppliers").doc(uid).set({
                 officeName: office, ownerName: name, sapNumber: normalizeValue(sap),
-                phone: phone, authEmail: authEmail, assignedPassword: pass, readMessages: [],
+                phone: phone, authEmail: authEmail, readMessages: [],
                 isActive: true, 
                 createdAt: firebase.firestore.FieldValue.serverTimestamp()
             });
+            try { await saveCredential(uid, "supplier", pass); } catch (e) { console.warn("cred", e); }
             document.getElementById("adminResult").innerHTML = "✅ تم إضافة المورد بنجاح!";
             document.getElementById("manualSupName").value = ""; document.getElementById("manualSupSap").value = "";
             document.getElementById("manualSupOffice").value = ""; document.getElementById("manualSupPhone").value = "";
@@ -5329,10 +5376,11 @@ async function bulkUploadSuppliers(inputId) {
                     let uid = data.localId;
                     await db.collection("suppliers").doc(uid).set({
                         officeName: office, ownerName: name, sapNumber: normalizeValue(sap),
-                        phone: phone, authEmail: authEmail, assignedPassword: pass, readMessages: [],
+                        phone: phone, authEmail: authEmail, readMessages: [],
                         isActive: true,
                         createdAt: firebase.firestore.FieldValue.serverTimestamp()
                     });
+                    try { await saveCredential(uid, "supplier", pass); } catch (e) { console.warn("cred", e); }
                     successCount++;
                 }
             } catch(err) { errorCount++; }
@@ -5353,6 +5401,7 @@ async function searchSupplierForPasswordReset() {
     try {
         let terms = robustNormalize(inputStr).split(" ").filter(t => t);
         const snap = await db.collection("suppliers").get();
+        await ensureCreds();
         let matched = [];
         
         snap.forEach(doc => {
@@ -5370,7 +5419,7 @@ async function searchSupplierForPasswordReset() {
                 ? `<button onclick="toggleSupplierStatus('${s.uid}', true)" style="margin:0; width:auto; padding:8px 12px; font-size:11px; background:#28a745; color:#fff; border-radius:6px; border:none; cursor:pointer;">تنشيط</button>`
                 : `<button onclick="toggleSupplierStatus('${s.uid}', false)" style="margin:0; width:auto; padding:8px 12px; font-size:11px; background:#dc3545; color:#fff; border-radius:6px; border:none; cursor:pointer;">إيقاف</button>`;
 
-            let currentPass = sanitizeHTML(s.assignedPassword) || "غير مسجلة (حساب قديم)";
+            let currentPass = sanitizeHTML(credOf(s.uid)) || "غير مسجلة (حساب قديم)";
             
             html += `
             <div style="background:#f3f6fb; border:1px solid #ddd; padding:10px; border-radius:8px; margin-top:8px;">
@@ -5405,6 +5454,7 @@ async function exportSuppliersToExcel() {
     document.getElementById("supplierSearchResult").innerHTML = "⏳ جاري استخراج بيانات الموردين للإكسيل... برجاء الانتظار.";
     try {
         const snap = await db.collection("suppliers").get();
+        await ensureCreds();
         let dataToExport = [];
         snap.forEach(doc => {
             let d = doc.data();
@@ -5414,7 +5464,7 @@ async function exportSuppliersToExcel() {
                 "اسم المكتب": d.officeName || "",
                 "رقم ساب": d.sapNumber || "",
                 "رقم الهاتف (للدخول)": d.phone || "",
-                "كلمة المرور المسجلة": d.assignedPassword || "غير مسجلة (حساب قديم)"
+                "كلمة المرور المسجلة": credOf(doc.id) || "غير مسجلة (حساب قديم)"
             });
         });
 
@@ -5513,6 +5563,7 @@ function updateAdminNotificationsBadge() {
 }
 
 function openAdminNotificationsPanel() {
+    if (!_credsLoaded) { ensureCreds().then(() => { if (activePanel === "الاشعارات") openAdminNotificationsPanel(); }); }
     activePanel = "الاشعارات";
     document.getElementById("popupBox").style.display = "flex";
     history.pushState(null, null, "#notifications");
@@ -5559,7 +5610,7 @@ function openAdminNotificationsPanel() {
 
                 if (isRealAdmin) {
                     let adminName = (adminFound && adminFound.ownerName) ? adminFound.ownerName : (req.adminName || req.ownerName || "مشرف مسجل");
-                    let currentPass = (adminFound && adminFound.assignedPassword) ? adminFound.assignedPassword : (req.assignedPassword || "غير مسجل");
+                    let currentPass = (adminFound && credOf(adminFound.uid)) ? credOf(adminFound.uid) : (req.assignedPassword || "غير مسجل");
                     html += `
                     <div style="background:#fff0f3; padding:15px; border-radius:10px; margin-bottom:12px; border:2px solid #e63946;">
                         <div style="margin-bottom:8px;"><span style="font-size:12px; color:#d90429; font-weight:bold;">👑 طلب خاص بمشرف | 📅 ${dateStr}</span></div>
@@ -5584,7 +5635,7 @@ function openAdminNotificationsPanel() {
                         });
                     }
                     if (supplierFound) {
-                        let currentPass = sanitizeHTML(supplierFound.assignedPassword) || "غير مسجلة (حساب قديم)";
+                        let currentPass = sanitizeHTML(credOf(supplierFound.uid)) || "غير مسجلة (حساب قديم)";
                         let sName = supplierFound.ownerName || "";
                         html += `
                         <div style="background:#fff8e6; padding:15px; border-radius:10px; margin-bottom:12px; border:2px solid #ffc107;">
@@ -6614,6 +6665,7 @@ firebase.auth().onAuthStateChanged(async function(user){
 
              if (unsubAdminLicenses) unsubAdminLicenses();
              migrateOldLicensesOnce();
+             migrateCredentialsOnce();
              unsubAdminLicenses = db.collection("licenseUpdates")
                  .onSnapshot(snap => {
                      let all = snap.docs.map(d => d.data());
@@ -7762,6 +7814,14 @@ async function handleForgotPassword() {
     } else {
         let cleanPhone = trimmedInput.replace(/[^0-9]/g, "");
         if (cleanPhone.length < 5) { showAlert("يرجى إدخال رقم هاتف صحيح."); return; }
+        // حد للإرسال من نفس المتصفح: طلب واحد كل 10 دقائق
+        try {
+            let lastAt = parseInt(localStorage.getItem("elaraby_pwd_req_at") || "0", 10);
+            if (lastAt && Date.now() - lastAt < 10 * 60 * 1000) {
+                showAlert("⏳ تم إرسال طلب منذ قليل. يرجى الانتظار بضع دقائق قبل إرسال طلب جديد.");
+                return;
+            }
+        } catch (e) {}
         
         try {
             let isAdminReq = false;
@@ -7792,6 +7852,7 @@ async function handleForgotPassword() {
             };
 
             await db.collection("passwordRequests").doc(String(newReq.id)).set(newReq);
+            try { localStorage.setItem("elaraby_pwd_req_at", String(Date.now())); } catch (e) {}
 
             showAlert("✅ تم إرسال طلب استعادة الرقم السري بنجاح. يرجى التواصل مع الإدارة العليا لتزويدك بكلمة المرور.");
         } catch(err) {
