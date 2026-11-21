@@ -15,7 +15,7 @@ function logoutUser(){
  loginPass.value="";
  currentRole="supplier";
  adminPermissions = {};
- dataLoaded = false; 
+ dataLoaded = false; globalVehicles = []; globalTrips = []; globalDues = [];
  activeBranch = "";
  activeBranches = [];
  activeServiceType = "";
@@ -1987,6 +1987,48 @@ function renderLicenseNotificationsContent() {
     document.getElementById("popupResult").innerHTML = html;
 }
 
+/* ===== الرخص: كل سجل مستند مستقل في licenseUpdates ===== */
+let _licSynced = new Map();   // id -> JSON (آخر حالة معروفة على السيرفر)
+function _licRegister(arr) {
+    _licSynced = new Map();
+    (arr || []).forEach(u => { if (u && u.id) _licSynced.set(String(u.id), JSON.stringify(u)); });
+}
+/** يحفظ الفروقات فقط: المضاف/المعدّل يُكتب، والمحذوف يُحذف */
+async function saveLicenseUpdates(arr) {
+    arr = arr || [];
+    const ids = new Set();
+    const ops = [];
+    arr.forEach(u => {
+        if (!u || !u.id) return;
+        const id = String(u.id); ids.add(id);
+        const js = JSON.stringify(u);
+        if (_licSynced.get(id) !== js) ops.push({ t: "set", id: id, data: u });
+    });
+    _licSynced.forEach((v, id) => { if (!ids.has(id)) ops.push({ t: "del", id: id }); });
+    const col = db.collection("licenseUpdates");
+    await commitOpsAdaptive(ops, (b, o) => {
+        if (o.t === "set") b.set(col.doc(o.id), o.data); else b.delete(col.doc(o.id));
+    });
+    _licRegister(arr);
+}
+/** نقل لمرة واحدة من الوثيقة القديمة ALL_LICENSE_UPDATES إلى مستندات مستقلة (سوبر أدمن) */
+async function migrateOldLicensesOnce() {
+    try {
+        if (currentRole !== "super_admin") return;
+        try { if (localStorage.getItem("elaraby_lic_migrated") === "1") return; } catch (e) {}
+        const old = await db.collection("uploadedFiles").doc("ALL_LICENSE_UPDATES").get();
+        if (old.exists) {
+            const arr = (old.data().updates || []).filter(u => u && u.id);
+            if (arr.length) {
+                const col = db.collection("licenseUpdates");
+                await commitOpsAdaptive(arr, (b, u) => b.set(col.doc(String(u.id)), u));
+            }
+            await db.collection("uploadedFiles").doc("ALL_LICENSE_UPDATES").delete();
+        }
+        try { localStorage.setItem("elaraby_lic_migrated", "1"); } catch (e) {}
+    } catch (e) { console.warn("lic migrate", e); }
+}
+
 async function markLicenseUpdated(updateId) {
     let nowStr = new Date().toLocaleString('ar-EG');
     let adminName = currentUserName || "مشرف الإدارة";
@@ -2009,9 +2051,7 @@ async function markLicenseUpdated(updateId) {
     updateAdminLicenseBadge();
 
     try {
-        await db.collection("uploadedFiles").doc("ALL_LICENSE_UPDATES").set({
-            updates: globalAdminLicenseUpdates
-        });
+        await saveLicenseUpdates(globalAdminLicenseUpdates);
         showAlert(`✅ تم اعتماد التحديث بواسطة [${adminName}]. الصور محفوظة ويمكن عرضها أو تحميلها.`);
     } catch(e) {
         console.error("Error updating license status:", e);
@@ -2032,9 +2072,7 @@ async function deleteLicenseUpdateRecord(updateId) {
     updateAdminLicenseBadge();
 
     try {
-        await db.collection("uploadedFiles").doc("ALL_LICENSE_UPDATES").set({
-            updates: globalAdminLicenseUpdates
-        });
+        await saveLicenseUpdates(globalAdminLicenseUpdates);
         showAlert("✅ تم حذف السجل ومرفقاته بنجاح وتوفير المساحة.");
     } catch(e) {
         console.error("Error deleting license record:", e);
@@ -2093,9 +2131,7 @@ async function cleanupOldLicenseImages() {
     updateAdminLicenseBadge();
 
     try {
-        await db.collection("uploadedFiles").doc("ALL_LICENSE_UPDATES").set({
-            updates: globalAdminLicenseUpdates
-        });
+        await saveLicenseUpdates(globalAdminLicenseUpdates);
         showAlert(`✅ تم تنظيف صور ${deletedCount} سجل قديم (أكثر من 30 يوم + معتمد) وتوفير المساحة.`);
     } catch (e) {
         console.error(e);
@@ -2126,9 +2162,7 @@ async function bulkDeleteOldLicenseRecords() {
     updateAdminLicenseBadge();
 
     try {
-        await db.collection("uploadedFiles").doc("ALL_LICENSE_UPDATES").set({
-            updates: globalAdminLicenseUpdates
-        });
+        await saveLicenseUpdates(globalAdminLicenseUpdates);
         showAlert(`✅ تم حذف ${deleted} سجل قديم نهائياً وتوفير المساحة.`);
     } catch (e) {
         console.error(e);
@@ -2788,96 +2822,105 @@ function utf8ByteLength(str) {
     }
 }
 
-/** تقسيم مصفوفة صفوف مورد واحد إلى أجزاء لا يتجاوز كل منها MAX_PAYLOAD_BYTES */
-function splitRowsIntoChunks(rows) {
-    if (!rows || rows.length === 0) return [];
-    let chunks = [];
-    let current = [];
-    for (let i = 0; i < rows.length; i++) {
-        current.push(rows[i]);
-        let testStr = JSON.stringify(current);
-        if (utf8ByteLength(testStr) > MAX_PAYLOAD_BYTES) {
-            current.pop();
-            if (current.length === 0) {
-                // صف واحد أكبر من الحد — نحفظه وحده مع تحذير (نادر جداً)
-                chunks.push([rows[i]]);
-                current = [];
-            } else {
-                chunks.push(current);
-                current = [rows[i]];
-            }
+/** كتابة/حذف على دفعات تتقلص تلقائياً لو تجاوزت قواعد الأمان حد الاستدعاءات */
+async function commitOpsAdaptive(ops, applyFn) {
+    let size = 400, i = 0;
+    while (i < ops.length) {
+        const slice = ops.slice(i, i + size);
+        const batch = db.batch();
+        slice.forEach(o => applyFn(batch, o));
+        try {
+            await batch.commit();
+            i += slice.length;
+        } catch (e) {
+            if (size > 1 && /exceed/i.test(String((e && e.message) || e))) { size = Math.max(1, Math.floor(size / 2)); continue; }
+            throw e;
         }
     }
-    if (current.length > 0) chunks.push(current);
+}
+
+/** تقسيم الصفوف إلى أجزاء (تعقيد خطي) لا يتجاوز كل منها MAX_PAYLOAD_BYTES */
+function splitRowsIntoChunks(rows) {
+    if (!rows || rows.length === 0) return [];
+    const enc = new TextEncoder();
+    let chunks = [], cur = [], size = 2;
+    for (const r of rows) {
+        const s = enc.encode(JSON.stringify(r)).length + 1;
+        if (size + s > MAX_PAYLOAD_BYTES && cur.length) { chunks.push(cur); cur = []; size = 2; }
+        cur.push(r); size += s;
+    }
+    if (cur.length) chunks.push(cur);
     return chunks;
 }
 
-async function uploadGroupedData(collectionName, groupedData) {
-    // حذف كل الوثائق القديمة على دفعات (حد Firestore batch = 500)
-    let oldSnap = await db.collection("data_" + collectionName).get();
-    let deleteRefs = oldSnap.docs.map(d => d.ref);
-    for (let i = 0; i < deleteRefs.length; i += 400) {
-        let batch = db.batch();
-        deleteRefs.slice(i, i + 400).forEach(ref => batch.delete(ref));
-        await batch.commit();
-    }
+/** رقم المورد (ساب) من الصف */
+function getRowSap(row) {
+    if (!row) return "";
+    return normalizeValue(row["رقم المورد"] || row["SAP"] || row["Sap"] || row["رقم ساب"] || row["ساب"]);
+}
 
-    let docKeys = Object.keys(groupedData);
-    if (docKeys.length === 0) return;
-
-    // بناء قائمة أجزاء الكتابة: كل جزء = وثيقة واحدة
-    // المفتاح قد يكون رقم ساب (سيارات) أو اسم مكتب منظّف (رحلات/مستحقات)
-    let writeJobs = [];
-    for (let k = 0; k < docKeys.length; k++) {
-        let groupKey = docKeys[k];
-        let rows = groupedData[groupKey] || [];
-        if (rows.length === 0) continue;
-        let sapOriginal = normalizeValue(rows[0]["رقم المورد"]) || "unknown";
-        let officeRaw = rows[0]["اسم المكتب"] || rows[0]["اسم المورد"] || rows[0]["المورد"] || "";
-        let officeClean = officeStorageKey(officeRaw) || (groupKey.indexOf("off_") === 0 ? groupKey.slice(4) : "");
-        let chunks = splitRowsIntoChunks(rows);
-        for (let c = 0; c < chunks.length; c++) {
-            let docId = c === 0 ? groupKey : (groupKey + "__c" + c);
-            writeJobs.push({
-                docId: docId,
-                groupKey: groupKey,
-                sapNumberClean: sapOriginal !== "unknown" ? sanitizeDocId(sapOriginal) : (groupKey.indexOf("off_") === 0 ? "" : sanitizeDocId(groupKey)),
-                sapNumber: sapOriginal,
-                officeNameClean: officeClean || "",
-                rows: chunks[c]
+/** كتابة وثائق ملف واحد: معرّف الوثيقة f_<fileId>__<sap>__cN — إضافة فقط، لا حذف */
+async function writeFileDocs(collectionName, fileId, rows) {
+    const bySap = new Map();
+    rows.forEach(r => {
+        const s = getRowSap(r);
+        if (!s) return;
+        if (!bySap.has(s)) bySap.set(s, []);
+        bySap.get(s).push(r);
+    });
+    const col = db.collection("data_" + collectionName);
+    const jobs = [];
+    for (const [sap, rs] of bySap) {
+        const clean = sanitizeDocId(sap);
+        splitRowsIntoChunks(rs).forEach((ch, c) => {
+            const json = JSON.stringify(ch);
+            const bytes = utf8ByteLength(json);
+            if (bytes > 1048487) {
+                throw new Error("FILE_TOO_LARGE|بيانات المورد (" + sap + ") تجاوزت الحد المسموح. قسّم الملف يدوياً (مثلاً حسب الفرع).");
+            }
+            jobs.push({
+                id: "f_" + fileId + "__" + clean + "__c" + c,
+                bytes: bytes,
+                data: { payload: json, sapNumberClean: clean, sapNumber: sap, fileId: fileId, chunkIndex: c }
             });
-        }
+        });
     }
-
-    let totalJobs = writeJobs.length;
-    for (let i = 0; i < totalJobs; i++) {
-        let job = writeJobs[i];
-        let jsonStr = JSON.stringify(job.rows);
-        let sizeBytes = utf8ByteLength(jsonStr);
-
-        if (sizeBytes > 1048487) {
-            throw new Error(
-                "FILE_TOO_LARGE|" +
-                "ملف كبير جداً: بيانات المجموعة (" + job.groupKey +
-                ") تجاوزت الحد المسموح بعد التقسيم. قلّل عدد الصفوف أو قسّم الملف يدوياً (مثلاً حسب الفرع)."
-            );
+    // دفعات: حتى 400 عملية و ~6MB (وتتقلص تلقائياً عند الحاجة)
+    let i = 0, done = 0, maxOps = 400;
+    const resultDiv = document.getElementById("adminResult");
+    while (i < jobs.length) {
+        const batch = db.batch();
+        let n = 0, bytes = 0;
+        while (i + n < jobs.length && n < maxOps && (n === 0 || bytes + jobs[i + n].bytes < 6000000)) {
+            batch.set(col.doc(jobs[i + n].id), jobs[i + n].data);
+            bytes += jobs[i + n].bytes; n++;
         }
-
-        let docPayload = {
-            payload: jsonStr,
-            sapNumberClean: job.sapNumberClean || "unknown",
-            sapNumber: job.sapNumber,
-            officeNameClean: job.officeNameClean || "",
-            chunkIndex: job.docId.indexOf("__c") >= 0 ? parseInt(job.docId.split("__c")[1], 10) || 0 : 0
-        };
-        await db.collection("data_" + collectionName).doc(job.docId).set(docPayload);
-
-        let pct = Math.round(((i + 1) / totalJobs) * 100);
-        let resultDiv = document.getElementById("adminResult");
-        if (resultDiv && (resultDiv.innerHTML.includes("جاري الرفع") || resultDiv.innerHTML.includes("جاري حفظ") || resultDiv.innerHTML.includes("جاري حذف"))) {
-            resultDiv.innerHTML = `⏳ جاري الرفع لقاعدة البيانات... ${pct}%`;
+        try {
+            await batch.commit();
+        } catch (e) {
+            if (maxOps > 1 && /exceed/i.test(String((e && e.message) || e))) { maxOps = Math.max(1, Math.floor(maxOps / 2)); continue; }
+            throw e;
         }
+        i += n; done += n;
+        if (resultDiv) resultDiv.innerHTML = `⏳ جاري الرفع لقاعدة البيانات... ${Math.round(done / jobs.length * 100)}%`;
     }
+    return { docs: jobs.length, saps: bySap.size };
+}
+
+/** مسح كل وثائق مجموعة بيانات */
+async function wipeCollectionDocs(collectionName) {
+    const snap = await db.collection("data_" + collectionName).get();
+    const refs = snap.docs.map(d => d.ref);
+    await commitOpsAdaptive(refs, (b, r) => b.delete(r));
+    return refs.length;
+}
+
+/** حذف كل وثائق ملف معيّن فقط */
+async function deleteDocsByFileId(collectionName, fileId) {
+    const snap = await db.collection("data_" + collectionName).where("fileId", "==", String(fileId)).get();
+    const refs = snap.docs.map(d => d.ref);
+    await commitOpsAdaptive(refs, (b, r) => b.delete(r));
+    return refs.length;
 }
 
 async function downloadAllData(collectionName) {
@@ -2885,9 +2928,10 @@ async function downloadAllData(collectionName) {
     if (snap.empty) return [];
     let fullArray = [];
     snap.docs.forEach(doc => {
-        if(doc.data().payload) {
-            let parsed = JSON.parse(doc.data().payload);
-            fullArray = fullArray.concat(parsed);
+        let d = doc.data();
+        if (d.payload && d.fileId) {   // وثائق النظام القديم (بدون fileId) تُتجاهل
+            let parsed = JSON.parse(d.payload);
+            for (let i = 0; i < parsed.length; i++) fullArray.push(parsed[i]);
         }
     });
     return fullArray;
@@ -2899,9 +2943,10 @@ async function downloadSupplierDataBySap(collectionName, sapNumber) {
     if (snap.empty) return [];
     let fullArray = [];
     snap.docs.forEach(doc => {
-        if(doc.data().payload) {
-            let parsed = JSON.parse(doc.data().payload);
-            fullArray = fullArray.concat(parsed);
+        let d = doc.data();
+        if (d.payload && d.fileId) {   // وثائق النظام القديم (بدون fileId) تُتجاهل
+            let parsed = JSON.parse(d.payload);
+            for (let i = 0; i < parsed.length; i++) fullArray.push(parsed[i]);
         }
     });
     return fullArray;
@@ -2978,25 +3023,9 @@ async function downloadSupplierDataByOffice(collectionName, officeName) {
 
 /** هل الصف يخص المورد النشط؟ (رقم ساب أو اسم المكتب الموحّد) */
 function rowMatchesActiveSupplier(row, activeSap, officeKeysSet) {
-    if (!row) return false;
-    if (activeSap && normalizeValue(row["رقم المورد"]) === activeSap) return true;
-    if (!officeKeysSet || officeKeysSet.size === 0) return false;
-    let raw = row["اسم المكتب"] || row["اسم المورد"] || row["المورد"] || "";
-    let keys = officeNameVariants(raw);
-    for (let k of keys) {
-        if (officeKeysSet.has(k)) return true;
-    }
-    // احتواء مرن على المفتاح المنظّف
-    let clean = deepCleanArabic(raw);
-    if (clean) {
-        for (let ok of officeKeysSet) {
-            if (ok.length >= 6 && (clean.includes(ok) || ok.includes(clean) ||
-                clean.replace(/[\/\-_]/g, "").includes(ok) || ok.includes(clean.replace(/[\/\-_]/g, "")))) {
-                return true;
-            }
-        }
-    }
-    return false;
+    // الربط برقم المورد (ساب) فقط — بدون تخمين بالاسم
+    if (!row || !activeSap) return false;
+    return normalizeValue(row["رقم المورد"]) === activeSap;
 }
 
 async function updateSystemVersion() {
@@ -3086,198 +3115,58 @@ async function safeUploadTest(inputId, label) {
                 return r;
             });
 
-           if (collectionName === 'trips' || collectionName === 'dues') {
-                resultDiv.innerHTML = `⏳ جاري الربط باسم المكتب الموحّد (مع رقم المورد إن وُجد)...`;
-
-                // خرائط: اسم مكتب منظّف → ساب | لوحة → ساب | كود → ساب
-                let nameToSapMap = new Map();
-                let plateToSapMap = new Map();
-                let codeToSapMap = new Map();
-
-                function registerName(name, sap) {
-                    let n = deepCleanArabic(name);
-                    if (n && sap && n.length >= 3) {
-                        if (!nameToSapMap.has(n) || nameToSapMap.get(n) === "unknown") {
-                            nameToSapMap.set(n, sap);
-                        }
-                    }
-                    let n2 = n ? n.replace(/[\/\-_]/g, "") : "";
-                    if (n2 && n2 !== n && n2.length >= 3) {
-                        if (!nameToSapMap.has(n2) || nameToSapMap.get(n2) === "unknown") {
-                            nameToSapMap.set(n2, sap);
-                        }
+            // ===== الربط برقم المورد (ساب) فقط — بدون تخمين بالاسم =====
+            resultDiv.innerHTML = `⏳ جاري التحقق من رقم المورد في كل صف...`;
+            let rowsWithSap = [];
+            let rowsNoSap = 0;
+            data.forEach(row => {
+                let sap = getRowSap(row);
+                if (!sap) { rowsNoSap++; return; }
+                row["رقم المورد"] = sap;
+                if (collectionName === "dues") {
+                    if (!row["الفترة"] && (row["الفتره"] || row["فترة"])) row["الفترة"] = row["الفتره"] || row["فترة"];
+                    if (!row["الفرع"] && row["فرع"]) row["الفرع"] = row["فرع"];
+                    if (!row["مبلغ الرحلات"] && row["المبلغ"]) row["مبلغ الرحلات"] = row["المبلغ"];
+                    if (!row["كود الحافلة"] && (row["Bus Trip Code"] || row["كود"])) row["كود الحافلة"] = row["Bus Trip Code"] || row["كود"];
+                    if (row["الخصومات"] === undefined || row["الخصومات"] === "") {
+                        let ded = row["خصومات"] || row["الخصم"] || row["خصم"] || row["deductions"] || row["Deduction"] || row["Deductions"] || "";
+                        if (ded !== undefined && ded !== null && String(ded).trim() !== "") row["الخصومات"] = ded;
                     }
                 }
-
-                // 1) تحميل حي لحسابات الموردين من Firestore (لا نعتمد على الكاش فقط)
-                try {
-                    const liveSupSnap = await db.collection("suppliers").get();
-                    liveSupSnap.forEach(doc => {
-                        let d = doc.data();
-                        let normSap = normalizeValue(d.sapNumber);
-                        if (!normSap) return;
-                        // الأولوية لاسم المكتب — المفتاح الموحّد في كل الملفات
-                        registerName(d.officeName, normSap);
-                        registerName(d.ownerName, normSap);
-                        if (d.officeName && String(d.officeName).includes("/")) {
-                            registerName(String(d.officeName).split("/")[0], normSap);
-                        }
-                        if (d.ownerName && String(d.ownerName).includes("/")) {
-                            registerName(String(d.ownerName).split("/")[0], normSap);
-                        }
-                        d.uid = doc.id;
-                        globalSupplierDataMap.set(normSap, d);
-                    });
-                } catch (e) {
-                    console.warn("live suppliers fetch:", e);
-                    globalSupplierDataMap.forEach((d, sap) => {
-                        let normSap = normalizeValue(sap);
-                        if (!normSap) return;
-                        registerName(d.officeName, normSap);
-                        registerName(d.ownerName, normSap);
-                    });
-                }
-
-                // 2) من ملف السيارات — اسم المورد (غالباً = اسم المكتب) + لوحة + كود
-                let existingVeh = await downloadAllData('vehicles');
-                existingVeh.forEach(v => {
-                    let sap = normalizeValue(v["رقم المورد"]);
-                    if (!sap || sap === "unknown") return;
-                    registerName(v["اسم المورد"], sap);
-                    registerName(v["المورد"], sap);
-                    registerName(v["اسم المكتب"], sap);
-                    let plate = normalizeValue(v["رقم اللوحة"] || v["رقم اللوحات"]);
-                    let code = normalizeValue(v["كود الحافلة"] || v["كود"]);
-                    if (plate) plateToSapMap.set(plate, sap);
-                    if (code) codeToSapMap.set(code, sap);
-                });
-
-                function resolveSapByName(rawName) {
-                    let clean = deepCleanArabic(rawName);
-                    if (!clean) return "";
-                    if (nameToSapMap.has(clean)) return nameToSapMap.get(clean);
-                    let clean2 = clean.replace(/[\/\-_]/g, "");
-                    if (nameToSapMap.has(clean2)) return nameToSapMap.get(clean2);
-                    let beforeSlash = deepCleanArabic(String(rawName).split("/")[0] || "");
-                    if (beforeSlash && nameToSapMap.has(beforeSlash)) return nameToSapMap.get(beforeSlash);
-
-                    let bestSap = "";
-                    let bestScore = 0;
-                    for (let [stored, sSap] of nameToSapMap.entries()) {
-                        if (!stored || stored.length < 5) continue;
-                        if (clean.includes(stored) || stored.includes(clean) ||
-                            clean2.includes(stored) || stored.includes(clean2)) {
-                            let score = Math.min(stored.length, clean.length);
-                            if (score > bestScore) {
-                                bestScore = score;
-                                bestSap = sSap;
-                            }
-                        }
-                    }
-                    if (bestScore >= 6) return bestSap;
-                    return "";
-                }
-
-                let matchedCount = 0;
-                let unmatchedNames = new Set();
-
-                data = data.map(row => {
-                    let rowSap = normalizeValue(row["رقم المورد"] || row["SAP"] || row["Sap"] || row["رقم ساب"] || row["ساب"]);
-                    // اسم المكتب هو الحقل الموحّد في ملفات الرحلات (غالباً تحت «اسم المورد»)
-                    let rawName = row["اسم المكتب"] || row["المورد"] || row["اسم المورد"] || row["اسم المورد / المورد"] || "";
-
-                    if (!rowSap) {
-                        let tripPlate = normalizeValue(row["رقم اللوحة"] || row["رقم اللوحات"]);
-                        let tripCode = normalizeValue(row["كود الحافلة"] || row["كود"] || row["Bus Trip Code"]);
-                        if (tripPlate && plateToSapMap.has(tripPlate)) rowSap = plateToSapMap.get(tripPlate);
-                        else if (tripCode && codeToSapMap.has(tripCode)) rowSap = codeToSapMap.get(tripCode);
-                    }
-                    if (!rowSap && rawName) {
-                        rowSap = resolveSapByName(rawName);
-                    }
-
-                    if (rowSap && rowSap !== "unknown") {
-                        matchedCount++;
-                    } else {
-                        unmatchedNames.add(String(rawName || "بدون اسم مكتب").trim() || "بدون اسم مكتب");
-                        rowSap = "unknown";
-                    }
-
-                    row["رقم المورد"] = rowSap;
-                    // توحيد حقل اسم المكتب للتخزين والفلترة لاحقاً
-                    if (!row["اسم المكتب"] && rawName) row["اسم المكتب"] = rawName;
-                    // توحيد أسماء أعمدة المستحقات
-                    if (collectionName === "dues") {
-                        if (!row["الفترة"] && (row["الفتره"] || row["فترة"])) row["الفترة"] = row["الفتره"] || row["فترة"];
-                        if (!row["الفرع"] && row["فرع"]) row["الفرع"] = row["فرع"];
-                        if (!row["مبلغ الرحلات"] && row["المبلغ"]) row["مبلغ الرحلات"] = row["المبلغ"];
-                        if (!row["كود الحافلة"] && (row["Bus Trip Code"] || row["كود"])) row["كود الحافلة"] = row["Bus Trip Code"] || row["كود"];
-                        // توحيد عمود الخصومات
-                        if (row["الخصومات"] === undefined || row["الخصومات"] === "") {
-                            let ded = row["خصومات"] || row["الخصم"] || row["خصم"] || row["deductions"] || row["Deduction"] || row["Deductions"] || "";
-                            if (ded !== undefined && ded !== null && String(ded).trim() !== "") row["الخصومات"] = ded;
-                        }
-                    }
-                    return row;
-                });
-
-                window.__lastUploadMatchInfo = {
-                    total: data.length,
-                    matched: matchedCount,
-                    unmatched: data.length - matchedCount,
-                    unmatchedNames: Array.from(unmatchedNames).slice(0, 15)
-                };
-            } else {
-                window.__lastUploadMatchInfo = null;
+                rowsWithSap.push(row);
+            });
+            if (!rowsWithSap.length) {
+                resultDiv.innerHTML = `❌ لم يتم رفع الملف: لا يوجد أي صف يحتوي على «رقم المورد». أضف عمود «رقم المورد» (ساب) وأعد الرفع.`;
+                window.__uploadInProgress = false;
+                return;
             }
+            data = rowsWithSap;
 
-            // إزالة أي رفع سابق بنفس اسم الملف ونفس النوع (تفادي التكرار في القائمة والبيانات والسجل)
-            let existingData = await downloadAllData(collectionName) || [];
+            // تقرير: أرقام ساب في الملف بدون حساب مورد
+            let fileSaps = new Set(data.map(r => r["رقم المورد"]));
+            let noAccountSaps = [];
+            try {
+                let knownSaps = new Set();
+                let supSnap = await db.collection("suppliers").get();
+                supSnap.forEach(d => { let n = normalizeValue(d.data().sapNumber); if (n) knownSaps.add(n); });
+                if (knownSaps.size) noAccountSaps = Array.from(fileSaps).filter(s => !knownSaps.has(s));
+            } catch (eSup) { console.warn("suppliers check", eSup); }
+
+            // الملفات السابقة بنفس الاسم والنوع (تُحذف بعد نجاح كتابة الجديد)
             let replacedOldIds = [];
             try {
                 let sfSnap = await db.collection("systemFiles").get();
-                for (let doc of sfSnap.docs) {
+                sfSnap.docs.forEach(doc => {
                     let d = doc.data() || {};
                     let n = String(d.name || "").trim().toLowerCase();
                     let t = String(d.type || "").toLowerCase();
-                    if (n && n === fileNameNorm && t === collectionName) {
-                        replacedOldIds.push(d.id || doc.id);
-                        try { await db.collection("systemFiles").doc(doc.id).delete(); } catch (eDel) {}
-                    }
-                }
+                    if (n && n === fileNameNorm && t === collectionName) replacedOldIds.push(d.id || doc.id);
+                });
             } catch (eSf) { console.warn("systemFiles dedupe", eSf); }
-            if (replacedOldIds.length) {
-                let idSet = new Set(replacedOldIds.map(String));
-                existingData = existingData.filter(row => !idSet.has(String(row.fileId || "")));
-                // أيضاً صفوف بنفس اسم الملف (نسخ قديمة)
-                existingData = existingData.filter(row => String(row.fileName || "").trim().toLowerCase() !== fileNameNorm);
-            }
 
-            let combinedData = existingData.concat(data || []);
-
-            // التجميع: السيارات برقم المورد | الرحلات والمستحقات باسم المكتب الموحّد
-            let groupedData = {};
-            combinedData.forEach(row => {
-                let docId;
-                if (collectionName === "trips" || collectionName === "dues") {
-                    let officeName = row["اسم المكتب"] || row["اسم المورد"] || row["المورد"] || "";
-                    let oKey = officeStorageKey(officeName);
-                    if (oKey) {
-                        docId = "off_" + oKey;
-                    } else {
-                        let sap = normalizeValue(row["رقم المورد"]) || "unknown";
-                        docId = sanitizeDocId(sap);
-                    }
-                } else {
-                    let sap = normalizeValue(row["رقم المورد"]) || "unknown";
-                    docId = sanitizeDocId(sap);
-                }
-                if (!groupedData[docId]) groupedData[docId] = [];
-                groupedData[docId].push(row);
-            });
-
+            // 1) إضافة وثائق الملف الجديد (لا يُحذف أي شيء قبل نجاح الكتابة)
             resultDiv.innerHTML = `⏳ جاري حفظ البيانات وتوثيق الملف...`;
-            await uploadGroupedData(collectionName, groupedData);
+            await writeFileDocs(collectionName, fileId, data);
 
             await db.collection("systemFiles").doc(fileId).set({
                 id: fileId,
@@ -3288,17 +3177,22 @@ async function safeUploadTest(inputId, label) {
                 uploader: currentUserName || "الإدارة"
             });
 
-            let newVer = Date.now();
-            await db.collection("system").doc("meta").set({ version: newVer }, { merge: true });
+            // 2) حذف النسخ القديمة بنفس الاسم
+            for (let oldId of replacedOldIds) {
+                if (String(oldId) === String(fileId)) continue;
+                try { await deleteDocsByFileId(collectionName, oldId); } catch (eD) { console.warn("old docs delete", eD); }
+                try { await db.collection("systemFiles").doc(String(oldId)).delete(); } catch (eD2) {}
+            }
 
-            let matchNote = "";
-            if (window.__lastUploadMatchInfo) {
-                let m = window.__lastUploadMatchInfo;
-                if (m.unmatched > 0) {
-                    matchNote = `<br><span style="color:#856404;font-size:12px;">⚠️ التخزين يتم باسم المكتب الموحّد. رُبط ${m.matched}/${m.total} برقم ساب أيضاً. بدون ساب مطابق: ${m.unmatched}.<br>أسماء مكاتب بدون ساب: ${m.unmatchedNames.map(n => sanitizeHTML(n)).join(" | ")}<br>ملاحظة: الرحلات تظهر للمورد إذا طابق <b>اسم المكتب</b> في حسابه نفس الاسم في الشيت — حتى بدون رقم ساب.</span>`;
-                } else {
-                    matchNote = `<br><span style="color:#155724;font-size:12px;">✓ تم تخزين السجلات باسم المكتب وربط ${m.matched} برقم المورد.</span>`;
-                }
+            // 3) آخر خطوة: رفع رقم النسخة ليعرف الجميع أن البيانات اكتملت
+            await db.collection("system").doc("meta").set({ version: Date.now() }, { merge: true });
+
+            let matchNote = `<br><span style="color:#155724;font-size:12px;">✓ ${data.length} صف مرتبط بـ ${fileSaps.size} مورد (برقم ساب).</span>`;
+            if (rowsNoSap > 0) {
+                matchNote += `<br><span style="color:#856404;font-size:12px;">⚠️ ${rowsNoSap} صف بدون رقم مورد لم يُرفع.</span>`;
+            }
+            if (noAccountSaps.length) {
+                matchNote += `<br><span style="color:#856404;font-size:12px;">⚠️ ${noAccountSaps.length} رقم ساب في الملف ليس له حساب مورد: ${noAccountSaps.slice(0, 15).map(n => sanitizeHTML(n)).join(" | ")}${noAccountSaps.length > 15 ? " ..." : ""}</span>`;
             }
             let replaceNote = replacedOldIds.length ? `<br><span style="color:#0f6674;font-size:12px;">تم استبدال ${replacedOldIds.length} رفع سابق بنفس اسم الملف (بدون تكرار).</span>` : "";
             if (typeof logAudit === "function") {
@@ -3349,45 +3243,19 @@ async function deleteUploadedFile(fileId, collectionName, fileName) {
 
     document.getElementById("adminResult").innerHTML = `⏳ جاري حذف الملف واستبعاد بياناته...`;
     try {
-        let existingData = await downloadAllData(collectionName);
-        let originalCount = existingData.length;
-        let filteredData = existingData.filter(x => x.fileId !== fileId);
-        let removedCount = originalCount - filteredData.length;
-
-        let groupedData = {};
-        filteredData.forEach(row => {
-            let docId;
-            if (collectionName === "trips" || collectionName === "dues") {
-                let officeName = row["اسم المكتب"] || row["اسم المورد"] || row["المورد"] || "";
-                let oKey = officeStorageKey(officeName);
-                docId = oKey ? ("off_" + oKey) : sanitizeDocId(normalizeValue(row["رقم المورد"]) || "unknown");
-            } else {
-                docId = sanitizeDocId(normalizeValue(row["رقم المورد"]) || "unknown");
-            }
-            if (!groupedData[docId]) groupedData[docId] = [];
-            groupedData[docId].push(row);
-        });
-
-        await uploadGroupedData(collectionName, groupedData);
+        // حذف وثائق هذا الملف فقط (بدون إعادة كتابة باقي البيانات)
+        let removedDocs = await deleteDocsByFileId(collectionName, fileId);
         await db.collection("systemFiles").doc(fileId).delete();
-        await updateSystemVersion();
+        await updateSystemVersion(); // آخر خطوة
 
-        document.getElementById("adminResult").innerHTML = `✅ تم حذف الملف "${fileName}" واستبعاد ${removedCount} سجل بنجاح.`;
+        document.getElementById("adminResult").innerHTML = `✅ تم حذف الملف "${fileName}" (${removedDocs} وثيقة بيانات) بنجاح.`;
         if (typeof logAudit === "function") logAudit("حذف ملف مرفوع", "تم حذف الملف واستبعاد سجلاته", { before: fileName, after: "محذوف" });
         loadUploadedFiles();
         dataLoaded = false;
         loadSupplierData();
-        
     } catch(e) {
         console.error(e);
-        let msg = (e && e.message) ? String(e.message) : String(e);
-        let friendly = msg;
-        if (msg.indexOf("FILE_TOO_LARGE|") === 0) {
-            friendly = msg.replace("FILE_TOO_LARGE|", "");
-        } else if (msg.indexOf("longer than 1048487") >= 0 || /1048487|document.*too large/i.test(msg)) {
-            friendly = "تعذر إعادة حفظ البيانات المتبقية لأن حجم بيانات أحد الموردين كبير جداً. جرّب حذف ملفات أخرى أولاً أو تواصل مع مدير النظام.";
-        }
-        document.getElementById("adminResult").innerHTML = `❌ خطأ في الحذف: ` + friendly;
+        document.getElementById("adminResult").innerHTML = `❌ خطأ في الحذف: ` + ((e && e.message) ? String(e.message) : String(e));
     }
 }
 
@@ -3395,11 +3263,7 @@ async function deleteCollectionInBatches(colName, filterFn) {
     let snap = await db.collection(colName).get();
     let docs = snap.docs;
     if (typeof filterFn === "function") docs = docs.filter(filterFn);
-    for (let i = 0; i < docs.length; i += 400) {
-        let batch = db.batch();
-        docs.slice(i, i + 400).forEach(d => batch.delete(d.ref));
-        await batch.commit();
-    }
+    await commitOpsAdaptive(docs, (b, d) => b.delete(d.ref));
     return docs.length;
 }
 
@@ -3512,9 +3376,9 @@ async function downloadSystemBackup() {
         comps.forEach(doc => backup.complaints.push(Object.assign({ id: doc.id }, doc.data())));
         let notes = await db.collection("notes").get();
         notes.forEach(doc => backup.notes.push(Object.assign({ id: doc.id }, doc.data())));
-        let lic = await db.collection("uploadedFiles").doc("ALL_LICENSE_UPDATES").get();
-        if (lic.exists) {
-            let updates = (lic.data().updates || []).map(u => ({
+        let lic = await db.collection("licenseUpdates").get();
+        if (!lic.empty) {
+            let updates = lic.docs.map(d => d.data()).map(u => ({
                 id: u.id, plate: u.plate, code: u.code, supplierSap: u.supplierSap, supplierName: u.supplierName,
                 isUpdated: u.isUpdated, timestamp: u.timestamp, imagesCount: (u.images && u.images.length) || 0
             }));
@@ -3601,13 +3465,13 @@ async function factoryResetSection(section) {
             showAlert("✅ تم حذف " + n + " ملاحظة رحلة.");
             if (typeof refreshFailedTripsStats === "function") refreshFailedTripsStats();
         } else if (section === "licenses") {
-            await db.collection("uploadedFiles").doc("ALL_LICENSE_UPDATES").set({ updates: [] });
+            await deleteCollectionInBatches("licenseUpdates"); _licRegister([]);
             globalAdminLicenseUpdates = [];
             showAlert("✅ تم تفريغ سجلات الرخص.");
         } else if (section === "full") {
             if (typeof wipeAllData === "function") await wipeAllData();
             n = await deleteCollectionInBatches("notes");
-            await db.collection("uploadedFiles").doc("ALL_LICENSE_UPDATES").set({ updates: [] });
+            await deleteCollectionInBatches("licenseUpdates"); _licRegister([]);
             globalAdminLicenseUpdates = [];
             await db.collection("uploadedFiles").doc("GLOBAL_MESSAGES").set({ messages: [] });
             globalMessages = [];
@@ -3639,13 +3503,13 @@ async function wipeAllData() {
     
     try {
         // 1) مسح السيارات
-        await uploadGroupedData("vehicles", {});
+        await wipeCollectionDocs("vehicles");
         document.getElementById("adminResult").innerHTML = "⏳ جاري مسح النظام بالكامل... 25%";
         // 2) مسح الرحلات
-        await uploadGroupedData("trips", {});
+        await wipeCollectionDocs("trips");
         document.getElementById("adminResult").innerHTML = "⏳ جاري مسح النظام بالكامل... 50%";
         // 3) مسح المستحقات (كان ناقصاً سابقاً — سبب بقاء المبالغ بعد المسح)
-        await uploadGroupedData("dues", {});
+        await wipeCollectionDocs("dues");
         document.getElementById("adminResult").innerHTML = "⏳ جاري مسح النظام بالكامل... 70%";
         
         let notesSnap = await db.collection("notes").get();
@@ -3963,7 +3827,7 @@ async function exportSupplierDataToExcel() {
                 normalizeValue(row["رقم المورد"]) === loggedInSupplierSapGlobal;
         };
 
-        const VEHICLE_COLS = ["كود الحافلة","كود RFID","رقم اللوحة","تاريخ انتهاء رخصة السيارة","وصف الحافلة","الفرع","وصف الخط","اسم السائق","الحالة","تاريخ بداية التشغيل","المنطة المركزية الخاصة بالحافلة","مشرف التشغيل","نوع الخدمة","الاجر اليومى","رقم المورد","اسم المورد"];
+        const VEHICLE_COLS = ["كود الحافلة","كود RFID","رقم اللوحة","تاريخ انتهاء رخصة السيارة","وصف الحافلة","الفرع","وصف الخط","اسم السائق","الحالة","تاريخ بداية التشغيل","المنطة المركزية الخاصة بالحافلة","مشرف التشغيل","نوع الخدمة","الاجر اليومى"];
         const VEHICLE_ALIASES = {
             "كود الحافلة": ["كود","Bus Trip Code"],
             "كود RFID": ["RFID","RFID كود","كود الـ RFID"],
@@ -3973,7 +3837,7 @@ async function exportSupplierDataToExcel() {
             "نوع الخدمة": ["الخدمة"]
         };
 
-        const TRIP_COLS = ["كود الحافلة","RFID كود","رقم اللوحة","وصف الحافلة","الفرع","حالة الرحلة","الوردية","وقت الوردية","البوابة","تاريخ الحضور","وقت الحضور","مشرف التشغيل","اسم السائق","نوع الخدمة","المنطقة المركزية","اجر الرحلة","وصف الخط","اسم المورد","رقم المورد","رقم اللوحة البديلة","الحافلة البديلة"];
+        const TRIP_COLS = ["كود الحافلة","RFID كود","رقم اللوحة","وصف الحافلة","الفرع","حالة الرحلة","الوردية","وقت الوردية","البوابة","تاريخ الحضور","وقت الحضور","مشرف التشغيل","اسم السائق","نوع الخدمة","المنطقة المركزية","اجر الرحلة","وصف الخط","رقم اللوحة البديلة","الحافلة البديلة"];
         const TRIP_ALIASES = {
             "كود الحافلة": ["كود","Bus Trip Code"],
             "RFID كود": ["كود RFID","RFID","كود الـ RFID"],
@@ -3985,7 +3849,7 @@ async function exportSupplierDataToExcel() {
             "نوع الخدمة": ["الخدمة"]
         };
 
-        const DUES_COLS = ["كود الحافلة","رقم اللوحة","وصف الخط","الفترة","الفرع","مبلغ الرحلات","عدد الرحلات","الخصومات","السبب (ملاحظات)","وصف الحافلة","اسم المورد","رقم المورد"];
+        const DUES_COLS = ["كود الحافلة","رقم اللوحة","وصف الخط","الفترة","الفرع","مبلغ الرحلات","عدد الرحلات","الخصومات","السبب (ملاحظات)","وصف الحافلة"];
         const DUES_ALIASES = {
             "كود الحافلة": ["كود","Bus Trip Code","كود الرحلة"],
             "الفترة": ["الفتره","فترة"],
@@ -4487,7 +4351,7 @@ if(currentRole==="admin" || currentRole==="super_admin"){
  document.getElementById("scheduleBtn").classList.add("hide");
 }
 
-hideAll(); dash.classList.remove("hide"); loadSupplierData();
+hideAll(); dash.classList.remove("hide"); /* التحميل يتم مرة واحدة من onAuthStateChanged */
 btn.innerText = "تسجيل الدخول"; btn.disabled = false;
 }catch(e){
 btn.innerText = "تسجيل الدخول"; btn.disabled = false;
@@ -5782,23 +5646,12 @@ async function markPasswordRequestReported(reqId, event) {
     openAdminNotificationsPanel();
 
     try {
-        let doc = await db.collection("uploadedFiles").doc("PASSWORD_RESET_REQUESTS").get();
-        if(doc.exists) {
-            let reqs = doc.data().requests || [];
-            let updatedReqs = reqs.map(r => {
-                if(r.id === reqId) {
-                    return {
-                        ...r,
-                        isReported: true,
-                        reportedBy: adminName,
-                        reportedAt: nowStr
-                    };
-                }
-                return r;
-            });
-            await db.collection("uploadedFiles").doc("PASSWORD_RESET_REQUESTS").update({requests: updatedReqs});
-            showAlert(`✅ تم تسجيل الإبلاغ بواسطة [${adminName}] بنجاح.`);
-        }
+        await db.collection("passwordRequests").doc(String(reqId)).update({
+            isReported: true,
+            reportedBy: adminName,
+            reportedAt: nowStr
+        });
+        showAlert(`✅ تم تسجيل الإبلاغ بواسطة [${adminName}] بنجاح.`);
     } catch(e) {
         console.error("Error reporting password request:", e);
         showAlert("❌ حدث خطأ أثناء تسجيل الإبلاغ.");
@@ -5818,12 +5671,7 @@ async function deletePasswordRequest(reqId, event) {
     updateAdminNotificationsBadge();
 
     try {
-        let doc = await db.collection("uploadedFiles").doc("PASSWORD_RESET_REQUESTS").get();
-        if(doc.exists) {
-            let reqs = doc.data().requests || [];
-            let updatedReqs = reqs.filter(r => r.id !== reqId);
-            await db.collection("uploadedFiles").doc("PASSWORD_RESET_REQUESTS").update({requests: updatedReqs});
-        }
+        await db.collection("passwordRequests").doc(String(reqId)).delete();
     } catch(e) {
         console.error("Error deleting password request:", e);
     }
@@ -6166,7 +6014,37 @@ async function exportComplaintsToExcel() {
     showAlert("✅ تم استخراج الملف بنجاح.");
 }
 
-async function loadSupplierData(){
+/** فحص دوري خفيف (قراءة واحدة): لو رقم النسخة على السيرفر تغيّر، أعد التحميل تلقائياً */
+let _verCheckBusy = false, _verCheckLast = 0;
+async function checkDataVersionAndReload() {
+    if (_verCheckBusy || !dataLoaded || window.__uploadInProgress) return;
+    if (Date.now() - _verCheckLast < 60000) return; // مرة كل دقيقة كحد أقصى
+    _verCheckLast = Date.now();
+    _verCheckBusy = true;
+    try {
+        let m = await db.collection("system").doc("meta").get({ source: "server" });
+        let v = m.exists ? (m.data().version || 0) : 0;
+        if (v !== (window.__loadedVersion || 0)) {
+            dataLoaded = false;
+            await loadSupplierData();
+        }
+    } catch (e) {} finally { _verCheckBusy = false; }
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) checkDataVersionAndReload(); });
+setInterval(checkDataVersionAndReload, 10 * 60 * 1000);
+
+let _loadP = null, _loadAgain = false;
+/** تحميل واحد في نفس الوقت: أي استدعاء أثناء التحميل ينتظر نفس العملية ثم يعيد العرض مرة واحدة */
+function loadSupplierData() {
+    if (_loadP) { _loadAgain = true; return _loadP; }
+    _loadP = (async () => {
+        try {
+            do { _loadAgain = false; await _loadSupplierDataImpl(); } while (_loadAgain);
+        } finally { _loadP = null; }
+    })();
+    return _loadP;
+}
+async function _loadSupplierDataImpl(){
  try{
    const user = firebase.auth().currentUser;
    if(!user) return;
@@ -6195,164 +6073,64 @@ async function loadSupplierData(){
        document.getElementById('loadingOverlay').style.display = 'flex'; 
        document.getElementById('loadingText').innerText = "جاري التحقق من التحديثات...";
        
-       let serverVersion = 0;
-       try {
-           let metaDoc = await db.collection("system").doc("meta").get();
-           if(metaDoc.exists) {
-               serverVersion = metaDoc.data().version || 0;
-           }
-           // شريط الفترة من إعدادات الإدارة (وليس وقت النسخة)
-           if (typeof applyAppBranding === "function") applyAppBranding();
-       } catch(e) {}
-
        let isAdmin = (currentRole === "admin" || currentRole === "super_admin");
-       // v4: فلترة وربط باسم المكتب في العرض + تحميل مباشر off_*
-       let cachePrefix = isAdmin ? "elaraby_admin_v5_" : "elaraby_supplier_v5_" + loggedInSupplierSapGlobal + "_";
-       let localVersion = localStorage.getItem("elaraby_data_version") || 0;
+       let cachePrefix = isAdmin ? "elaraby_admin_v6_" : "elaraby_supplier_v6_" + loggedInSupplierSapGlobal + "_";
 
        clearOldLocalStorage();
 
-       let cachedV = await idbGet(cachePrefix + "vehicles");
-       let cachedT = await idbGet(cachePrefix + "trips");
-       let cachedD = await idbGet(cachePrefix + "dues");
+       // قراءة النسخة قبل وبعد التحميل: لو تغيّرت أثناء التحميل نعيد المحاولة (لا نخزّن بيانات ممزوجة)
+       async function readServerVersion() {
+           try {
+               let metaDoc = await db.collection("system").doc("meta").get({ source: "server" });
+               return metaDoc.exists ? (metaDoc.data().version || 0) : 0;
+           } catch (e) {
+               try { let m2 = await db.collection("system").doc("meta").get(); return m2.exists ? (m2.data().version || 0) : 0; } catch (e2) { return 0; }
+           }
+       }
+       let serverVersion = await readServerVersion();
+       try { if (typeof applyAppBranding === "function") applyAppBranding(); } catch(e) {}
 
-       if(serverVersion > 0 && serverVersion == localVersion && cachedV && cachedT && cachedD) {
+       // الكاش سجل واحد ذري {v, vehicles, trips, dues}
+       let bundle = null;
+       try { bundle = await idbGet(cachePrefix + "bundle"); } catch (e) {}
+
+       if (serverVersion > 0 && bundle && bundle.v === serverVersion && bundle.vehicles && bundle.trips && bundle.dues) {
            document.getElementById('loadingText').innerText = "جاري تحميل البيانات من الهاتف 🚀...";
-           globalVehicles = cachedV;
-           globalTrips = cachedT;
-           globalDues = cachedD;
+           globalVehicles = bundle.vehicles;
+           globalTrips = bundle.trips;
+           globalDues = bundle.dues;
        } else {
            document.getElementById('loadingText').innerText = "جاري تحميل البيانات من السيرفر...";
-           
-           if (isAdmin) {
-               const [vData, tData, dData] = await Promise.all([
-                   downloadAllData("vehicles"),
-                   downloadAllData("trips"),
-                   downloadAllData("dues")
-               ]);
-               globalVehicles = vData || [];
-               globalTrips = tData || [];
-               globalDues = dData || [];
-           } else {
-               if(loggedInSupplierSapGlobal) {
-                   let officeNameVal = supplierDoc.exists ? (supplierDoc.data().officeName || "") : "";
-                   let ownerNameVal = supplierDoc.exists ? (supplierDoc.data().ownerName || "") : "";
-
-                   // التحميل الأساسي: بالساب + باسم المكتب الموحّد + باسم المالك
-                   const [vData, tBySap, dBySap, tByOffice, dByOffice, tByOwner, dByOwner, orphanTrips, orphanDues] = await Promise.all([
+           let vData = [], tData = [], dData = [];
+           for (let attempt = 0; attempt < 3; attempt++) {
+               if (isAdmin) {
+                   [vData, tData, dData] = await Promise.all([
+                       downloadAllData("vehicles"), downloadAllData("trips"), downloadAllData("dues")
+                   ]);
+               } else if (loggedInSupplierSapGlobal) {
+                   [vData, tData, dData] = await Promise.all([
                        downloadSupplierDataBySap("vehicles", loggedInSupplierSapGlobal),
                        downloadSupplierDataBySap("trips", loggedInSupplierSapGlobal),
-                       downloadSupplierDataBySap("dues", loggedInSupplierSapGlobal),
-                       downloadSupplierDataByOffice("trips", officeNameVal),
-                       downloadSupplierDataByOffice("dues", officeNameVal),
-                       downloadSupplierDataByOffice("trips", ownerNameVal),
-                       downloadSupplierDataByOffice("dues", ownerNameVal),
-                       downloadSupplierDataBySap("trips", "unknown"),
-                       downloadSupplierDataBySap("dues", "unknown")
+                       downloadSupplierDataBySap("dues", loggedInSupplierSapGlobal)
                    ]);
-                   globalVehicles = vData || [];
-
-                   function mergeUniqueRows(arrays, keyFn) {
-                       let out = [];
-                       let seen = new Set();
-                       arrays.forEach(arr => {
-                           (arr || []).forEach(row => {
-                               let k = keyFn(row);
-                               if (!seen.has(k)) {
-                                   seen.add(k);
-                                   out.push(row);
-                               }
-                           });
-                       });
-                       return out;
-                   }
-                   let tripKeyFn = t => [
-                       onlyDate(t["وقت الوردية"] || t["التاريخ"] || ""),
-                       normalizeValue(t["رقم اللوحة"] || t["رقم اللوحات"] || ""),
-                       normalizeValue(t["كود الحافلة"] || t["كود"] || ""),
-                       String(t["حالة الرحلة"] || t["الحالة"] || ""),
-                       String(t["الوردية"] || t["وردية"] || "")
-                   ].join("|");
-                   let dueKeyFn = d => [
-                       String(d["الفترة"] || d["فترة"] || ""),
-                       normalizeValue(d["كود الحافلة"] || d["كود"] || d["Bus Trip Code"] || ""),
-                       String(d["مبلغ الرحلات"] || d["المبلغ"] || "")
-                   ].join("|");
-
-                   globalTrips = mergeUniqueRows([tBySap, tByOffice, tByOwner], tripKeyFn);
-                   globalDues = mergeUniqueRows([dBySap, dByOffice, dByOwner], dueKeyFn);
-
-                   // نسب الساب على الصفوف القادمة من اسم المكتب
-                   globalTrips.forEach(t => {
-                       if (!t["رقم المورد"] || t["رقم المورد"] === "unknown") t["رقم المورد"] = loggedInSupplierSapGlobal;
-                   });
-                   globalDues.forEach(d => {
-                       if (!d["رقم المورد"] || d["رقم المورد"] === "unknown") d["رقم المورد"] = loggedInSupplierSapGlobal;
-                   });
-
-                   // استرداد إضافي من unknown باللوحة/الكود/اسم المكتب
-                   let myPlates = new Set();
-                   let myCodes = new Set();
-                   let myNames = new Set();
-                   globalVehicles.forEach(v => {
-                       let p = normalizeValue(v["رقم اللوحة"] || v["رقم اللوحات"]);
-                       let c = normalizeValue(v["كود الحافلة"] || v["كود"]);
-                       if (p) myPlates.add(p);
-                       if (c) myCodes.add(c);
-                       let vn = deepCleanArabic(v["اسم المورد"] || "");
-                       if (vn) myNames.add(vn);
-                   });
-                   let off = deepCleanArabic(officeNameVal);
-                   let own = deepCleanArabic(ownerNameVal);
-                   if (off) myNames.add(off);
-                   if (own) myNames.add(own);
-                   if (officeNameVal && String(officeNameVal).includes("/")) myNames.add(deepCleanArabic(String(officeNameVal).split("/")[0]));
-                   if (ownerNameVal && String(ownerNameVal).includes("/")) myNames.add(deepCleanArabic(String(ownerNameVal).split("/")[0]));
-
-                   function belongsToMe(row) {
-                       let p = normalizeValue(row["رقم اللوحة"] || row["رقم اللوحات"]);
-                       let c = normalizeValue(row["كود الحافلة"] || row["كود"] || row["Bus Trip Code"]);
-                       if (p && myPlates.has(p)) return true;
-                       if (c && myCodes.has(c)) return true;
-                       let n = deepCleanArabic(row["اسم المكتب"] || row["اسم المورد"] || row["المورد"] || "");
-                       if (n) {
-                           if (myNames.has(n)) return true;
-                           for (let mn of myNames) {
-                               if (mn.length >= 5 && (n.includes(mn) || mn.includes(n))) return true;
-                           }
-                       }
-                       return false;
-                   }
-
-                   let seenT = new Set(globalTrips.map(tripKeyFn));
-                   (orphanTrips || []).forEach(t => {
-                       if (!belongsToMe(t)) return;
-                       t["رقم المورد"] = loggedInSupplierSapGlobal;
-                       let k = tripKeyFn(t);
-                       if (!seenT.has(k)) { seenT.add(k); globalTrips.push(t); }
-                   });
-                   let seenD = new Set(globalDues.map(dueKeyFn));
-                   (orphanDues || []).forEach(d => {
-                       if (!belongsToMe(d)) return;
-                       d["رقم المورد"] = loggedInSupplierSapGlobal;
-                       let k = dueKeyFn(d);
-                       if (!seenD.has(k)) { seenD.add(k); globalDues.push(d); }
-                   });
                } else {
-                   globalVehicles = [];
-                   globalTrips = [];
-                   globalDues = [];
+                   vData = []; tData = []; dData = [];
                }
+               let verAfter = await readServerVersion();
+               if (verAfter === serverVersion) break;   // لم يتغير شيء أثناء التحميل
+               serverVersion = verAfter;                // رفع جديد حدث — أعد التحميل
            }
+           globalVehicles = vData || [];
+           globalTrips = tData || [];
+           globalDues = dData || [];
 
            try {
-               await idbSet(cachePrefix + "vehicles", globalVehicles);
-               await idbSet(cachePrefix + "trips", globalTrips);
-               await idbSet(cachePrefix + "dues", globalDues);
-               localStorage.setItem("elaraby_data_version", serverVersion);
+               await idbSet(cachePrefix + "bundle", { v: serverVersion, vehicles: globalVehicles, trips: globalTrips, dues: globalDues });
            } catch(e) { console.error("مساحة الهاتف لا تكفي للكاش"); }
        }
        
+       window.__loadedVersion = serverVersion;
+
        // ضمان وجود id ثابت لكل رحلة (مطلوب لحفظ الملاحظات)
        globalTrips.forEach(t => {
            if (!t.id) {
@@ -6370,7 +6148,12 @@ async function loadSupplierData(){
 
        let notesMap = {};
        try {
-           const notesSnap = await db.collection("notes").get();
+           // المورد: ملاحظاته فقط (استعلام بالساب) — الأدمن: الكل
+           const notesSnap = isAdmin
+               ? await db.collection("notes").get()
+               : (loggedInSupplierSapGlobal
+                   ? await db.collection("notes").where("supplierSap", "==", loggedInSupplierSapGlobal).get()
+                   : { forEach: function(){} });
            notesSnap.forEach(doc => { notesMap[doc.id] = doc.data().note; });
            globalTrips.forEach(t => { if(notesMap[t.id]) t.note = notesMap[t.id]; });
        } catch(e) {}
@@ -6386,7 +6169,7 @@ async function loadSupplierData(){
            } catch(e) {}
        }
 
-       try {
+       if (isAdmin) try {
            const adminUsersSnap = await db.collection("users").get();
            globalAdminsMap.clear();
            adminUsersSnap.forEach(doc => {
@@ -6830,14 +6613,13 @@ firebase.auth().onAuthStateChanged(async function(user){
              });
 
              if (unsubAdminLicenses) unsubAdminLicenses();
-             unsubAdminLicenses = db.collection("uploadedFiles").doc("ALL_LICENSE_UPDATES")
-                 .onSnapshot(doc => {
-                     globalAdminLicenseUpdates = [];
-                     if(doc.exists) {
-                         let all = doc.data().updates || [];
-                         all.sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
-                         globalAdminLicenseUpdates = all;
-                     }
+             migrateOldLicensesOnce();
+             unsubAdminLicenses = db.collection("licenseUpdates")
+                 .onSnapshot(snap => {
+                     let all = snap.docs.map(d => d.data());
+                     all.sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
+                     globalAdminLicenseUpdates = all;
+                     _licRegister(all);
                      updateAdminLicenseBadge();
                      if (activePanel === "الرخص" && document.getElementById("popupBox").style.display === "flex") {
                          renderLicenseNotificationsContent();
@@ -6860,12 +6642,11 @@ firebase.auth().onAuthStateChanged(async function(user){
              if(document.getElementById("scheduleBtn")) document.getElementById("scheduleBtn").classList.add("hide");
 
              if (unsubAdminLicenses) unsubAdminLicenses();
-             unsubAdminLicenses = db.collection("uploadedFiles").doc("ALL_LICENSE_UPDATES")
-                 .onSnapshot(doc => {
-                     globalAdminLicenseUpdates = [];
-                     if(doc.exists) {
-                         globalAdminLicenseUpdates = doc.data().updates || [];
-                     }
+             unsubAdminLicenses = db.collection("licenseUpdates")
+                 .where("supplierSap", "==", normalizeValue(loggedInSupplierSapGlobal || ""))
+                 .onSnapshot(snap => {
+                     globalAdminLicenseUpdates = snap.docs.map(d => d.data());
+                     _licRegister(globalAdminLicenseUpdates);
                      if (activePanel === "الرخص" && document.getElementById("popupBox").style.display === "flex") {
                          renderLicenseNotificationsContent();
                      }
@@ -6881,10 +6662,9 @@ firebase.auth().onAuthStateChanged(async function(user){
          });
          
          if (currentRole === "admin" || currentRole === "super_admin") {
-            db.collection("uploadedFiles").doc("PASSWORD_RESET_REQUESTS").onSnapshot(doc => {
-                if(doc.exists) {
-                    let allReqs = doc.data().requests || [];
-                    // كل عناصر المستند طلبات باسورد؛ نتجاهل أي عنصر بلا هاتف
+            db.collection("passwordRequests").onSnapshot(snap => {
+                    let allReqs = [];
+                    snap.forEach(d => allReqs.push(d.data()));
                     globalPasswordRequests = allReqs.filter(r => r && (r.isPasswordRequest === true || r.phone));
                     globalPasswordRequests.sort((a,b) => new Date(b.date) - new Date(a.date));
                     if (activePanel === "الاشعارات" && document.getElementById("popupBox") && document.getElementById("popupBox").style.display === "flex") {
@@ -6893,8 +6673,7 @@ firebase.auth().onAuthStateChanged(async function(user){
                     if(currentRole === "super_admin" || adminPermissions.suppliers) {
                         updateAdminNotificationsBadge();
                     }
-                }
-            });
+            }, err => console.warn("passwordRequests", err));
             listenAdminComps();
          } else if (currentRole === "supplier") {
             listenSupplierComps();
@@ -7946,7 +7725,7 @@ async function submitAdvancedNote(tripId, type, event) {
     btn.disabled = true;
     
     try {
-        await db.collection("notes").doc(tripId).set({ note: finalNote, updatedAt: firebase.firestore.FieldValue.serverTimestamp(), supplierSap: (loggedInSupplierSapGlobal || ""), supplierName: (currentUserName || "") });
+        await db.collection("notes").doc(tripId).set({ note: finalNote, updatedAt: firebase.firestore.FieldValue.serverTimestamp(), supplierSap: (normalizeValue(trip && trip["رقم المورد"]) || loggedInSupplierSapGlobal || ""), supplierName: (currentUserName || "") });
         if (typeof refreshFailedTripsStats === "function" && document.getElementById("tab-reports") && document.getElementById("tab-reports").classList.contains("active")) refreshFailedTripsStats();
         if (trip) trip.note = finalNote;
         
@@ -8012,9 +7791,7 @@ async function handleForgotPassword() {
                 reportedAt: ""
             };
 
-            await db.collection("uploadedFiles").doc("PASSWORD_RESET_REQUESTS").set({
-                requests: firebase.firestore.FieldValue.arrayUnion(newReq)
-            }, {merge: true});
+            await db.collection("passwordRequests").doc(String(newReq.id)).set(newReq);
 
             showAlert("✅ تم إرسال طلب استعادة الرقم السري بنجاح. يرجى التواصل مع الإدارة العليا لتزويدك بكلمة المرور.");
         } catch(err) {
@@ -8696,41 +8473,8 @@ function estimateLicenseDocSize(updates) {
 
 // تنظيف ذكي: حذف صور السجلات المعتمدة الأقدم عند اقتراب امتلاء المساحة (حد آمن ~750KB للوثيقة)
 async function smartCleanupLicenseSpaceIfNeeded(updatesArr) {
-    const SAFE_LIMIT = 750000; // ~750KB (حد Firestore 1MB)
-    let updates = updatesArr ? [...updatesArr] : [...(globalAdminLicenseUpdates || [])];
-    let size = estimateLicenseDocSize(updates);
-    if (size < SAFE_LIMIT) return updates;
-
-    // ترتيب: الأقدم أولاً، ونفضّل المعتمدة
-    updates.sort((a, b) => {
-        let ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
-        let tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
-        return ta - tb;
-    });
-
-    let changed = false;
-    for (let i = 0; i < updates.length && estimateLicenseDocSize(updates) > SAFE_LIMIT; i++) {
-        let u = updates[i];
-        if (u.isUpdated === true && u.images && u.images.length > 0) {
-            updates[i] = { ...u, images: [], imagePaths: [], cleanedAt: new Date().toISOString(), cleanedReason: "space" };
-            changed = true;
-        }
-    }
-    // إذا ما زال كبيراً، احذف صور غير المعتمدة الأقدم أيضاً
-    for (let i = 0; i < updates.length && estimateLicenseDocSize(updates) > SAFE_LIMIT; i++) {
-        let u = updates[i];
-        if (u.images && u.images.length > 0) {
-            updates[i] = { ...u, images: [], imagePaths: [], cleanedAt: new Date().toISOString(), cleanedReason: "space_force" };
-            changed = true;
-        }
-    }
-    if (changed) {
-        globalAdminLicenseUpdates = updates;
-        try {
-            await db.collection("uploadedFiles").doc("ALL_LICENSE_UPDATES").set({ updates: updates });
-        } catch(e) { console.warn("smartCleanup save failed", e); }
-    }
-    return updates;
+    // لم يعد مطلوباً: كل سجل مستند مستقل فلا يوجد حد مشترك للمساحة
+    return updatesArr ? [...updatesArr] : [...(globalAdminLicenseUpdates || [])];
 }
 
 /** حذف صور الرخص فوراً من كل السجلات مع الإبقاء على بيانات السيارة والرفع والاعتماد */
@@ -8755,7 +8499,7 @@ async function forceFreeAllLicenseImages() {
     let freed = (globalAdminLicenseUpdates || []).filter(u => u.images && u.images.length > 0).length;
     globalAdminLicenseUpdates = updates;
     try {
-        await db.collection("uploadedFiles").doc("ALL_LICENSE_UPDATES").set({ updates: updates });
+        await saveLicenseUpdates(updates);
         renderLicenseNotificationsContent();
         updateAdminLicenseBadge();
         showAlert("✅ تم تحرير المساحة: حُذفت صور " + freed + " سجل مع الإبقاء على البيانات.");
@@ -8804,19 +8548,13 @@ async function handleLicenseImagesUpload(event, plate, code, vId) {
             timestamp: new Date().toISOString()
         };
 
-        // تنظيف ذكي قبل الإضافة إذا كانت المساحة ممتلئة تقريباً
-        let currentUpdates = globalAdminLicenseUpdates ? [...globalAdminLicenseUpdates] : [];
-        currentUpdates = await smartCleanupLicenseSpaceIfNeeded(currentUpdates);
+        // مستند مستقل لهذا الرفع فقط (لا نلمس سجلات غيره)
+        if (estimateLicenseDocSize(updateObj) > 900000) { throw new Error("حجم الصور كبير. صوّر بجودة أقل أو صورة واحدة."); }
+        await db.collection("licenseUpdates").doc(String(updateObj.id)).set(updateObj);
+        let currentUpdates = (globalAdminLicenseUpdates || []).filter(u => u.id !== updateObj.id);
         currentUpdates.push(updateObj);
-
-        // تنظيف مرة أخرى بعد الإضافة إذا لزم
-        currentUpdates = await smartCleanupLicenseSpaceIfNeeded(currentUpdates);
-
-        await db.collection("uploadedFiles").doc("ALL_LICENSE_UPDATES").set({
-            updates: currentUpdates
-        });
-
         globalAdminLicenseUpdates = currentUpdates;
+        _licRegister(currentUpdates);
 
         statusText.innerText = "✅ تم الإرفاق والإرسال للإدارة بنجاح (Base64 مضغوط).";
         statusText.style.color = "#28a745";
@@ -8926,6 +8664,23 @@ function schedulePrepareStatusColumn(ws, rows) {
             ws["!dataValidations"] = ws["!dataValidation"];
         }
 
+        // قائمة عمود الإجراء: رد واعتراض / للعلم فقط
+        let actIdx = headers.indexOf("الإجراء");
+        if (actIdx >= 0) {
+            let colA = scheduleColLetter(actIdx);
+            let dvA = {
+                sqref: colA + "2:" + colA + Math.max(lastDataRow, 500),
+                type: "list", allowBlank: true, showDropDown: false,
+                showErrorMessage: true, showInputMessage: true,
+                formula1: '"رد واعتراض,للعلم فقط"',
+                promptTitle: "الإجراء", prompt: "رد واعتراض = للمورد حق الموافقة/الاعتراض. للعلم فقط = إبلاغ بدون رد.",
+                errorTitle: "قيمة غير مسموحة", error: "اختر: رد واعتراض أو للعلم فقط"
+            };
+            if (!Array.isArray(ws["!dataValidation"])) ws["!dataValidation"] = [];
+            ws["!dataValidation"].push(dvA);
+            ws["!dataValidations"] = ws["!dataValidation"];
+        }
+
         // خلايا مجاورة على يمين الجدول للنسخ اليدوي
         let refColIdx = headers.length + 1; // عمود فارغ ثم مرجع
         let refCol = scheduleColLetter(refColIdx);
@@ -8937,8 +8692,14 @@ function schedulePrepareStatusColumn(ws, rows) {
         ws[refCol2 + "2"] = { t: "s", v: "الصق في عمود الموقف أو اختر من السهم" };
         ws[refCol2 + "3"] = { t: "s", v: "لا تستخدم كلمات أخرى" };
 
+        // عمود نسخ للإجراء: رد واعتراض / للعلم فقط
+        let refCol3 = scheduleColLetter(refColIdx + 3);
+        ws[refCol3 + "1"] = { t: "s", v: "انسخ_للإجراء" };
+        ws[refCol3 + "2"] = { t: "s", v: "رد واعتراض" };
+        ws[refCol3 + "3"] = { t: "s", v: "للعلم فقط" };
+
         // توسيع نطاق الورقة
-        let refEnd = refCol2 + "5";
+        let refEnd = refCol3 + "5";
         if (ws["!ref"]) {
             try {
                 let range = XLSX.utils.decode_range(ws["!ref"]);
@@ -8952,6 +8713,8 @@ function schedulePrepareStatusColumn(ws, rows) {
         while (ws["!cols"].length <= refColIdx + 1) ws["!cols"].push({});
         ws["!cols"][refColIdx] = { wch: 14 };
         ws["!cols"][refColIdx + 1] = { wch: 36 };
+        while (ws["!cols"].length <= refColIdx + 3) ws["!cols"].push({});
+        ws["!cols"][refColIdx + 3] = { wch: 16 };
     } catch (e) {
         console.warn("schedulePrepareStatusColumn", e);
     }
@@ -8960,9 +8723,10 @@ function scheduleAppendGuideSheet(wb) {
     try {
         let guide = [
             { "البند": "1", "التوضيح": "عمود الموقف: اختر من السهم (قائمة) إن ظهرت في Excel" },
-            { "البند": "2", "التوضيح": "أو انسخ من العمود «انسخ_للموقف»: متوقف   أو   تشغيل" },
+            { "البند": "2", "التوضيح": "أو انسخ من العمود «انسخ_للموقف»: متوقف   أو   تشغيل  — وللإجراء من العمود «انسخ_للإجراء»: رد واعتراض   أو   للعلم فقط" },
             { "البند": "3", "التوضيح": "لا تكتب أي كلمة غير هاتين — وإلا لن يُقبل الصف" },
-            { "البند": "4", "التوضيح": "تاريخ التنفيذ مطلوب مع الموقف لكل صف تريد جدولته" }
+            { "البند": "4", "التوضيح": "تاريخ التنفيذ مطلوب مع الموقف لكل صف تريد جدولته" },
+            { "البند": "5", "التوضيح": "عمود الإجراء: «رد واعتراض» = للمورد حق الموافقة أو الاعتراض | «للعلم فقط» = إبلاغ بدون رد. الفارغ = رد واعتراض" }
         ];
         let ws = XLSX.utils.json_to_sheet(guide);
         XLSX.utils.book_append_sheet(wb, ws, "تعليمات_الموقف");
@@ -9065,7 +8829,16 @@ async function loadScheduleItems(force) {
         return globalScheduleItems;
     }
     try {
-        let snap = await db.collection("schedulePlans").orderBy("executionDate", "desc").limit(500).get();
+        let _isAdm = (currentRole === "admin" || currentRole === "super_admin");
+        let _mySap = normalizeValue(loggedInSupplierSapGlobal || "");
+        let snap;
+        if (!_isAdm) {
+            if (!_mySap) { globalScheduleItems = []; _scheduleLoadedAt = now; return globalScheduleItems; }
+            // المورد: بنوده فقط (استعلام بالساب) بدل جلب جدولة الجميع
+            snap = await db.collection("schedulePlans").where("supplierSap", "==", _mySap).limit(300).get();
+        } else {
+            snap = await db.collection("schedulePlans").orderBy("executionDate", "desc").limit(500).get();
+        }
         let arr = [];
         snap.forEach(doc => {
             let d = doc.data() || {};
@@ -9078,6 +8851,7 @@ async function loadScheduleItems(force) {
         console.warn("loadScheduleItems", e);
         // بدون فهرس orderBy — جلب عادي
         try {
+            if (currentRole !== "admin" && currentRole !== "super_admin") throw e;   // المورد لا يجلب جدولة الآخرين أبداً
             let snap2 = await db.collection("schedulePlans").limit(500).get();
             let arr = [];
             snap2.forEach(doc => { let d = doc.data()||{}; d.id = doc.id; arr.push(d); });
@@ -9118,7 +8892,7 @@ async function refreshScheduleBadge() {
                 scheduleBelongsToSupplier(it, sap, keys.codes, keys.plates, idn.officeKeys) &&
                 scheduleIsVisibleToSupplier(it, today)
             );
-            let pendingReply = mine.filter(it => !it.supplierReply && !it.adminFinal).length;
+            let pendingReply = mine.filter(it => !it.supplierReply && !it.adminFinal && !scheduleIsInformOnly(it)).length;
             if (btn) {
                 if (mine.length > 0) btn.classList.remove("hide");
                 else btn.classList.add("hide");
@@ -9465,6 +9239,11 @@ function scheduleSortItems(arr, sortF) {
     }
     return a;
 }
+/** بند جدولة «للعلم فقط» حسب عمود الإجراء في ملف الجدولة */
+function scheduleIsInformOnly(it) {
+    return !!it && it.replyMode === "inform";
+}
+
 function scheduleCardHtml(it, isAdmin, today) {
     let planned = it.plannedStatus === "stop" ? "متوقف" : "تشغيل";
     let color = it.plannedStatus === "stop" ? "#dc3545" : "#28a745";
@@ -9478,7 +9257,7 @@ function scheduleCardHtml(it, isAdmin, today) {
     } else if (it.supplierReply) {
         replyShort = it.supplierReply.type === "object" ? "⚠️ معترض" : "✅ موافق";
     } else {
-        replyShort = "⏳";
+        replyShort = (!isAdmin && scheduleIsInformOnly(it)) ? "ℹ️ للعلم" : "⏳";
     }
     let line = it.lineName || it.routeName || "";
     let shift = it.shift || "";
@@ -9507,7 +9286,9 @@ function scheduleCardHtml(it, isAdmin, today) {
             ${isAdmin && it.fileName ? `<br><span style="font-size:10px;color:#888;">ملف: ${sanitizeHTML(it.fileName)}</span>` : ""}
 `;
 
-    if (!isAdmin && !it.adminFinal && !it.supplierReply) {
+    if (!isAdmin && !it.adminFinal && scheduleIsInformOnly(it)) {
+        html += `<div style="margin-top:8px;font-size:12px;color:#0f6674;background:#e8f7fa;padding:6px 8px;border-radius:6px;">ℹ️ للعلم فقط — هذه الجدولة إبلاغ فقط ولا تحتاج رداً.</div>`;
+    } else if (!isAdmin && !it.adminFinal && !it.supplierReply) {
         html += `<div style="margin-top:8px;" onclick="event.stopPropagation()">
             <textarea id="sch_reply_${it.id}" placeholder="سبب الاعتراض أو ملاحظة (اختياري عند الموافقة)" style="width:100%;min-height:44px;font-size:12px;margin:0 0 6px 0;box-sizing:border-box;"></textarea>
             <div style="display:flex;gap:6px;flex-wrap:wrap;">
@@ -9662,6 +9443,7 @@ function scheduleRowsFromVehicles(vehicles, sap, owner, office) {
         "اسم الخط": scheduleLineFromVehicle(v),
         "الفرع": v["الفرع"] || v["اسم الفرع"] || office || "",
         "الموقف": "",
+        "الإجراء": "",
         "تاريخ التنفيذ": "",
         "الوردية": "",
         "ملاحظة": ""
@@ -9700,6 +9482,7 @@ function downloadScheduleTemplateAll() {
                 "اسم الخط": scheduleLineFromVehicle(v),
                 "الفرع": v["الفرع"] || v["اسم الفرع"] || "",
                 "الموقف": "",
+        "الإجراء": "",
                 "تاريخ التنفيذ": "",
                 "الوردية": "",
                 "ملاحظة": ""
@@ -9765,6 +9548,7 @@ function downloadScheduleTemplate() {
             "اسم الخط": "",
             "الفرع": "",
             "الموقف": "",
+        "الإجراء": "",
             "تاريخ التنفيذ": "",
             "الوردية": "",
             "ملاحظة": ""
@@ -9869,6 +9653,7 @@ async function uploadScheduleFile() {
                 shift: String(r["الوردية"] || r["وردية"] || "").trim(),
                 branch: String(r["الفرع"] || "").trim(),
                 planNote: String(r["ملاحظة"] || r["ملاحظات"] || "").trim(),
+                replyMode: /علم|ابلاغ|إبلاغ|inform/i.test(String(r["الإجراء"] || r["الاجراء"] || "")) ? "inform" : "reply",
                 supplierSap: sap || "",
                 supplierName: name || "",
                 officeClean: officeClean || deepCleanArabic(name || ""),
@@ -9885,15 +9670,7 @@ async function uploadScheduleFile() {
         if (!batch.length) throw new Error("لا صفوف صالحة. تأكد من الموقف وتاريخ التنفيذ والكود/اللوحة.");
 
         // كتابة على دفعات (حد 400)
-        for (let i = 0; i < batch.length; i += 400) {
-            let chunk = batch.slice(i, i + 400);
-            let b = db.batch();
-            chunk.forEach(row => {
-                let ref = db.collection("schedulePlans").doc();
-                b.set(ref, row);
-            });
-            await b.commit();
-        }
+        await commitOpsAdaptive(batch, (b, row) => b.set(db.collection("schedulePlans").doc(), row));
 
         if (typeof logAudit === "function") {
             logAudit("رفع جدولة تشغيل", file.name + " — " + batch.length + " بند", { after: "visible=" + mode });
@@ -9911,6 +9688,10 @@ async function uploadScheduleFile() {
 }
 
 async function submitScheduleReply(id, type) {
+    try {
+        let _it = (typeof globalScheduleItems !== "undefined" && Array.isArray(globalScheduleItems)) ? globalScheduleItems.find(x => String(x.id) === String(id)) : null;
+        if (_it && scheduleIsInformOnly(_it)) { showAlert("هذه الجدولة للعلم فقط ولا تحتاج رداً."); return; }
+    } catch (e) {}
     let ta = document.getElementById("sch_reply_" + id);
     let text = ta ? ta.value.trim() : "";
     if (type === "object" && !text) {
