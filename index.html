@@ -8,6 +8,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script>
 function logoutUser(){
+ stopAllListeners();
  auth.signOut();
  hideAll();
  login.classList.remove("hide");
@@ -16,6 +17,7 @@ function logoutUser(){
  currentRole="supplier";
  adminPermissions = {};
  dataLoaded = false; globalVehicles = []; globalTrips = []; globalDues = [];
+ globalCreds = {}; _credsLoaded = false; globalScheduleItems = []; globalAdminLicenseUpdates = [];
  activeBranch = "";
  activeBranches = [];
  activeServiceType = "";
@@ -1574,6 +1576,17 @@ let globalLicenseNotifs = [];
 let globalAdminLicenseUpdates = [];
 let unsubAdminLicenses = null;
 let unsubMyPerms = null;
+let unsubMsgs = null;
+let unsubPwdReq = null;
+/** إيقاف كل المستمعين (عند تسجيل الخروج) حتى لا تظهر أخطاء صلاحيات ولا تستمر القراءات */
+function stopAllListeners() {
+    try { if (unsubAdminComps) { unsubAdminComps(); unsubAdminComps = null; } } catch (e) {}
+    try { if (unsubSupplierComps) { unsubSupplierComps(); unsubSupplierComps = null; } } catch (e) {}
+    try { if (unsubAdminLicenses) { unsubAdminLicenses(); unsubAdminLicenses = null; } } catch (e) {}
+    try { if (unsubMyPerms) { unsubMyPerms(); unsubMyPerms = null; } } catch (e) {}
+    try { if (unsubMsgs) { unsubMsgs(); unsubMsgs = null; } } catch (e) {}
+    try { if (unsubPwdReq) { unsubPwdReq(); unsubPwdReq = null; } } catch (e) {}
+}
 
 function deepCleanArabic(str) {
     if (!str) return "";
@@ -6705,7 +6718,8 @@ firebase.auth().onAuthStateChanged(async function(user){
                  });
          }
          
-         db.collection("uploadedFiles").doc("GLOBAL_MESSAGES").onSnapshot(doc => {
+         if (unsubMsgs) { try { unsubMsgs(); } catch (e) {} }
+         unsubMsgs = db.collection("uploadedFiles").doc("GLOBAL_MESSAGES").onSnapshot(doc => {
             if(doc.exists) {
                 globalMessages = doc.data().messages || [];
                 globalMessages.sort((a,b) => new Date(b.date) - new Date(a.date));
@@ -6714,7 +6728,8 @@ firebase.auth().onAuthStateChanged(async function(user){
          });
          
          if (currentRole === "admin" || currentRole === "super_admin") {
-            db.collection("passwordRequests").onSnapshot(snap => {
+            if (unsubPwdReq) { try { unsubPwdReq(); } catch (e) {} }
+            unsubPwdReq = db.collection("passwordRequests").onSnapshot(snap => {
                     let allReqs = [];
                     snap.forEach(d => allReqs.push(d.data()));
                     globalPasswordRequests = allReqs.filter(r => r && (r.isPasswordRequest === true || r.phone));
