@@ -885,8 +885,9 @@ if (typeof XLSX === "undefined" || !XLSX.style_version) {
         <div id="dueMonthLabel" style="font-size:11px; color:#666; margin-top:4px; font-weight:bold;"></div>
     </div>
 
-    <div class="card stat locked" style="border-color:#d4edda; background:#f9fff9 !important;">
+    <div class="card stat locked" id="card_success" style="border-color:#d4edda; background:#f9fff9 !important;">
         <div class="stat-title">رحلات ناجحة 🟢</div><div class="num" id="numSuccess" style="color:#28a745;">0</div>
+        <div id="successAttendance" style="display:none; font-size:11px; font-weight:bold; margin-top:4px; line-height:1.6; color:#333;"></div>
     </div>
     
     <div class="card stat clickable" id="card_failed" onclick="handleCardClick('رحلات فاشلة')" style="border-color:#f5c6cb; background:#fff5f5 !important;">
@@ -3714,6 +3715,31 @@ async function changeMyPassword() {
             showAlert("حدث خطأ: " + e.message);
         }
     }
+}
+
+/** قراءة قيمة عمود «البوابة» (يتحمّل اختلاف الإملاء/المسافات في اسم العمود) */
+function getGateValue(row) {
+    if (!row) return "";
+    let v = row["البوابة"];
+    if (v === undefined || v === null || String(v).trim() === "") v = row["بوابة"];
+    if (v === undefined || v === null || String(v).trim() === "") {
+        for (let k in row) {
+            let nk = String(k).replace(/[\s\u064B-\u065F\u0640]/g, "").replace(/ة/g, "ه");
+            if (nk.indexOf("بواب") >= 0) { let x = row[k]; if (x !== undefined && x !== null && String(x).trim() !== "") { v = x; break; } }
+        }
+    }
+    return String(v === undefined || v === null ? "" : v).trim();
+}
+/** حضور يدوي = البوابة (حضور حكمي / حضور يدوي)، وأي قيمة أخرى غير فارغة = حضور إلكتروني */
+function isManualAttendance(row) {
+    let g = getGateValue(row).replace(/[\s\u064B-\u065F\u0640]/g, "").replace(/ى/g, "ي").replace(/ة/g, "ه");
+    return g.indexOf("حكمي") >= 0 || g.indexOf("يدوي") >= 0;
+}
+function hasGateValue(row) { return getGateValue(row) !== ""; }
+function attendanceStatsHTML(elec, manual) {
+    let tot = elec + manual;
+    let pct = tot ? Math.round((elec / tot) * 100) : 0;
+    return `<span style="color:#075bb5;">⚡ إلكتروني: ${elec}</span> | <span style="color:#d9730d;">✍️ يدوي: ${manual}</span><br><span style="color:#155724;">نسبة الحضور الإلكتروني: ${pct}%</span>`;
 }
 
 function handleCardClick(panelName) {
@@ -6673,6 +6699,7 @@ async function _loadSupplierDataImpl(){
       }
    });
 
+   let manualSuccess = 0, elecSuccess = 0;
    globalTrips.forEach(d=>{
       if(showAll || rowMatchesActiveSupplier(d, activeSap, activeOfficeKeys)){
         let b = resolveRowBranch(d);
@@ -6688,7 +6715,7 @@ async function _loadSupplierDataImpl(){
             if((!fromDate || date >= fromDate) && (!toDate || date <= toDate)){
                 totalTrips++; 
                 let status=String(d["حالة الرحلة"]||d["الحالة"]||"").trim();
-                if(status==="رحلة ناجحة") success++; 
+                if(status==="رحلة ناجحة") { success++; if (isManualAttendance(d)) manualSuccess++; else if (hasGateValue(d)) elecSuccess++; } 
                 if(status==="رحلة فاشلة") failed++;
             }
         }
@@ -6802,6 +6829,11 @@ async function _loadSupplierDataImpl(){
    }
 
    document.getElementById("numSuccess").innerHTML = success;
+   let _sa = document.getElementById("successAttendance");
+   if (_sa) {
+       if (success > 0) { _sa.innerHTML = attendanceStatsHTML(elecSuccess, manualSuccess) + ((currentRole === "admin" || currentRole === "super_admin") && success - elecSuccess - manualSuccess > 0 ? `<br><span style="color:#888;">(بدون بوابة: ${success - elecSuccess - manualSuccess})</span>` : ""); _sa.style.display = "block"; }
+       else { _sa.style.display = "none"; }
+   }
    document.getElementById("numFailed").innerHTML = failed;
    let indFailed = document.getElementById("ind_failed");
    if(indFailed) indFailed.style.display = (failed > 0 && !isAdmin) ? 'block' : 'none';
@@ -8186,7 +8218,7 @@ async function handleForgotPassword() {
             await db.collection("passwordRequests").doc(String(newReq.id)).set(newReq);
             try { localStorage.setItem("elaraby_pwd_req_at", String(Date.now())); } catch (e) {}
 
-            showAlert("✅ تم إرسال طلب استعادة الرقم السري بنجاح. يرجى التواصل مع الإدارة العليا لتزويدك بكلمة المرور.");
+            showAlert("✅ تم إرسال طلب استعادة الرقم السري بنجاح. يرجى التواصل مع إدارة الحركة لتزويدك بكلمة المرور.");
         } catch(err) {
             console.error("Password reset error:", err);
             showAlert("❌ خطأ: " + err.message);
@@ -9707,7 +9739,7 @@ function scheduleCardHtml(it, isAdmin, today) {
 `;
 
     if (!isAdmin && !it.adminFinal && scheduleIsInformOnly(it)) {
-        html += `<div style="margin-top:8px;font-size:12px;color:#0f6674;background:#e8f7fa;padding:6px 8px;border-radius:6px;">ℹ️ للعلم فقط — هذه الجدولة إبلاغ فقط ولا تحتاج رداً.</div>`;
+        html += `<div style="margin-top:8px;font-size:12px;color:#0f6674;background:#e8f7fa;padding:6px 8px;border-radius:6px;">ℹ️ للعلم فقط — ويمكن الرجوع للحركة حال وجود تعليق</div>`;
     } else if (!isAdmin && !it.adminFinal && !it.supplierReply) {
         html += `<div style="margin-top:8px;" onclick="event.stopPropagation()">
             <textarea id="sch_reply_${it.id}" placeholder="سبب الاعتراض أو ملاحظة (اختياري عند الموافقة)" style="width:100%;min-height:44px;font-size:12px;margin:0 0 6px 0;box-sizing:border-box;"></textarea>
