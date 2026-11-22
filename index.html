@@ -1951,6 +1951,8 @@ function renderLicenseNotificationsContent() {
             html += "<p style='text-align:center; font-size:13px;'>لا توجد مرفقات جديدة للرخص حالياً.</p>";
         } else {
             globalAdminLicenseUpdates.forEach(update => {
+                // حماية: تجاهل أي سجل مُعرّفه يحوي رموزاً غير آمنة (لمنع حقن كود في شاشة الإدارة)
+                if (!update || !/^[A-Za-z0-9_\-]{1,80}$/.test(String(update.id))) return;
                 let isUpdated = update.isUpdated === true;
                 let dt = update.timestamp ? new Date(update.timestamp).toLocaleString('ar-EG') : "الآن";
                 
@@ -1986,8 +1988,8 @@ function renderLicenseNotificationsContent() {
                 html += `
                 <div class="license-update-card" data-search="${searchBlob}" style="background:${isUpdated ? '#f8f9fa' : '#fff9e6'}; padding:15px; border-radius:10px; margin-bottom:12px; border:2px solid ${isUpdated ? '#28a745' : '#ffc107'};">
                     <div style="font-size:14px; color:#333; line-height:1.6;">
-                        <b>المورد:</b> ${sanitizeHTML(update.supplierName)} (ساب: ${update.supplierSap})<br>
-                        <b>اللوحة:</b> ${update.plate} | <b>الكود:</b> ${update.code} | <b>🏢 الفرع:</b> ${updBranch}<br>
+                        <b>المورد:</b> ${sanitizeHTML(update.supplierName)} (ساب: ${sanitizeHTML(update.supplierSap)})<br>
+                        <b>اللوحة:</b> ${sanitizeHTML(update.plate)} | <b>الكود:</b> ${sanitizeHTML(update.code)} | <b>🏢 الفرع:</b> ${updBranch}<br>
                         <span style="color:#666; font-size:11px;">🕒 وقت الإرفاق: ${dt}</span><br>
                     </div>
                     
