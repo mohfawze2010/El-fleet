@@ -826,6 +826,11 @@ if (typeof XLSX === "undefined" || !XLSX.style_version) {
                 <div class="exit-text" style="margin-top:8px;">الرخص</div>
             </div>
 
+            <div class="exit-container hide" id="analysisBtn" onclick="openAnalysisPanel()" title="تحليل الرحلات والحضور">
+                <div class="exit-icon-circle" style="color:#6f42c1; border: 2px solid #6f42c1; position:relative; border-radius: 6px; width: 44px; height: 30px; background: #f6f0ff;">📊</div>
+                <div class="exit-text" style="margin-top:8px;">تحليل</div>
+            </div>
+
             <div class="exit-container hide" id="scheduleBtn" onclick="openSchedulePanel()" title="جدولة التشغيل والإيقاف">
                 <div class="exit-icon-circle" style="color:#0d6efd; border: 2px solid #0d6efd; position:relative; border-radius: 6px; width: 44px; height: 30px; background: #f0f7ff;">
                     📅<span id="scheduleBadge" class="msg-badge pulse-badge-anim" style="top: -6px; right: -6px; display:none;">0</span>
@@ -1908,6 +1913,219 @@ function checkLicenseNotifications() {
             badge.style.display = "none";
         }
     }
+}
+
+/* ===== شاشة التحليل (للإدارة فقط) — تعتمد على البيانات المحمّلة فقط (بدون أي قراءة إضافية من السيرفر) ===== */
+function _anaSupName(sap, row) {
+    let sd = (globalSupplierDataMap && globalSupplierDataMap.get) ? globalSupplierDataMap.get(sap) : null;
+    return (sd && (sd.ownerName || sd.officeName)) || String((row && row["اسم المورد"]) || "").trim() || "غير معروف";
+}
+
+function computeAnalysisData() {
+    const F = window.__anaF || {};
+    const sup = new Map();
+    const days = new Map();
+    let tot = { success: 0, failed: 0, elec: 0, manual: 0, nogate: 0 };
+    (globalTrips || []).forEach(x => {
+        if (F.branch && !branchesMatch(resolveRowBranch(x), F.branch)) return;
+        let date = onlyDate(x["وقت الوردية"] || x["التاريخ"]);
+        if ((F.from && date < F.from) || (F.to && date > F.to)) return;
+        let status = String(x["حالة الرحلة"] || x["الحالة"] || "").trim();
+        let isS = (status === "رحلة ناجحة"), isF = (status === "رحلة فاشلة");
+        if (!isS && !isF) return;
+        let sap = normalizeValue(x["رقم المورد"]) || "—";
+        if (F.sap && sap !== F.sap) return;
+        let s = sup.get(sap);
+        if (!s) { s = { sap: sap, name: _anaSupName(sap, x), success: 0, failed: 0, elec: 0, manual: 0, nogate: 0 }; sup.set(sap, s); }
+        let d = days.get(date);
+        if (!d) { d = { date: date, success: 0, failed: 0, elec: 0, manual: 0 }; days.set(date, d); }
+        if (isF) { s.failed++; tot.failed++; d.failed++; return; }
+        s.success++; tot.success++; d.success++;
+        if (isManualAttendance(x)) { s.manual++; tot.manual++; d.manual++; }
+        else if (hasGateValue(x)) { s.elec++; tot.elec++; d.elec++; }
+        else { s.nogate++; tot.nogate++; }
+    });
+    return { sup: Array.from(sup.values()), days: Array.from(days.values()).filter(d => d.date).sort((a, b) => a.date < b.date ? -1 : 1), tot: tot };
+}
+
+function openAnalysisPanel() {
+    if (!(currentRole === "admin" || currentRole === "super_admin")) return;
+    activePanel = "تحليل";
+    document.getElementById("popupBox").style.display = "flex";
+    history.pushState(null, null, "#analysis");
+    document.getElementById("popupTitle").innerHTML = "📊 تحليل الرحلات والحضور";
+    document.getElementById("searchInput").style.display = "none";
+    document.getElementById("popupCount").style.display = "none";
+    document.getElementById("failedTripsHint").style.display = "none";
+    let loadBtn = document.getElementById("loadMoreBtn");
+    if (loadBtn) loadBtn.classList.add("hide");
+
+    // قوائم الفلاتر من البيانات المحمّلة
+    const brs = new Set(), sups = new Map();
+    (globalTrips || []).forEach(x => {
+        let b = resolveRowBranch(x); if (b) brs.add(b);
+        let sap = normalizeValue(x["رقم المورد"]);
+        if (sap && !sups.has(sap)) sups.set(sap, _anaSupName(sap, x));
+    });
+    const brList = Array.from(brs).sort((a, b) => a.localeCompare(b, "ar"));
+    const supList = Array.from(sups.entries()).sort((a, b) => a[1].localeCompare(b[1], "ar"));
+
+    window.__anaF = { from: (document.getElementById("globalFromDate") || {}).value || "", to: (document.getElementById("globalToDate") || {}).value || "", branch: "", sap: "" };
+    window.__anaSort = "manual";
+    window.__anaQuery = "";
+    window.__anaTbl = { key: "manual", dir: "desc" };
+    window.__anaSeries = { success: true, failed: true, elec: true, manual: true };
+
+    const inp = "padding:6px;border:1px solid #ccc;border-radius:6px;width:100%;box-sizing:border-box;font-family:inherit;";
+    const lbl = "font-size:11px;font-weight:bold;color:#555;display:block;margin-bottom:2px;";
+    document.getElementById("popupResult").innerHTML = `<div style="padding:4px;box-sizing:border-box;max-width:100%;">
+        <div style="background:#f6f8fb;border:1px solid #e1e6ee;border-radius:10px;padding:8px;margin-bottom:10px;">
+            <div style="font-size:12px;font-weight:bold;margin-bottom:6px;">🎛️ فلاتر التحليل</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;">
+                <div><label style="${lbl}">🏢 الفرع</label><select style="${inp}" onchange="window.__anaF.branch=this.value;renderAnalysisView();"><option value="">كل الفروع</option>${brList.map(b => `<option value="${sanitizeHTML(b)}">${sanitizeHTML(b)}</option>`).join("")}</select></div>
+                <div><label style="${lbl}">🚚 المورد</label><select style="${inp}" onchange="window.__anaF.sap=this.value;renderAnalysisView();"><option value="">كل الموردين</option>${supList.map(s => `<option value="${sanitizeHTML(s[0])}">${sanitizeHTML(s[1])} (${sanitizeHTML(s[0])})</option>`).join("")}</select></div>
+                <div><label style="${lbl}">📅 من تاريخ</label><input type="date" style="${inp}" value="${sanitizeHTML(window.__anaF.from)}" onchange="window.__anaF.from=this.value;renderAnalysisView();"></div>
+                <div><label style="${lbl}">📅 إلى تاريخ</label><input type="date" style="${inp}" value="${sanitizeHTML(window.__anaF.to)}" onchange="window.__anaF.to=this.value;renderAnalysisView();"></div>
+            </div>
+        </div>
+        <div id="anaBody"></div></div>`;
+    renderAnalysisView();
+}
+
+function _anaPct(a, b) { return b ? Math.round((a / b) * 100) : 0; }
+
+function anaToggleSeries(k, on) { window.__anaSeries[k] = !!on; renderAnalysisView(); }
+function anaSortTable(k) {
+    const t = window.__anaTbl;
+    if (t.key === k) t.dir = (t.dir === "desc") ? "asc" : "desc"; else { t.key = k; t.dir = "desc"; }
+    renderAnalysisView();
+}
+
+/** رسم خطي زمني (SVG) لعدة سلاسل */
+function _anaLineChart(days) {
+    if (!days.length) return `<div style="font-size:12px;color:#888;text-align:center;padding:10px;">لا توجد بيانات في الفترة المختارة</div>`;
+    const defs = [
+        { k: "success", n: "ناجحة", c: "#28a745" }, { k: "failed", n: "فاشلة", c: "#dc3545" },
+        { k: "elec", n: "إلكتروني", c: "#075bb5" }, { k: "manual", n: "يدوي", c: "#d9730d" }
+    ];
+    const on = window.__anaSeries;
+    const act = defs.filter(d => on[d.k]);
+    let max = 0;
+    days.forEach(d => act.forEach(s => { if (d[s.k] > max) max = d[s.k]; }));
+    if (max === 0) max = 1;
+    const step = 34, padL = 36, padR = 14, padT = 14, padB = 44, H = 230;
+    const W = Math.max(320, padL + padR + (days.length - 1) * step + 10);
+    const iw = W - padL - padR, ih = H - padT - padB;
+    const X = i => padL + (days.length === 1 ? iw / 2 : (i * iw) / (days.length - 1));
+    const Y = v => padT + ih - (v / max) * ih;
+    let g = "";
+    for (let t = 0; t <= 4; t++) {
+        let v = Math.round((max * t) / 4), y = Y(v);
+        g += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="#eee"/><text x="${padL - 4}" y="${y + 3}" font-size="9" fill="#777" text-anchor="end">${v}</text>`;
+    }
+    const every = Math.max(1, Math.ceil(days.length / Math.floor(iw / 38)));
+    days.forEach((d, i) => { if (i % every === 0) g += `<text x="${X(i)}" y="${H - padB + 14}" font-size="9" fill="#555" text-anchor="middle">${sanitizeHTML(d.date.slice(5))}</text>`; });
+    act.forEach(s => {
+        let pts = days.map((d, i) => X(i) + "," + Y(d[s.k])).join(" ");
+        g += `<polyline points="${pts}" fill="none" stroke="${s.c}" stroke-width="2" stroke-linejoin="round"/>`;
+        days.forEach((d, i) => { g += `<circle cx="${X(i)}" cy="${Y(d[s.k])}" r="3" fill="${s.c}"><title>${sanitizeHTML(d.date)} — ${s.n}: ${d[s.k]}</title></circle>`; });
+    });
+    const legend = defs.map(d => `<label style="display:inline-flex;align-items:center;gap:4px;margin:2px 6px;font-size:12px;cursor:pointer;"><input type="checkbox" ${on[d.k] ? "checked" : ""} onchange="anaToggleSeries('${d.k}', this.checked)"><span style="width:14px;height:3px;background:${d.c};display:inline-block;"></span>${d.n}</label>`).join("");
+    return `<div style="margin-bottom:4px;">${legend}</div>
+        <div style="overflow-x:auto;direction:ltr;border:1px solid #eee;border-radius:8px;"><svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;">${g}</svg></div>`;
+}
+
+function _anaTopDays(days, key, title, color) {
+    let top = days.slice().sort((a, b) => b[key] - a[key]).filter(t => t[key] > 0).slice(0, 5);
+    if (!top.length) return "";
+    return `<div style="margin-top:6px;font-size:12px;"><b style="color:${color};">🔝 أعلى الأيام (${title}):</b> ` +
+        top.map((t, i) => `<span style="display:inline-block;background:#f4f4f4;border:1px solid #ddd;border-radius:6px;padding:2px 8px;margin:2px;">${i + 1}) ${sanitizeHTML(t.date)} ← <b>${t[key]}</b></span>`).join("") + `</div>`;
+}
+
+function renderAnalysisView() {
+    const body = document.getElementById("anaBody");
+    if (!body) return;
+    const A = computeAnalysisData();
+    const sortKey = window.__anaSort || "manual";
+    const q = robustNormalize(window.__anaQuery || "");
+    const pctE = s => _anaPct(s.elec, s.elec + s.manual);
+    const pctS = s => _anaPct(s.success, s.success + s.failed);
+
+    // ترتيب رسم الموردين
+    const sorters = {
+        manual: (a, b) => b.manual - a.manual, elec: (a, b) => b.elec - a.elec,
+        lowpct: (a, b) => pctE(a) - pctE(b), failed: (a, b) => b.failed - a.failed, success: (a, b) => b.success - a.success
+    };
+    let list = A.sup.slice().sort(sorters[sortKey] || sorters.manual);
+
+    const T = A.tot;
+    const tile = (icon, label, val, color, bg) => `<div style="flex:1 1 30%;min-width:100px;background:${bg};border:1px solid ${color}33;border-top:3px solid ${color};border-radius:10px;padding:8px 4px;text-align:center;box-sizing:border-box;">
+        <div style="font-size:22px;line-height:1.2;">${icon}</div><div style="font-size:11px;color:#444;font-weight:bold;">${label}</div><div style="font-size:20px;font-weight:bold;color:${color};">${val}</div></div>`;
+    let tiles = `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
+        ${tile("✅", "رحلات ناجحة", T.success, "#28a745", "#f3fbf5")}
+        ${tile("❌", "رحلات فاشلة", T.failed, "#dc3545", "#fff5f5")}
+        ${tile("📈", "نسبة النجاح", _anaPct(T.success, T.success + T.failed) + "%", "#198754", "#f1faf5")}
+        ${tile("⚡", "حضور إلكتروني", T.elec, "#075bb5", "#f2f7fd")}
+        ${tile("✍️", "حضور يدوي", T.manual, "#d9730d", "#fff8f0")}
+        ${tile("🎯", "نسبة الإلكتروني", _anaPct(T.elec, T.elec + T.manual) + "%", "#155724", "#f1faf3")}
+    </div>`;
+
+    // رسم الموردين (أعلى 15)
+    let chartRows = list.slice(0, 15), maxBar = 0;
+    chartRows.forEach(s => { let t = s.elec + s.manual; if (t > maxBar) maxBar = t; });
+    let bars = chartRows.map(s => {
+        let t = s.elec + s.manual, w = maxBar ? (t / maxBar) * 100 : 0, we = t ? (s.elec / t) * 100 : 0;
+        return `<div style="margin-bottom:10px;padding:0 6px;box-sizing:border-box;">
+            <div style="font-size:12px;font-weight:bold;word-break:break-word;">${sanitizeHTML(s.name)} <span style="color:#888;font-weight:normal;">(${sanitizeHTML(s.sap)})</span></div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;font-size:11px;margin:3px 0;">
+                <span style="background:#fff8f0;border:1px solid #f0d5b8;border-radius:5px;padding:1px 6px;">✍️ يدوي: <b>${s.manual}</b></span>
+                <span style="background:#f2f7fd;border:1px solid #bcd3ee;border-radius:5px;padding:1px 6px;">⚡ إلكتروني: <b>${s.elec}</b></span>
+                <span style="background:#f1faf3;border:1px solid #bfe0c6;border-radius:5px;padding:1px 6px;">🎯 نسبة الإلكتروني: <b dir="ltr">${pctE(s)}%</b></span>
+            </div>
+            <div style="background:#eee;border-radius:5px;height:12px;width:100%;"><div style="width:${w}%;height:12px;display:flex;border-radius:5px;overflow:hidden;"><div style="width:${we}%;background:#075bb5;"></div><div style="flex:1;background:#d9730d;"></div></div></div></div>`;
+    }).join("");
+
+    // جدول التفصيل مع ترتيب بالأعمدة
+    const t = window.__anaTbl || { key: "manual", dir: "desc" };
+    const val = {
+        name: s => s.name, success: s => s.success, failed: s => s.failed, pctS: pctS,
+        elec: s => s.elec, manual: s => s.manual, pctE: pctE
+    };
+    let tbl = A.sup.filter(s => !q || robustNormalize(s.name + " " + s.sap).includes(q));
+    const f = val[t.key] || val.manual, m = t.dir === "asc" ? 1 : -1;
+    tbl.sort((a, b) => { let x = f(a), y = f(b); return (typeof x === "string" ? x.localeCompare(y, "ar") : x - y) * m; });
+    const th = (k, label) => `<th onclick="anaSortTable('${k}')" style="padding:6px;cursor:pointer;white-space:nowrap;user-select:none;">${label} <span style="font-size:10px;opacity:${t.key === k ? 1 : 0.5};">${t.key === k ? (t.dir === "desc" ? "▼" : "▲") : "⇅"}</span></th>`;
+    let rows = tbl.map((s, i) => `<tr style="border-bottom:1px solid #eee;">
+        <td style="padding:5px;">${i + 1}</td>
+        <td style="padding:5px;text-align:right;">${sanitizeHTML(s.name)}<br><span style="color:#888;font-size:11px;">${sanitizeHTML(s.sap)}</span></td>
+        <td style="padding:5px;color:#28a745;font-weight:bold;">${s.success}</td>
+        <td style="padding:5px;color:#dc3545;font-weight:bold;">${s.failed}</td>
+        <td style="padding:5px;" dir="ltr">${pctS(s)}%</td>
+        <td style="padding:5px;color:#075bb5;">${s.elec}</td>
+        <td style="padding:5px;color:#d9730d;">${s.manual}</td>
+        <td style="padding:5px;" dir="ltr">${pctE(s)}%</td></tr>`).join("");
+    const opt = (v, tx) => `<option value="${v}" ${sortKey === v ? "selected" : ""}>${tx}</option>`;
+
+    body.innerHTML = `${tiles}
+        <h4 style="margin:6px 0;">🏢 الحضور الإلكتروني واليدوي لكل مورد (أعلى 15)</h4>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+            <select onchange="window.__anaSort=this.value;renderAnalysisView();" style="flex:1;min-width:160px;padding:6px;border:1px solid #ccc;border-radius:6px;">
+                ${opt("manual", "ترتيب: الأعلى حضوراً يدوياً")}${opt("elec", "ترتيب: الأعلى حضوراً إلكترونياً")}${opt("lowpct", "ترتيب: الأقل نسبة إلكتروني")}${opt("failed", "ترتيب: الأعلى فشلاً")}${opt("success", "ترتيب: الأعلى نجاحاً")}
+            </select>
+            <span style="font-size:11px;color:#666;"><span style="color:#075bb5;">■</span> إلكتروني <span style="color:#d9730d;">■</span> يدوي</span>
+        </div>
+        ${bars || "<p style='font-size:12px;color:#888;'>لا توجد بيانات.</p>"}
+        <h4 style="margin:14px 0 6px;">📉 المنحنى الزمني (حسب اليوم)</h4>
+        ${_anaLineChart(A.days)}
+        ${_anaTopDays(A.days, "manual", "حضور يدوي", "#d9730d")}
+        ${_anaTopDays(A.days, "failed", "رحلات فاشلة", "#dc3545")}
+        <h4 style="margin:14px 0 6px;">📋 تفصيل الموردين (${tbl.length})</h4>
+        <input type="text" id="anaQ" placeholder="🔍 بحث باسم/رقم المورد" value="${sanitizeHTML(window.__anaQuery || "")}" oninput="window.__anaQuery=this.value;clearTimeout(window.__anaT);window.__anaT=setTimeout(function(){renderAnalysisView();var e=document.getElementById('anaQ');if(e){e.focus();e.setSelectionRange(e.value.length,e.value.length);}},350);" style="width:100%;box-sizing:border-box;padding:6px;border:1px solid #ccc;border-radius:6px;margin-bottom:6px;">
+        <div style="overflow-x:auto;max-height:380px;overflow-y:auto;border:1px solid #eee;border-radius:8px;">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;text-align:center;">
+            <thead style="position:sticky;top:0;background:#075bb5;color:#fff;"><tr><th style="padding:6px;">#</th>${th("name", "المورد")}${th("success", "ناجحة")}${th("failed", "فاشلة")}${th("pctS", "% نجاح")}${th("elec", "إلكتروني")}${th("manual", "يدوي")}${th("pctE", "% إلكتروني")}</tr></thead>
+            <tbody>${rows}</tbody></table></div>
+        ${T.nogate > 0 ? `<p style="font-size:11px;color:#888;margin-top:6px;">ملاحظة: ${T.nogate} رحلة ناجحة بدون قيمة في عمود البوابة (غير محسوبة في الإلكتروني أو اليدوي).</p>` : ""}`;
 }
 
 function openLicenseNotificationsPanel() {
@@ -4518,6 +4736,7 @@ if(currentRole==="admin" || currentRole==="super_admin"){
  document.getElementById("complaintBtn").classList.add("hide");
  document.getElementById("changePassBtn").classList.remove("hide"); 
  document.getElementById("licenseNotificationBtn").classList.remove("hide");
+ document.getElementById("analysisBtn").classList.remove("hide");
  // ظهور زر الجدولة حسب الصلاحية (داخل applyAdminPermissionsUI أيضاً)
  if (typeof canAccessSchedule === "function" && canAccessSchedule()) {
      document.getElementById("scheduleBtn").classList.remove("hide");
@@ -4547,6 +4766,7 @@ if(currentRole==="admin" || currentRole==="super_admin"){
  document.getElementById("msgIconWrap").classList.remove("hide");
  document.getElementById("changePassBtn").classList.remove("hide"); 
  document.getElementById("licenseNotificationBtn").classList.remove("hide");
+ document.getElementById("analysisBtn").classList.add("hide");
  document.getElementById("scheduleBtn").classList.add("hide");
 }
 
@@ -6925,6 +7145,7 @@ firebase.auth().onAuthStateChanged(async function(user){
              document.getElementById("complaintBtn").classList.add("hide");
              document.getElementById("changePassBtn").classList.remove("hide"); 
              document.getElementById("licenseNotificationBtn").classList.remove("hide");
+ document.getElementById("analysisBtn").classList.remove("hide");
              if (document.getElementById("scheduleBtn")) {
                  if (typeof canAccessSchedule === "function" && canAccessSchedule()) document.getElementById("scheduleBtn").classList.remove("hide");
                  else document.getElementById("scheduleBtn").classList.add("hide");
@@ -6985,6 +7206,7 @@ firebase.auth().onAuthStateChanged(async function(user){
              document.getElementById("msgIconWrap").classList.remove("hide");
              document.getElementById("changePassBtn").classList.remove("hide"); 
              document.getElementById("licenseNotificationBtn").classList.remove("hide");
+ document.getElementById("analysisBtn").classList.add("hide");
              if(document.getElementById("scheduleBtn")) document.getElementById("scheduleBtn").classList.add("hide");
 
              if (unsubAdminLicenses) unsubAdminLicenses();
