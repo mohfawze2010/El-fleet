@@ -1579,6 +1579,37 @@ let unsubSupplierComps = null;
 let globalLicenseNotifs = [];
 let globalAdminLicenseUpdates = [];
 let unsubAdminLicenses = null;
+/** عرض صورة الرخصة داخل الصفحة (المتصفحات تمنع فتح data: في تبويب جديد) */
+function viewLicenseImage(updateId, idx) {
+    try {
+        let u = (globalAdminLicenseUpdates || []).find(x => String(x.id) === String(updateId));
+        let src = u && u.images && u.images[idx];
+        if (!src) { showAlert("الصورة غير متاحة."); return; }
+        let old = document.getElementById("licenseViewerOverlay");
+        if (old) old.remove();
+        let ov = document.createElement("div");
+        ov.id = "licenseViewerOverlay";
+        ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:100000;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:12px;";
+        ov.onclick = function(e) { if (e.target === ov) ov.remove(); };
+        let img = document.createElement("img");
+        img.src = src;
+        img.style.cssText = "max-width:96vw;max-height:80vh;object-fit:contain;border-radius:8px;background:#fff;";
+        let bar = document.createElement("div");
+        bar.style.cssText = "margin-top:12px;display:flex;gap:10px;";
+        let dl = document.createElement("a");
+        dl.href = src; dl.download = "License_" + String(u.plate || "img").replace(/[^a-zA-Z0-9\u0600-\u06FF]/g, "_") + "_" + (idx + 1) + ".jpg";
+        dl.innerText = "⬇️ تحميل";
+        dl.style.cssText = "background:#17a2b8;color:#fff;padding:8px 16px;border-radius:6px;text-decoration:none;font-size:14px;";
+        let cl = document.createElement("button");
+        cl.innerText = "✖ إغلاق";
+        cl.style.cssText = "background:#dc3545;color:#fff;padding:8px 16px;border:none;border-radius:6px;font-size:14px;cursor:pointer;";
+        cl.onclick = function() { ov.remove(); };
+        bar.appendChild(dl); bar.appendChild(cl);
+        ov.appendChild(img); ov.appendChild(bar);
+        document.body.appendChild(ov);
+    } catch (e) { console.warn("viewLicenseImage", e); }
+}
+
 /** شريط تقدم داخل صندوق النتيجة (رفع/حذف الملفات) */
 function adminProgressHtml(pct, label) {
     pct = Math.max(0, Math.min(100, Math.round(pct)));
@@ -1922,7 +1953,7 @@ function renderLicenseNotificationsContent() {
                         let isData = imgStr.startsWith("data:") || imgStr.startsWith("http");
                         if (isData) {
                             imagesHtml += `
-                                <a href="${imgStr}" target="_blank" rel="noopener" style="background:#075bb5; color:#fff; padding:6px 10px; border-radius:5px; text-decoration:none; font-size:12px; margin-left:5px; display:inline-block; margin-top:5px;">👁️ عرض الصورة ${i+1}</a>
+                                <a href="javascript:void(0)" onclick="viewLicenseImage('${sanitizeHTML(update.id)}', ${i})" style="background:#075bb5; color:#fff; padding:6px 10px; border-radius:5px; text-decoration:none; font-size:12px; margin-left:5px; display:inline-block; margin-top:5px;">👁️ عرض الصورة ${i+1}</a>
                                 <a href="${imgStr}" download="License_${(update.plate || 'img').replace(/[^a-zA-Z0-9\u0600-\u06FF]/g,'_')}_${i+1}.jpg" style="background:#17a2b8; color:#fff; padding:6px 10px; border-radius:5px; text-decoration:none; font-size:12px; margin-left:5px; display:inline-block; margin-top:5px;">📥 تحميل</a>`;
                         } else {
                             imagesHtml += `<span style="background:#6c757d; color:#fff; padding:6px 10px; border-radius:5px; font-size:12px; margin-left:5px; display:inline-block; margin-top:5px;">صورة غير متاحة</span>`;
