@@ -876,7 +876,11 @@ if (typeof XLSX === "undefined" || !XLSX.style_version) {
     <div class="card stat clickable" id="card_dues" onclick="handleCardClick('المستحقات')">
         <div id="ind_dues" class="data-indicator" style="display:none;">👆 عرض التفاصيل</div>
         <div class="stat-title">المستحقات 💰</div>
-        <div class="num" id="numDues" style="color:#28a745;">0</div>
+        <div style="display:flex;align-items:center;justify-content:center;gap:6px;width:100%;">
+            <button type="button" id="duesPeriodPrev" onclick="event.stopPropagation(); cycleDuesPeriod(-1);" title="الفترة الأحدث" style="width:28px !important;min-width:28px;height:28px;padding:0 !important;margin:0 !important;border-radius:50%;background:#075bb5;color:#fff;font-size:14px;line-height:1;flex-shrink:0;display:none;">▲</button>
+            <div class="num" id="numDues" style="color:#28a745;">0</div>
+            <button type="button" id="duesPeriodNext" onclick="event.stopPropagation(); cycleDuesPeriod(1);" title="الفترة الأقدم" style="width:28px !important;min-width:28px;height:28px;padding:0 !important;margin:0 !important;border-radius:50%;background:#075bb5;color:#fff;font-size:14px;line-height:1;flex-shrink:0;display:none;">▼</button>
+        </div>
         <div id="numDuesDeduction" style="display:none; font-size:11px; color:#dc3545; font-weight:bold; margin-top:2px;"></div>
         <div id="dueMonthLabel" style="font-size:11px; color:#666; margin-top:4px; font-weight:bold;"></div>
     </div>
@@ -922,27 +926,30 @@ if (typeof XLSX === "undefined" || !XLSX.style_version) {
 </div>
 
 <script>
-// تفعيل حركة الكروت ثلاثية الأبعاد التفاعلية عند تحرك الماوس
+// تفعيل حركة الكروت ثلاثية الأبعاد التفاعلية عند تحرك الماوس (للمورد فقط — لا للأدمن)
 function init3DCardTilt() {
     const cards = document.querySelectorAll('.stat');
     cards.forEach(card => {
-        card.addEventListener('mousemove', (e) => {
+        // إزالة أي مستمعات سابقة عبر استبدال بسيط
+        card.onmousemove = null;
+        card.onmouseleave = null;
+        if (typeof currentRole !== "undefined" && (currentRole === "admin" || currentRole === "super_admin")) {
+            card.style.transform = "";
+            return;
+        }
+        card.onmousemove = (e) => {
             const rect = card.getBoundingClientRect();
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
-            
             const centerX = rect.width / 2;
             const centerY = rect.height / 2;
-            
             const rotateX = ((y - centerY) / centerY) * -12;
             const rotateY = ((x - centerX) / centerX) * 12;
-            
             card.style.transform = `perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale3d(1.03, 1.03, 1.03)`;
-        });
-        
-        card.addEventListener('mouseleave', () => {
+        };
+        card.onmouseleave = () => {
             card.style.transform = `perspective(1000px) rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1)`;
-        });
+        };
     });
 }
 document.addEventListener("DOMContentLoaded", init3DCardTilt);
@@ -3827,15 +3834,28 @@ function styleExcelSheet(ws, dataRows, wb) {
                     let isEven = R % 2 === 0;
                     let headerTitle = colHeaderTitles[C] || "";
                     let isDeduction = headerTitle.includes("خصم") || headerTitle.includes("الخصومات");
+                    let isTripStatusCol = headerTitle === "حالة الرحلة" || headerTitle === "الحالة";
+                    let statusVal = isTripStatusCol ? String(cell.v || "").trim() : "";
+                    let isSuccessTrip = isTripStatusCol && (statusVal === "رحلة ناجحة" || statusVal.indexOf("ناجح") >= 0);
+                    let isFailedTrip = isTripStatusCol && (statusVal === "رحلة فاشلة" || statusVal.indexOf("فاشل") >= 0);
 
                     let fontColor = "1A202C";
+                    let fillColor = isEven ? "F4F7FB" : "FFFFFF";
                     if (isDeduction && cell.v && cell.v !== "0" && cell.v !== 0 && String(cell.v).trim() !== "") {
                         fontColor = "C53030";
+                    }
+                    // تلوين خلية حالة الرحلة: أخضر للناجحة (خط أسود) وأحمر للفاشلة
+                    if (isSuccessTrip) {
+                        fillColor = "92D050";
+                        fontColor = "000000";
+                    } else if (isFailedTrip) {
+                        fillColor = "FF6B6B";
+                        fontColor = "FFFFFF";
                     }
 
                     // خط بولد ومحاذاة وسطية في كافة الخلايا مع حدود أنيقة خفيفة
                     cell.s = {
-                        fill: { patternType: "solid", fgColor: { rgb: isEven ? "F4F7FB" : "FFFFFF" } },
+                        fill: { patternType: "solid", fgColor: { rgb: fillColor } },
                         font: { name: "Segoe UI", sz: 10.5, bold: true, color: { rgb: fontColor } },
                         alignment: {
                             horizontal: "center",
@@ -3864,6 +3884,22 @@ function styleExcelSheet(ws, dataRows, wb) {
                                 cell.v = d;
                                 cell.z = "yyyy-mm-dd HH:mm";
                             }
+                        }
+                    }
+
+                    // تنسيق عمود انسخ_للموقف فقط: متوقف أحمر / تشغيل أخضر
+                    if (headerTitle === "انسخ_للموقف" || headerTitle.indexOf("انسخ_للموقف") >= 0) {
+                        let sv = String(cell.v || "").trim();
+                        if (sv === "متوقف") {
+                            cell.s = cell.s || {};
+                            cell.s.fill = { patternType: "solid", fgColor: { rgb: "FF0000" } };
+                            cell.s.font = { name: "Segoe UI", sz: 11, bold: true, color: { rgb: "FFFFFF" } };
+                            cell.s.alignment = { horizontal: "center", vertical: "center", wrapText: true, readingOrder: 2 };
+                        } else if (sv === "تشغيل") {
+                            cell.s = cell.s || {};
+                            cell.s.fill = { patternType: "solid", fgColor: { rgb: "00B050" } };
+                            cell.s.font = { name: "Segoe UI", sz: 11, bold: true, color: { rgb: "FFFFFF" } };
+                            cell.s.alignment = { horizontal: "center", vertical: "center", wrapText: true, readingOrder: 2 };
                         }
                     }
                 }
@@ -4466,6 +4502,7 @@ if(currentRole==="admin" || currentRole==="super_admin"){
      let ind = el.querySelector('.data-indicator');
      if(ind) ind.style.display = 'none';
  });
+ if (typeof init3DCardTilt === "function") init3DCardTilt();
 }else{
  document.getElementById("adminBtn").classList.add("hide");
  document.getElementById("adminDashFilter").classList.add("hide");
@@ -6595,39 +6632,41 @@ async function _loadSupplierDataImpl(){
        selectedDuesPeriod = latestPeriodName;
    }
 
-   let duesEl = document.getElementById("numDues");
-   if (duesEl) {
-       duesEl.style.color = "#28a745";
-       duesEl.innerHTML = (typeof formatMoneyInt === "function" ? formatMoneyInt(latestPeriodTotal) : latestPeriodTotal.toLocaleString("en-US")) + " ج";
-   }
-   let dedEl = document.getElementById("numDuesDeduction");
-   if (dedEl) {
-       // يظهر دائماً تحت مبلغ المستحقات (أحمر صغير)
-       dedEl.style.display = "block";
-       dedEl.style.color = "#dc3545";
-       dedEl.style.fontSize = "11px";
-       dedEl.style.fontWeight = "bold";
-       dedEl.style.marginTop = "3px";
-       let dedAbs = Math.abs(latestPeriodDeduction || 0);
-       let dedTxt = (typeof formatMoneyInt === "function" ? formatMoneyInt(dedAbs) : dedAbs.toLocaleString("en-US"));
-       dedEl.innerHTML = "خصومات: " + dedTxt + " ج";
-       dedEl.style.opacity = dedAbs ? "1" : "0.55";
-   }
-
-   let dueMonthLabelEl = document.getElementById("dueMonthLabel");
-   if (dueMonthLabelEl) {
-       let labelParts = [];
-       if (latestPeriodName) labelParts.push("فترة: " + latestPeriodName);
-       if (typeof getActiveBranchesLabel === "function" && ((activeBranches && activeBranches.length) || activeBranch)) {
-           labelParts.push("فرع: " + getActiveBranchesLabel());
-       } else if (activeBranch) labelParts.push("فرع: " + activeBranch);
-       if (labelParts.length) {
-           dueMonthLabelEl.innerHTML = labelParts.join(" | ");
-           dueMonthLabelEl.style.color = "#075bb5";
-           dueMonthLabelEl.style.fontSize = "12px";
-           dueMonthLabelEl.style.fontWeight = "bold";
-       } else {
-           dueMonthLabelEl.innerHTML = "";
+   if (typeof refreshDuesCardDisplay === "function") {
+       refreshDuesCardDisplay();
+   } else {
+       let duesEl = document.getElementById("numDues");
+       if (duesEl) {
+           duesEl.style.color = "#28a745";
+           duesEl.innerHTML = (typeof formatMoneyInt === "function" ? formatMoneyInt(latestPeriodTotal) : latestPeriodTotal.toLocaleString("en-US")) + " ج";
+       }
+       let dedEl = document.getElementById("numDuesDeduction");
+       if (dedEl) {
+           dedEl.style.display = "block";
+           dedEl.style.color = "#dc3545";
+           dedEl.style.fontSize = "11px";
+           dedEl.style.fontWeight = "bold";
+           dedEl.style.marginTop = "3px";
+           let dedAbs = Math.abs(latestPeriodDeduction || 0);
+           let dedTxt = (typeof formatMoneyInt === "function" ? formatMoneyInt(dedAbs) : dedAbs.toLocaleString("en-US"));
+           dedEl.innerHTML = "خصومات: " + dedTxt + " ج";
+           dedEl.style.opacity = dedAbs ? "1" : "0.55";
+       }
+       let dueMonthLabelEl = document.getElementById("dueMonthLabel");
+       if (dueMonthLabelEl) {
+           let labelParts = [];
+           if (latestPeriodName) labelParts.push("فترة: " + latestPeriodName);
+           if (typeof getActiveBranchesLabel === "function" && ((activeBranches && activeBranches.length) || activeBranch)) {
+               labelParts.push("فرع: " + getActiveBranchesLabel());
+           } else if (activeBranch) labelParts.push("فرع: " + activeBranch);
+           if (labelParts.length) {
+               dueMonthLabelEl.innerHTML = labelParts.join(" | ");
+               dueMonthLabelEl.style.color = "#075bb5";
+               dueMonthLabelEl.style.fontSize = "12px";
+               dueMonthLabelEl.style.fontWeight = "bold";
+           } else {
+               dueMonthLabelEl.innerHTML = "";
+           }
        }
    }
 
@@ -6756,6 +6795,7 @@ firebase.auth().onAuthStateChanged(async function(user){
                  let ind = el.querySelector('.data-indicator');
                  if(ind) ind.style.display = 'none';
              });
+             if (typeof init3DCardTilt === "function") init3DCardTilt();
 
              if (unsubAdminLicenses) unsubAdminLicenses();
              migrateOldLicensesOnce();
@@ -7373,6 +7413,76 @@ function sortDuesList(key) {
     let periodVal = periodSel ? periodSel.value : "";
     buildDuesPeriodUI(periodVal || null, window.__duesInternalBranch || "");
 }
+
+function refreshDuesCardDisplay() {
+    try {
+        let cache = globalDuesPeriodsCache || [];
+        if (!cache.length) return;
+        let idx = cache.findIndex(p => p.period === selectedDuesPeriod);
+        if (idx < 0) idx = 0;
+        let cur = cache[idx];
+        selectedDuesPeriod = cur.period;
+        let duesEl = document.getElementById("numDues");
+        if (duesEl) {
+            duesEl.style.color = "#28a745";
+            duesEl.innerHTML = (typeof formatMoneyInt === "function" ? formatMoneyInt(cur.total) : (cur.total || 0).toLocaleString("en-US")) + " ج";
+        }
+        let dedEl = document.getElementById("numDuesDeduction");
+        if (dedEl) {
+            dedEl.style.display = "block";
+            dedEl.style.color = "#dc3545";
+            dedEl.style.fontSize = "11px";
+            dedEl.style.fontWeight = "bold";
+            dedEl.style.marginTop = "3px";
+            let dedAbs = Math.abs(cur.deduction || 0);
+            let dedTxt = (typeof formatMoneyInt === "function" ? formatMoneyInt(dedAbs) : dedAbs.toLocaleString("en-US"));
+            dedEl.innerHTML = "خصومات: " + dedTxt + " ج";
+            dedEl.style.opacity = dedAbs ? "1" : "0.55";
+        }
+        let dueMonthLabelEl = document.getElementById("dueMonthLabel");
+        if (dueMonthLabelEl) {
+            let labelParts = [];
+            if (cur.period) labelParts.push("فترة: " + cur.period);
+            if (typeof getActiveBranchesLabel === "function" && ((typeof activeBranches !== "undefined" && activeBranches && activeBranches.length) || (typeof activeBranch !== "undefined" && activeBranch))) {
+                labelParts.push("فرع: " + getActiveBranchesLabel());
+            } else if (typeof activeBranch !== "undefined" && activeBranch) {
+                labelParts.push("فرع: " + activeBranch);
+            }
+            dueMonthLabelEl.innerHTML = labelParts.length ? labelParts.join(" | ") : "";
+            dueMonthLabelEl.style.color = "#075bb5";
+            dueMonthLabelEl.style.fontSize = "12px";
+            dueMonthLabelEl.style.fontWeight = "bold";
+        }
+        let prevBtn = document.getElementById("duesPeriodPrev");
+        let nextBtn = document.getElementById("duesPeriodNext");
+        if (prevBtn && nextBtn) {
+            let show = cache.length > 1;
+            prevBtn.style.display = show ? "inline-flex" : "none";
+            nextBtn.style.display = show ? "inline-flex" : "none";
+            prevBtn.style.alignItems = "center";
+            prevBtn.style.justifyContent = "center";
+            nextBtn.style.alignItems = "center";
+            nextBtn.style.justifyContent = "center";
+            prevBtn.disabled = idx <= 0;
+            nextBtn.disabled = idx >= cache.length - 1;
+            prevBtn.style.opacity = idx <= 0 ? "0.4" : "1";
+            nextBtn.style.opacity = idx >= cache.length - 1 ? "0.4" : "1";
+        }
+    } catch (e) { console.warn("refreshDuesCardDisplay", e); }
+}
+function cycleDuesPeriod(dir) {
+    try {
+        let cache = globalDuesPeriodsCache || [];
+        if (cache.length < 2) return;
+        let idx = cache.findIndex(p => p.period === selectedDuesPeriod);
+        if (idx < 0) idx = 0;
+        let next = idx + (dir > 0 ? 1 : -1);
+        if (next < 0 || next >= cache.length) return;
+        selectedDuesPeriod = cache[next].period;
+        refreshDuesCardDisplay();
+    } catch (e) { console.warn(e); }
+}
+
 function filterDuesByPeriod(periodVal) {
     buildDuesPeriodUI(periodVal || null, window.__duesInternalBranch || "");
 }
@@ -8800,7 +8910,6 @@ function schedulePrepareStatusColumn(ws, rows) {
         if (statusIdx >= 0) {
             let col = scheduleColLetter(statusIdx);
             let sqref = col + "2:" + col + Math.max(lastDataRow, 500);
-            // Data Validation — قائمة متوقف / تشغيل
             let dv = {
                 sqref: sqref,
                 type: "list",
@@ -8810,18 +8919,17 @@ function schedulePrepareStatusColumn(ws, rows) {
                 showInputMessage: true,
                 formula1: '"متوقف,تشغيل"',
                 promptTitle: "الموقف",
-                prompt: "اختر من القائمة: متوقف أو تشغيل",
+                prompt: "اختر: متوقف أو تشغيل",
                 errorTitle: "قيمة غير مسموحة",
                 error: "اكتب أو اختر فقط: متوقف أو تشغيل"
             };
             if (!ws["!dataValidation"]) ws["!dataValidation"] = [];
             if (Array.isArray(ws["!dataValidation"])) ws["!dataValidation"].push(dv);
             else ws["!dataValidation"] = [dv];
-            // بعض إصدارات المكتبة تستخدم الاسم بالجمع
             ws["!dataValidations"] = ws["!dataValidation"];
         }
 
-        // قائمة عمود الإجراء: رد واعتراض / للعلم فقط
+        // قائمة عمود الإجراء
         let actIdx = headers.indexOf("الإجراء");
         if (actIdx >= 0) {
             let colA = scheduleColLetter(actIdx);
@@ -8830,7 +8938,7 @@ function schedulePrepareStatusColumn(ws, rows) {
                 type: "list", allowBlank: true, showDropDown: false,
                 showErrorMessage: true, showInputMessage: true,
                 formula1: '"رد واعتراض,للعلم فقط"',
-                promptTitle: "الإجراء", prompt: "رد واعتراض = للمورد حق الموافقة/الاعتراض. للعلم فقط = إبلاغ بدون رد.",
+                promptTitle: "الإجراء", prompt: "رد واعتراض أو للعلم فقط",
                 errorTitle: "قيمة غير مسموحة", error: "اختر: رد واعتراض أو للعلم فقط"
             };
             if (!Array.isArray(ws["!dataValidation"])) ws["!dataValidation"] = [];
@@ -8838,25 +8946,43 @@ function schedulePrepareStatusColumn(ws, rows) {
             ws["!dataValidations"] = ws["!dataValidation"];
         }
 
-        // خلايا مجاورة على يمين الجدول للنسخ اليدوي
-        let refColIdx = headers.length + 1; // عمود فارغ ثم مرجع
-        let refCol = scheduleColLetter(refColIdx);
-        let refCol2 = scheduleColLetter(refColIdx + 1);
-        ws[refCol + "1"] = { t: "s", v: "انسخ_للموقف" };
-        ws[refCol + "2"] = { t: "s", v: "متوقف" };
-        ws[refCol + "3"] = { t: "s", v: "تشغيل" };
-        ws[refCol2 + "1"] = { t: "s", v: "ملاحظة" };
-        ws[refCol2 + "2"] = { t: "s", v: "الصق في عمود الموقف أو اختر من السهم" };
-        ws[refCol2 + "3"] = { t: "s", v: "لا تستخدم كلمات أخرى" };
+        // أعمدة مرجع النسخ متجاورة: انسخ_للموقف | انسخ_للإجراء | ملاحظة
+        let refColIdx = headers.length + 1;
+        let colStop = scheduleColLetter(refColIdx);       // انسخ_للموقف
+        let colAct  = scheduleColLetter(refColIdx + 1);   // انسخ_للإجراء
+        let colNote = scheduleColLetter(refColIdx + 2);   // ملاحظة
 
-        // عمود نسخ للإجراء: رد واعتراض / للعلم فقط
-        let refCol3 = scheduleColLetter(refColIdx + 3);
-        ws[refCol3 + "1"] = { t: "s", v: "انسخ_للإجراء" };
-        ws[refCol3 + "2"] = { t: "s", v: "رد واعتراض" };
-        ws[refCol3 + "3"] = { t: "s", v: "للعلم فقط" };
+        function cellStyle(bg, fg, bold) {
+            return {
+                fill: { patternType: "solid", fgColor: { rgb: bg } },
+                font: { name: "Segoe UI", sz: 11, bold: !!bold, color: { rgb: fg } },
+                alignment: { horizontal: "center", vertical: "center", wrapText: true, readingOrder: 2 },
+                border: {
+                    top: { style: "thin", color: { rgb: "D0D7DE" } },
+                    bottom: { style: "thin", color: { rgb: "D0D7DE" } },
+                    left: { style: "thin", color: { rgb: "D0D7DE" } },
+                    right: { style: "thin", color: { rgb: "D0D7DE" } }
+                }
+            };
+        }
+        let hdrBlue = cellStyle("075BB5", "FFFFFF", true);
 
-        // توسيع نطاق الورقة
-        let refEnd = refCol3 + "5";
+        // انسخ_للموقف
+        ws[colStop + "1"] = { t: "s", v: "انسخ_للموقف", s: hdrBlue };
+        ws[colStop + "2"] = { t: "s", v: "متوقف", s: cellStyle("FF0000", "FFFFFF", true) };
+        ws[colStop + "3"] = { t: "s", v: "تشغيل", s: cellStyle("00B050", "FFFFFF", true) };
+
+        // انسخ_للإجراء (بجوار انسخ_للموقف)
+        ws[colAct + "1"] = { t: "s", v: "انسخ_للإجراء", s: hdrBlue };
+        ws[colAct + "2"] = { t: "s", v: "رد واعتراض", s: cellStyle("FFF2CC", "000000", true) };
+        ws[colAct + "3"] = { t: "s", v: "للعلم فقط", s: cellStyle("DEEBF7", "000000", true) };
+
+        // ملاحظة
+        ws[colNote + "1"] = { t: "s", v: "ملاحظة", s: hdrBlue };
+        ws[colNote + "2"] = { t: "s", v: "الصق في عمود الموقف أو اختر من السهم", s: cellStyle("F8F9FA", "333333", false) };
+        ws[colNote + "3"] = { t: "s", v: "لا تستخدم كلمات أخرى", s: cellStyle("F8F9FA", "333333", false) };
+
+        let refEnd = colNote + "3";
         if (ws["!ref"]) {
             try {
                 let range = XLSX.utils.decode_range(ws["!ref"]);
@@ -8867,11 +8993,10 @@ function schedulePrepareStatusColumn(ws, rows) {
             } catch (eR) {}
         }
         if (!ws["!cols"]) ws["!cols"] = [];
-        while (ws["!cols"].length <= refColIdx + 1) ws["!cols"].push({});
+        while (ws["!cols"].length <= refColIdx + 2) ws["!cols"].push({});
         ws["!cols"][refColIdx] = { wch: 14 };
-        ws["!cols"][refColIdx + 1] = { wch: 36 };
-        while (ws["!cols"].length <= refColIdx + 3) ws["!cols"].push({});
-        ws["!cols"][refColIdx + 3] = { wch: 16 };
+        ws["!cols"][refColIdx + 1] = { wch: 16 };
+        ws["!cols"][refColIdx + 2] = { wch: 36 };
     } catch (e) {
         console.warn("schedulePrepareStatusColumn", e);
     }
@@ -9066,8 +9191,10 @@ function toggleScheduleUploadBox() {
     window.__scheduleUploadOpen = !window.__scheduleUploadOpen;
     let body = document.getElementById("scheduleUploadBody");
     let ch = document.getElementById("scheduleUploadChevron");
+    let plus = document.getElementById("scheduleUploadPlus");
     if (body) body.style.display = window.__scheduleUploadOpen ? "block" : "none";
     if (ch) ch.textContent = window.__scheduleUploadOpen ? "▲ إخفاء" : "▼ عرض";
+    if (plus) plus.style.transform = window.__scheduleUploadOpen ? "rotate(45deg)" : "rotate(0deg)";
     if (window.__scheduleUploadOpen && typeof renderScheduleSupplierPicks === "function") {
         try { renderScheduleSupplierPicks(); } catch (e) {}
     }
@@ -9140,33 +9267,42 @@ async function renderSchedulePanel(forceLoad) {
             let uploadOpen = (window.__scheduleUploadOpen === true);
             if (allowUpload) {
             html += `<div style="background:#f0f7ff;border:1px solid #b8daff;border-radius:10px;margin-bottom:12px;overflow:hidden;">
-                <div onclick="toggleScheduleUploadBox()" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;padding:10px 12px;user-select:none;">
-                    <span style="font-size:13px;font-weight:bold;color:#075bb5;">📤 رفع ملف / اختيار مورد للقالب</span>
+                <div onclick="toggleScheduleUploadBox()" style="cursor:pointer;display:flex;align-items:center;gap:10px;padding:10px 12px;user-select:none;">
+                    <span id="scheduleUploadPlus" style="width:26px;height:26px;min-width:26px;border-radius:6px;background:#075bb5;color:#fff;font-size:18px;font-weight:bold;display:flex;align-items:center;justify-content:center;line-height:1;transition:transform 0.2s;${uploadOpen ? "transform:rotate(45deg);" : ""}">+</span>
+                    <span style="flex:1;font-size:13px;font-weight:bold;color:#075bb5;">رفع ملف / اختيار مورد للقالب</span>
                     <span id="scheduleUploadChevron" style="font-size:12px;color:#075bb5;">${uploadOpen ? "▲ إخفاء" : "▼ عرض"}</span>
                 </div>
                 <div id="scheduleUploadBody" style="display:${uploadOpen ? "block" : "none"};padding:0 12px 12px;border-top:1px solid #c5ddf7;">
-                    <div style="font-size:13px;font-weight:bold;color:#075bb5;margin:10px 0 8px;">1️⃣ اختر المورد → صدّر قالباً ببياناته</div>
-                    <div style="font-size:11px;color:#555;margin-bottom:8px;line-height:1.55;">القالب يملأ: اسم المورد، رقم الساب، الكود، اللوحة، الفرع، اسم الخط. وأنت تملأ: <b>الموقف</b> و<b>تاريخ التنفيذ</b> والوردية.</div>
-                    <input type="text" id="scheduleSupplierSearch" oninput="renderScheduleSupplierPicks()" placeholder="🔍 ابحث باسم المورد أو المكتب أو رقم الساب..." style="width:100%;margin:0 0 8px 0;padding:8px;font-size:12px;box-sizing:border-box;border:1px solid #bcd;border-radius:8px;">
-                    <div id="scheduleSupplierPicks" style="max-height:140px;overflow-y:auto;margin-bottom:10px;font-size:12px;"></div>
-                    <div style="font-size:11px;color:#333;background:#fff;border:1px solid #cde;border-radius:6px;padding:8px;margin-bottom:8px;line-height:1.6;">
-                        <b>عمود «الموقف»:</b> <span style="color:#dc3545;font-weight:bold;">متوقف</span> أو <span style="color:#28a745;font-weight:bold;">تشغيل</span> فقط
+                    <!-- قسم 1: تحميل القالب -->
+                    <div style="background:#fff;border:1px solid #c5ddf7;border-radius:10px;padding:12px;margin:10px 0 12px;">
+                        <div style="font-size:13px;font-weight:bold;color:#075bb5;margin:0 0 8px;">1️⃣ تحميل القالب</div>
+                        <input type="text" id="scheduleSupplierSearch" oninput="renderScheduleSupplierPicks()" placeholder="🔍 ابحث بالمورد / المكتب / الساب..." style="width:100%;margin:0 0 8px 0;padding:8px;font-size:12px;box-sizing:border-box;border:1px solid #bcd;border-radius:8px;">
+                        <div id="scheduleSupplierPicks" style="max-height:140px;overflow-y:auto;margin-bottom:4px;font-size:12px;"></div>
                     </div>
-                    <div style="font-size:13px;font-weight:bold;color:#075bb5;margin-bottom:8px;">2️⃣ رفع الملف بعد تعبئة الموقف والتاريخ</div>
-                    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;">
-                        <input type="file" id="scheduleFileInput" accept=".xlsx,.xls,.csv" style="width:auto;flex:1;min-width:140px;margin:0;font-size:12px;">
+                    <!-- فاصل واضح -->
+                    <div style="display:flex;align-items:center;gap:10px;margin:4px 0 12px;">
+                        <div style="flex:1;height:1px;background:#b8daff;"></div>
+                        <span style="font-size:11px;color:#075bb5;font-weight:bold;">ثم ارفع بعد التعبئة</span>
+                        <div style="flex:1;height:1px;background:#b8daff;"></div>
                     </div>
-                    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;">
-                        <label style="font-size:11px;color:#333;">بدء ظهور التنبيه للمورد:</label>
-                        <select id="scheduleVisibleMode" style="width:auto;margin:0;padding:6px 8px;font-size:12px;border-radius:6px;">
-                            <option value="day_before">اليوم السابق للتنفيذ</option>
-                            <option value="immediate">فوراً بعد الرفع</option>
-                            <option value="custom">من تاريخ محدد</option>
-                        </select>
-                        <input type="date" id="scheduleVisibleCustom" style="width:auto;margin:0;padding:6px;font-size:12px;display:none;">
+                    <!-- قسم 2: رفع الملف -->
+                    <div style="background:#fff;border:1px solid #c5ddf7;border-radius:10px;padding:12px;margin-bottom:8px;">
+                        <div style="font-size:13px;font-weight:bold;color:#075bb5;margin:0 0 8px;">2️⃣ رفع الملف وتطبيق الجدولة</div>
+                        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;">
+                            <input type="file" id="scheduleFileInput" accept=".xlsx,.xls,.csv" style="width:auto;flex:1;min-width:140px;margin:0;font-size:12px;">
+                        </div>
+                        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;">
+                            <label style="font-size:11px;color:#333;">بدء ظهور التنبيه:</label>
+                            <select id="scheduleVisibleMode" style="width:auto;margin:0;padding:6px 8px;font-size:12px;border-radius:6px;">
+                                <option value="day_before">اليوم السابق للتنفيذ</option>
+                                <option value="immediate">فوراً بعد الرفع</option>
+                                <option value="custom">من تاريخ محدد</option>
+                            </select>
+                            <input type="date" id="scheduleVisibleCustom" style="width:auto;margin:0;padding:6px;font-size:12px;display:none;">
+                        </div>
+                        <button type="button" onclick="uploadScheduleFile()" style="width:100%;margin:0;padding:9px 10px;background:#0d6efd;font-size:13px;border-radius:8px;font-weight:bold;">📤 رفع وتطبيق الجدولة</button>
+                        <div id="scheduleUploadMsg" style="font-size:12px;margin-top:8px;color:#555;"></div>
                     </div>
-                    <button type="button" onclick="uploadScheduleFile()" style="width:100%;margin:0;padding:7px 10px;background:#0d6efd;font-size:12px;border-radius:8px;">📤 رفع وتطبيق الجدولة</button>
-                    <div id="scheduleUploadMsg" style="font-size:12px;margin-top:8px;color:#555;"></div>
                 </div>
             </div>`;
             } else if (!allowReply) {
@@ -9427,6 +9563,7 @@ function scheduleCardHtml(it, isAdmin, today) {
             <span style="color:#555;">| ${sanitizeHTML(it.plate || "—")}</span>
             ${line ? `<span style="color:#075bb5;">| ${sanitizeHTML(line)}</span>` : ""}
             ${shift ? `<span style="color:#6f42c1;font-weight:bold;">| ${sanitizeHTML(shift)}</span>` : ""}
+            ${it.planNote ? `<span style="color:#000000;font-size:11px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${sanitizeHTML(it.planNote)}">| 📝 ${sanitizeHTML(it.planNote)}</span>` : ""}
             <span style="margin-right:auto;font-size:11px;color:#666;">📅 ${sanitizeHTML(it.executionDate || "")}</span>
             <span style="font-size:11px;">${replyShort}</span>
         </div>
@@ -9437,7 +9574,7 @@ function scheduleCardHtml(it, isAdmin, today) {
             تاريخ التنفيذ: <b>${sanitizeHTML(it.executionDate || "—")}</b>
             ${it.branch ? " · فرع: " + sanitizeHTML(it.branch) : ""}
             ${isAdmin ? `<br>ظهور من: <b>${sanitizeHTML(it.visibleFrom || "—")}</b>` : ""}
-            ${it.planNote ? "<br>ملاحظة: " + sanitizeHTML(it.planNote) : ""}
+            ${it.planNote ? "<br>ملاحظة: <b style=\"color:#000\">" + sanitizeHTML(it.planNote) + "</b>" : ""}
             <br>رد المورد: <b>${it.supplierReply ? sanitizeHTML((it.supplierReply.type === "object" ? "معترض" : "موافق") + (it.supplierReply.text ? ": " + it.supplierReply.text : "")) : "—"}</b>
             <br>القرار النهائي: <b style="color:${it.adminFinal==='stop'?'#dc3545':(it.adminFinal==='run'?'#28a745':'#666')}">${sanitizeHTML(finalL || "—")}</b>
             ${isAdmin && it.fileName ? `<br><span style="font-size:10px;color:#888;">ملف: ${sanitizeHTML(it.fileName)}</span>` : ""}
