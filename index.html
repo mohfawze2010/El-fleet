@@ -1993,9 +1993,9 @@ function renderLicenseNotificationsContent() {
                         ${imagesHtml}
                     </div>
 
-                    <div style="display:flex; gap:8px; margin-top:12px; border-top:1px dashed #ddd; padding-top:10px;">
+                    <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; border-top:1px dashed #ddd; padding-top:10px; align-items:center;">
                         ${!isUpdated ? `
-                            <button onclick="markLicenseUpdated('${update.id}')" style="flex:1; background:#28a745; color:#fff; border:none; padding:8px; border-radius:6px; font-weight:bold; cursor:pointer; font-size:12px;">✅ تم التحديث</button>
+                            <button type="button" onclick="markLicenseUpdated('${update.id}')" class="lic-del-btn" style="background:#28a745 !important; box-shadow:0 2px 4px rgba(40,167,69,0.3);">✅ تم التحديث</button>
                         ` : ''}
                         ${canManageLicenses() ? `
                             <button type="button" class="lic-del-btn" onclick="deleteLicenseUpdateRecord('${update.id}')">🗑️ حذف السجل</button>
@@ -4997,6 +4997,20 @@ function selectMsgSupplier(sap, name) {
                 <textarea id="adminMsgInput" placeholder="اكتب رسالة جديدة لتظهر للموردين المستهدفين..." style="height:100px;"></textarea>
                 <button onclick="sendAdminMessage()" style="background:#f0ad4e; color:#fff; font-weight:bold;">🚀 إرسال الرسالة الآن</button>
             </div>
+
+            <div style="background:#fdfdfd; padding:12px; border-radius:10px; border:1px solid #b8daff; margin-top:12px;">
+                <h4 style="margin:0 0 8px 0; font-size:14px; color:#075bb5;">📋 إرسال رسائل مجمّعة (شيت Excel)</h4>
+                <p style="font-size:12px; color:#555; margin:0 0 10px 0; line-height:1.55;">حمّل القالب، املأ <b>رقم ساب المورد</b> ثم <b>اسم المورد</b> ثم <b>نص الرسالة</b>، وارفع الملف. تُرسل كل رسالة <b>فقط</b> للمورد المذكور في صفها.</p>
+                <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+                    <button type="button" onclick="downloadBulkMessagesTemplate()" style="width:auto; margin:0; padding:8px 14px; background:#17a2b8; color:#fff; font-size:12px; border-radius:8px;">📥 تحميل قالب فارغ</button>
+                </div>
+                <div style="background:#fff; border:1px dashed #a8c4e0; border-radius:8px; padding:10px;">
+                    <div style="font-size:12px; font-weight:bold; color:#333; margin-bottom:6px;">مكان الرفع</div>
+                    <input type="file" id="bulkMsgFileInput" accept=".xlsx,.xls,.csv" style="width:100%; margin:0 0 8px 0; font-size:12px;">
+                    <button type="button" onclick="uploadBulkMessagesFile()" style="width:100%; margin:0; padding:10px; background:#075bb5; color:#fff; font-weight:bold; border-radius:8px;">🚀 رفع الشيت وإرسال الرسائل المجمّعة</button>
+                    <div id="bulkMsgUploadMsg" style="font-size:12px; margin-top:8px; color:#555;"></div>
+                </div>
+            </div>
         </div>
         
         <div id="tab-complaints" class="tab-content">
@@ -5650,6 +5664,105 @@ async function sendAdminMessage() {
     } catch(e) { console.error(e); showAlert("❌ خطأ أثناء الإرسال."); }
 }
 
+
+function downloadBulkMessagesTemplate() {
+    try {
+        let rows = [
+            { "رقم ساب المورد": "", "اسم المورد": "", "نص الرسالة": "" },
+            { "رقم ساب المورد": "", "اسم المورد": "", "نص الرسالة": "" },
+            { "رقم ساب المورد": "", "اسم المورد": "", "نص الرسالة": "" }
+        ];
+        const ws = XLSX.utils.json_to_sheet(rows);
+        if (typeof styleExcelSheet === "function") styleExcelSheet(ws, rows);
+        if (!ws["!cols"]) ws["!cols"] = [];
+        ws["!cols"][0] = { wch: 16 }; ws["!cols"][1] = { wch: 22 }; ws["!cols"][2] = { wch: 48 };
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "رسائل_مجمعة");
+        try {
+            let guide = [
+                { "البند": "1", "التوضيح": "العمود الأول: رقم ساب المورد — يحدد من يستلم الرسالة" },
+                { "البند": "2", "التوضيح": "العمود الثاني: اسم المورد (اختياري للمراجعة)" },
+                { "البند": "3", "التوضيح": "العمود الثالث: نص الرسالة (مطلوب)" },
+                { "البند": "4", "التوضيح": "الصفوف بلا رقم ساب أو بلا نص رسالة يتم تخطّيها" },
+                { "البند": "5", "التوضيح": "تُرسل الرسالة فقط للمورد المذكور في الصف — لا تُعرض لغيره" }
+            ];
+            XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(guide), "تعليمات");
+        } catch (eG) {}
+        XLSX.writeFile(wb, "قالب_رسائل_مجمعة.xlsx");
+        showAlert("✅ تم تنزيل القالب. املأ رقم ساب المورد ثم الاسم ثم نص الرسالة وارفع الملف.");
+    } catch (e) { showAlert("❌ " + (e.message || e)); }
+}
+async function uploadBulkMessagesFile() {
+    let input = document.getElementById("bulkMsgFileInput");
+    let msgBox = document.getElementById("bulkMsgUploadMsg");
+    if (!input || !input.files || !input.files[0]) { showAlert("اختر ملف Excel أولاً."); return; }
+    if (msgBox) msgBox.innerHTML = "⏳ جاري قراءة الملف...";
+    try {
+        let file = input.files[0];
+        let buf = await file.arrayBuffer();
+        let wb = XLSX.read(new Uint8Array(buf), { type: "array" });
+        let sheetName = wb.SheetNames.find(n => !/تعليمات|guide/i.test(n)) || wb.SheetNames[0];
+        let rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: "" });
+        if (!rows.length) throw new Error("الملف فارغ");
+        function pick(r, names) {
+            for (let i = 0; i < names.length; i++) {
+                let k = names[i];
+                if (r[k] !== undefined && r[k] !== null && String(r[k]).trim() !== "") return String(r[k]).trim();
+            }
+            let keys = Object.keys(r || {});
+            for (let i = 0; i < names.length; i++) {
+                let want = String(names[i]).replace(/\s+/g, "");
+                for (let j = 0; j < keys.length; j++) {
+                    let kk = String(keys[j]).replace(/\s+/g, "");
+                    if (kk === want || kk.indexOf(want) >= 0 || want.indexOf(kk) >= 0) {
+                        let v = String(r[keys[j]] || "").trim();
+                        if (v) return v;
+                    }
+                }
+            }
+            return "";
+        }
+        let prepared = [], skipped = 0;
+        rows.forEach((r) => {
+            let sap = pick(r, ["رقم ساب المورد", "رقم المورد", "رقم المورد (ساب)", "الساب", "SAP", "sap", "رقم ساب"]);
+            let name = pick(r, ["اسم المورد", "المورد", "اسم المكتب"]);
+            let text = pick(r, ["نص الرسالة", "الرسالة", "نص", "رسالة", "message"]);
+            sap = (typeof normalizeValue === "function") ? normalizeValue(sap || "") : String(sap || "").trim();
+            if (!sap || !text) { skipped++; return; }
+            if (!name && typeof globalSupplierDataMap !== "undefined" && globalSupplierDataMap && globalSupplierDataMap.get(sap)) {
+                let sd = globalSupplierDataMap.get(sap);
+                name = sd.ownerName || sd.officeName || "";
+            }
+            prepared.push({ sap, name, text });
+        });
+        if (!prepared.length) throw new Error("لا صفوف صالحة. تأكد من أعمدة: رقم ساب المورد + نص الرسالة.");
+        if (!confirm("سيتم إرسال " + prepared.length + " رسالة للموردين المذكورين في الشيت فقط.\nمتابعة؟")) {
+            if (msgBox) msgBox.innerHTML = "تم الإلغاء."; return;
+        }
+        if (msgBox) msgBox.innerHTML = "⏳ جاري الحفظ (" + prepared.length + ")...";
+        let cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 61);
+        let cutoffStr = cutoff.toISOString();
+        let activeMessages = (typeof globalMessages !== "undefined" && Array.isArray(globalMessages) ? globalMessages : []).filter(m => m.date >= cutoffStr);
+        let dtBase = Date.now();
+        prepared.forEach((p, i) => {
+            activeMessages.push({
+                id: (typeof generateFileId === "function" ? generateFileId() : ("bm_" + dtBase + "_" + i)),
+                text: p.text, date: new Date(dtBase + i).toISOString(), target: p.sap,
+                supplierName: p.name || "", bulk: true, bulkFile: file.name || ""
+            });
+        });
+        await db.collection("uploadedFiles").doc("GLOBAL_MESSAGES").set({ messages: activeMessages });
+        if (typeof logAudit === "function") logAudit("إرسال رسائل مجمّعة", file.name + " — " + prepared.length + " رسالة", { after: "skipped=" + skipped });
+        input.value = "";
+        let sample = prepared.slice(0, 5).map(p => (p.name || p.sap) + " ← " + p.sap).join(" | ");
+        if (msgBox) msgBox.innerHTML = "✅ تم إرسال <b>" + prepared.length + "</b> رسالة" + (skipped ? " (تُخطّي " + skipped + " صف)" : "") + "<br><span style='font-size:11px;color:#666;'>أمثلة: " + sample + "</span>";
+        showAlert("✅ تم إرسال " + prepared.length + " رسالة مجمّعة بنجاح.\nتظهر كل رسالة فقط للمورد المحدد في صفها.");
+    } catch (e) {
+        console.error(e);
+        if (msgBox) msgBox.innerHTML = "❌ " + (e.message || e);
+        showAlert("❌ فشل الرفع: " + (e.message || e));
+    }
+}
 async function deleteAdminMessage(msgId, event) {
     event.stopPropagation();
     if(!confirm("هل أنت متأكد من حذف هذه الرسالة من جميع أجهزة الموردين؟")) return;
