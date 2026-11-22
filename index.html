@@ -673,6 +673,10 @@ if (typeof XLSX === "undefined" || !XLSX.style_version) {
 <div id="loadingOverlay">
     <div class="spinner"></div>
     <h3 id="loadingText" style="color:#075bb5; font-size:14px; margin-top:10px;">جاري التحميل...</h3>
+    <div style="width:220px; height:8px; background:#dde6f0; border-radius:6px; margin-top:10px; overflow:hidden;">
+        <div id="loadingBar" style="height:100%; width:0%; background:#075bb5; border-radius:6px; transition:width .3s;"></div>
+    </div>
+    <div id="loadingPct" style="font-size:13px; color:#075bb5; font-weight:bold; margin-top:6px;">0%</div>
 </div>
 
 <div class="container">
@@ -1575,6 +1579,40 @@ let unsubSupplierComps = null;
 let globalLicenseNotifs = [];
 let globalAdminLicenseUpdates = [];
 let unsubAdminLicenses = null;
+/** شريط تقدم داخل صندوق النتيجة (رفع/حذف الملفات) */
+function adminProgressHtml(pct, label) {
+    pct = Math.max(0, Math.min(100, Math.round(pct)));
+    return `<div style="text-align:center;">
+        <div style="font-size:13px; color:#075bb5; margin-bottom:6px;">⏳ ${label}</div>
+        <div style="height:10px; background:#dde6f0; border-radius:6px; overflow:hidden;">
+            <div style="height:100%; width:${pct}%; background:#075bb5; border-radius:6px; transition:width .25s;"></div>
+        </div>
+        <div style="font-size:13px; font-weight:bold; color:#075bb5; margin-top:4px;">${pct}%</div>
+    </div>`;
+}
+function setAdminProgress(pct, label) {
+    let el = document.getElementById("adminResult");
+    if (el) el.innerHTML = adminProgressHtml(pct, label);
+}
+
+/** شاشة التحميل بنسبة مئوية */
+function setLoadProgress(pct, text) {
+    pct = Math.max(0, Math.min(100, Math.round(pct)));
+    let bar = document.getElementById("loadingBar"), lbl = document.getElementById("loadingPct"), tx = document.getElementById("loadingText");
+    if (bar) bar.style.width = pct + "%";
+    if (lbl) lbl.innerText = pct + "%";
+    if (tx && text) tx.innerText = text;
+}
+function showLoadingOverlay(text) {
+    let o = document.getElementById("loadingOverlay");
+    if (o) o.style.display = "flex";
+    setLoadProgress(0, text || "جاري التحميل...");
+}
+function hideLoadingOverlay() {
+    setLoadProgress(100);
+    let o = document.getElementById("loadingOverlay");
+    if (o) setTimeout(() => { o.style.display = "none"; }, 150);
+}
 let unsubMyPerms = null;
 let unsubMsgs = null;
 let unsubPwdReq = null;
@@ -2845,7 +2883,7 @@ function utf8ByteLength(str) {
 }
 
 /** كتابة/حذف على دفعات تتقلص تلقائياً لو تجاوزت قواعد الأمان حد الاستدعاءات */
-async function commitOpsAdaptive(ops, applyFn, startSize) {
+async function commitOpsAdaptive(ops, applyFn, startSize, onProgress) {
     let size = startSize || 400, i = 0;
     while (i < ops.length) {
         const slice = ops.slice(i, i + size);
@@ -2854,6 +2892,7 @@ async function commitOpsAdaptive(ops, applyFn, startSize) {
         try {
             await batch.commit();
             i += slice.length;
+            if (onProgress) { try { onProgress(i, ops.length); } catch (e2) {} }
         } catch (e) {
             if (size > 1 && /exceed/i.test(String((e && e.message) || e))) { size = Math.max(1, Math.floor(size / 2)); continue; }
             throw e;
@@ -2924,7 +2963,7 @@ async function writeFileDocs(collectionName, fileId, rows) {
             throw e;
         }
         i += n; done += n;
-        if (resultDiv) resultDiv.innerHTML = `⏳ جاري الرفع لقاعدة البيانات... ${Math.round(done / jobs.length * 100)}%`;
+        setAdminProgress(30 + (done / jobs.length) * 55, "جاري رفع البيانات لقاعدة البيانات... (" + done + " من " + jobs.length + ")");
     }
     return { docs: jobs.length, saps: bySap.size };
 }
@@ -2938,10 +2977,10 @@ async function wipeCollectionDocs(collectionName) {
 }
 
 /** حذف كل وثائق ملف معيّن فقط */
-async function deleteDocsByFileId(collectionName, fileId) {
+async function deleteDocsByFileId(collectionName, fileId, onProgress) {
     const snap = await db.collection("data_" + collectionName).where("fileId", "==", String(fileId)).get();
     const refs = snap.docs.map(d => d.ref);
-    await commitOpsAdaptive(refs, (b, r) => b.delete(r));
+    await commitOpsAdaptive(refs, (b, r) => b.delete(r), 400, onProgress);
     return refs.length;
 }
 
@@ -3077,7 +3116,7 @@ async function safeUploadTest(inputId, label) {
     const uploadDate = new Date().toISOString();
     const fileNameNorm = String(file.name || "").trim().toLowerCase();
 
-    resultDiv.innerHTML = `⏳ جاري قراءة الملف وتجهيز البيانات...`;
+    setAdminProgress(5, "جاري قراءة الملف...");
 
     const reader = new FileReader();
     reader.onload = async function(e) {
@@ -3086,6 +3125,7 @@ async function safeUploadTest(inputId, label) {
             const workbook = XLSX.read(dataBuffer, { type: 'array' });
             const firstSheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[firstSheetName];
+            setAdminProgress(15, "جاري تحليل الصفوف...");
             let data = XLSX.utils.sheet_to_json(worksheet);
 
             if (!data || !data.length) {
@@ -3138,7 +3178,7 @@ async function safeUploadTest(inputId, label) {
             });
 
             // ===== الربط برقم المورد (ساب) فقط — بدون تخمين بالاسم =====
-            resultDiv.innerHTML = `⏳ جاري التحقق من رقم المورد في كل صف...`;
+            setAdminProgress(22, "جاري التحقق من رقم المورد في كل صف...");
             let rowsWithSap = [];
             let rowsNoSap = 0;
             data.forEach(row => {
@@ -3187,7 +3227,7 @@ async function safeUploadTest(inputId, label) {
             } catch (eSf) { console.warn("systemFiles dedupe", eSf); }
 
             // 1) إضافة وثائق الملف الجديد (لا يُحذف أي شيء قبل نجاح الكتابة)
-            resultDiv.innerHTML = `⏳ جاري حفظ البيانات وتوثيق الملف...`;
+            setAdminProgress(30, "جاري تجهيز البيانات للرفع...");
             await writeFileDocs(collectionName, fileId, data);
 
             await db.collection("systemFiles").doc(fileId).set({
@@ -3199,6 +3239,7 @@ async function safeUploadTest(inputId, label) {
                 uploader: currentUserName || "الإدارة"
             });
 
+            setAdminProgress(88, "جاري توثيق الملف...");
             // 2) حذف النسخ القديمة بنفس الاسم
             for (let oldId of replacedOldIds) {
                 if (String(oldId) === String(fileId)) continue;
@@ -3206,6 +3247,7 @@ async function safeUploadTest(inputId, label) {
                 try { await db.collection("systemFiles").doc(String(oldId)).delete(); } catch (eD2) {}
             }
 
+            setAdminProgress(95, "جاري إنهاء الرفع...");
             // 3) آخر خطوة: رفع رقم النسخة ليعرف الجميع أن البيانات اكتملت
             await db.collection("system").doc("meta").set({ version: Date.now() }, { merge: true });
 
@@ -3263,10 +3305,11 @@ async function safeUploadTest(inputId, label) {
 async function deleteUploadedFile(fileId, collectionName, fileName) {
     if(!confirm(`هل أنت متأكد من حذف ملف "${fileName}" وكافة السجلات المرتبطة به؟`)) return;
 
-    document.getElementById("adminResult").innerHTML = `⏳ جاري حذف الملف واستبعاد بياناته...`;
+    setAdminProgress(5, "جاري حذف الملف واستبعاد بياناته...");
     try {
         // حذف وثائق هذا الملف فقط (بدون إعادة كتابة باقي البيانات)
-        let removedDocs = await deleteDocsByFileId(collectionName, fileId);
+        let removedDocs = await deleteDocsByFileId(collectionName, fileId, (d, t) => setAdminProgress(10 + (d / t) * 80, "جاري حذف بيانات الملف... (" + d + " من " + t + ")"));
+        setAdminProgress(92, "جاري تحديث السجلات...");
         await db.collection("systemFiles").doc(fileId).delete();
         await updateSystemVersion(); // آخر خطوة
 
@@ -5397,7 +5440,7 @@ async function bulkUploadSuppliers(inputId) {
                     successCount++;
                 }
             } catch(err) { errorCount++; }
-            document.getElementById("adminResult").innerHTML = `⏳ جاري الإنشاء... (${i+1} من ${rows.length})`;
+            document.getElementById("adminResult").innerHTML = `⏳ جاري الإنشاء... ${Math.round((i+1)/rows.length*100)}% (${i+1} من ${rows.length})`;
         }
         
         document.getElementById("adminResult").innerHTML = `✅ اكتمل: تم إنشاء ${successCount} حساب بنجاح، وتخطي ${errorCount} (مسجلة مسبقاً أو بيانات ناقصة).`;
@@ -6134,8 +6177,7 @@ async function _loadSupplierDataImpl(){
    }
 
    if(!dataLoaded){
-       document.getElementById('loadingOverlay').style.display = 'flex'; 
-       document.getElementById('loadingText').innerText = "جاري التحقق من التحديثات...";
+       showLoadingOverlay("جاري التحقق من التحديثات...");
        
        let isAdmin = (currentRole === "admin" || currentRole === "super_admin");
        let cachePrefix = isAdmin ? "elaraby_admin_v6_" : "elaraby_supplier_v6_" + loggedInSupplierSapGlobal + "_";
@@ -6152,6 +6194,7 @@ async function _loadSupplierDataImpl(){
            }
        }
        let serverVersion = await readServerVersion();
+       setLoadProgress(15, "جاري التحقق من التحديثات...");
        try { if (typeof applyAppBranding === "function") applyAppBranding(); } catch(e) {}
 
        // الكاش سجل واحد ذري {v, vehicles, trips, dues}
@@ -6159,27 +6202,30 @@ async function _loadSupplierDataImpl(){
        try { bundle = await idbGet(cachePrefix + "bundle"); } catch (e) {}
 
        if (serverVersion > 0 && bundle && bundle.v === serverVersion && bundle.vehicles && bundle.trips && bundle.dues) {
-           document.getElementById('loadingText').innerText = "جاري تحميل البيانات من الهاتف 🚀...";
+           setLoadProgress(60, "جاري تحميل البيانات من الهاتف 🚀...");
            globalVehicles = bundle.vehicles;
            globalTrips = bundle.trips;
            globalDues = bundle.dues;
        } else {
-           document.getElementById('loadingText').innerText = "جاري تحميل البيانات من السيرفر...";
+           setLoadProgress(20, "جاري تحميل البيانات من السيرفر...");
            let vData = [], tData = [], dData = [];
            for (let attempt = 0; attempt < 3; attempt++) {
+               let _done = 0;
+               const tick = (pr) => pr.then(r => { _done++; setLoadProgress(20 + _done * 20, "جاري تحميل البيانات من السيرفر... (" + _done + "/3)"); return r; });
                if (isAdmin) {
                    [vData, tData, dData] = await Promise.all([
-                       downloadAllData("vehicles"), downloadAllData("trips"), downloadAllData("dues")
+                       tick(downloadAllData("vehicles")), tick(downloadAllData("trips")), tick(downloadAllData("dues"))
                    ]);
                } else if (loggedInSupplierSapGlobal) {
                    [vData, tData, dData] = await Promise.all([
-                       downloadSupplierDataBySap("vehicles", loggedInSupplierSapGlobal),
-                       downloadSupplierDataBySap("trips", loggedInSupplierSapGlobal),
-                       downloadSupplierDataBySap("dues", loggedInSupplierSapGlobal)
+                       tick(downloadSupplierDataBySap("vehicles", loggedInSupplierSapGlobal)),
+                       tick(downloadSupplierDataBySap("trips", loggedInSupplierSapGlobal)),
+                       tick(downloadSupplierDataBySap("dues", loggedInSupplierSapGlobal))
                    ]);
                } else {
                    vData = []; tData = []; dData = [];
                }
+               setLoadProgress(85, "جاري التحقق من اكتمال البيانات...");
                let verAfter = await readServerVersion();
                if (verAfter === serverVersion) break;   // لم يتغير شيء أثناء التحميل
                serverVersion = verAfter;                // رفع جديد حدث — أعد التحميل
@@ -6187,6 +6233,7 @@ async function _loadSupplierDataImpl(){
            globalVehicles = vData || [];
            globalTrips = tData || [];
            globalDues = dData || [];
+           setLoadProgress(88, "جاري حفظ نسخة على الجهاز...");
 
            try {
                await idbSet(cachePrefix + "bundle", { v: serverVersion, vehicles: globalVehicles, trips: globalTrips, dues: globalDues });
@@ -6212,6 +6259,7 @@ async function _loadSupplierDataImpl(){
 
        let notesMap = {};
        try {
+           setLoadProgress(92, "جاري تحميل الملاحظات...");
            // المورد: ملاحظاته فقط (استعلام بالساب) — الأدمن: الكل
            const notesSnap = isAdmin
                ? await db.collection("notes").get()
@@ -6233,6 +6281,7 @@ async function _loadSupplierDataImpl(){
            } catch(e) {}
        }
 
+       setLoadProgress(96, "جاري تجهيز الشاشة...");
        if (isAdmin) try {
            const adminUsersSnap = await db.collection("users").get();
            globalAdminsMap.clear();
@@ -6265,7 +6314,7 @@ async function _loadSupplierDataImpl(){
        });
        
        dataLoaded = true; 
-       document.getElementById('loadingOverlay').style.display = 'none'; 
+       hideLoadingOverlay(); 
    }
 
    let isAdmin = (currentRole === "admin" || currentRole === "super_admin"); 
