@@ -1882,13 +1882,14 @@ function checkLicenseNotifications() {
                 let plate = sanitizeHTML(v["رقم اللوحة"] || "غير محدد");
                 let code = sanitizeHTML(v["كود الحافلة"] || v["كود"] || "غير محدد");
                 let vId = sanitizeHTML(v.id || code || plate); 
+                let branchName = sanitizeHTML((typeof resolveRowBranch === "function" ? resolveRowBranch(v) : (v["الفرع"] || "")) || "غير محدد");
                 
                 if(details.diffDays < 0) {
-                    globalLicenseNotifs.push({ type: 'red', plate: plate, code: code, days: Math.abs(details.diffDays), dateStr: details.parsedDateStr, id: vId });
+                    globalLicenseNotifs.push({ type: 'red', plate: plate, code: code, days: Math.abs(details.diffDays), dateStr: details.parsedDateStr, id: vId, branch: branchName });
                     redCount++;
                 } else if(details.diffDays <= 7) {
                     let isRead = readLicenses.includes(vId);
-                    globalLicenseNotifs.push({ type: 'orange', plate: plate, code: code, days: details.diffDays, dateStr: details.parsedDateStr, id: vId, isRead: isRead });
+                    globalLicenseNotifs.push({ type: 'orange', plate: plate, code: code, days: details.diffDays, dateStr: details.parsedDateStr, id: vId, isRead: isRead, branch: branchName });
                     orangeCount++;
                     if(!isRead) unreadOrangeCount++;
                 }
@@ -1977,13 +1978,15 @@ function renderLicenseNotificationsContent() {
                     </div>`;
                 }
 
-                let searchBlob = robustNormalize(`${update.supplierName} ${update.supplierSap} ${update.plate} ${update.code} ${dt} ${isUpdated?'محدث تم':'غير محدث جديد'}`);
+                let _bv = (globalVehicles || []).find(v => (update.vId && v.id === update.vId) || (update.plate && normalizeValue(v["رقم اللوحة"]) === normalizeValue(update.plate)));
+                let updBranch = sanitizeHTML(update.branch || (_bv && typeof resolveRowBranch === "function" ? resolveRowBranch(_bv) : "") || "غير محدد");
+                let searchBlob = robustNormalize(`${update.supplierName} ${update.supplierSap} ${update.plate} ${update.code} ${updBranch} ${dt} ${isUpdated?'محدث تم':'غير محدث جديد'}`);
 
                 html += `
                 <div class="license-update-card" data-search="${searchBlob}" style="background:${isUpdated ? '#f8f9fa' : '#fff9e6'}; padding:15px; border-radius:10px; margin-bottom:12px; border:2px solid ${isUpdated ? '#28a745' : '#ffc107'};">
                     <div style="font-size:14px; color:#333; line-height:1.6;">
                         <b>المورد:</b> ${sanitizeHTML(update.supplierName)} (ساب: ${update.supplierSap})<br>
-                        <b>اللوحة:</b> ${update.plate} | <b>الكود:</b> ${update.code}<br>
+                        <b>اللوحة:</b> ${update.plate} | <b>الكود:</b> ${update.code} | <b>🏢 الفرع:</b> ${updBranch}<br>
                         <span style="color:#666; font-size:11px;">🕒 وقت الإرفاق: ${dt}</span><br>
                     </div>
                     
@@ -2047,14 +2050,14 @@ function renderLicenseNotificationsContent() {
                     <span id="upload_status_${n.id}" style="font-size:11px; color:#555; font-weight:bold; display:block; margin-top:4px;"></span>
                 </div>`;
 
-                let searchBlob = robustNormalize(`${n.plate} ${n.code} ${n.dateStr} ${n.type==='red'?'منتهية':'تقترب'}`);
+                let searchBlob = robustNormalize(`${n.plate} ${n.code} ${n.branch||''} ${n.dateStr} ${n.type==='red'?'منتهية':'تقترب'}`);
 
                 if(n.type === 'red') {
                     html += `
                     <div class="license-update-card" data-search="${searchBlob}" style="background:#f8d7da; padding:15px; border-radius:10px; margin-bottom:12px; border:2px solid #dc3545;">
                         <div style="font-size:14px; color:#721c24; font-weight:bold; margin-bottom:8px;">🔴 رخصة منتهية الصلاحية</div>
                         <div style="font-size:13px; color:#333; line-height:1.6;">
-                            <b>اللوحة:</b> ${n.plate} | <b>الكود:</b> ${n.code}<br>
+                            <b>اللوحة:</b> ${n.plate} | <b>الكود:</b> ${n.code} | <b>🏢 الفرع:</b> ${n.branch || "غير محدد"}<br>
                             <b>تاريخ الانتهاء المسجل:</b> <span style="color:#dc3545; font-weight:bold;">${n.dateStr}</span> (متخطية بـ ${n.days} يوم)<br>
                         </div>
                         ${uploadUI}
@@ -2065,7 +2068,7 @@ function renderLicenseNotificationsContent() {
                     <div class="license-update-card" data-search="${searchBlob}" style="background:#fff3cd; padding:15px; border-radius:10px; margin-bottom:12px; border:2px solid #fd7e14;">
                         <div style="font-size:14px; color:#fd7e14; font-weight:bold; margin-bottom:8px;">🟠 رخصة تقترب من الانتهاء</div>
                         <div style="font-size:13px; color:#333; line-height:1.6;">
-                            <b>اللوحة:</b> ${n.plate} | <b>الكود:</b> ${n.code}<br>
+                            <b>اللوحة:</b> ${n.plate} | <b>الكود:</b> ${n.code} | <b>🏢 الفرع:</b> ${n.branch || "غير محدد"}<br>
                             <b>تاريخ الانتهاء المسجل:</b> <span style="color:#fd7e14; font-weight:bold;">${n.dateStr}</span> (متبقي ${n.days} أيام)<br>
                         </div>
                         ${uploadUI}
@@ -5643,7 +5646,7 @@ async function sendAdminMessage() {
     
     try {
         let dt = new Date().toISOString();
-        let newMsg = { id: generateFileId(), text: msgInput, date: dt, target: target };
+        let newMsg = { id: generateFileId(), text: msgInput, date: dt, target: target, by: (currentUserName || "الإدارة"), byRole: currentRole };
         
         let cutoff = new Date();
         cutoff.setDate(cutoff.getDate() - 61);
@@ -5748,7 +5751,7 @@ async function uploadBulkMessagesFile() {
             activeMessages.push({
                 id: (typeof generateFileId === "function" ? generateFileId() : ("bm_" + dtBase + "_" + i)),
                 text: p.text, date: new Date(dtBase + i).toISOString(), target: p.sap,
-                supplierName: p.name || "", bulk: true, bulkFile: file.name || ""
+                supplierName: p.name || "", bulk: true, bulkFile: file.name || "", by: (currentUserName || "الإدارة"), byRole: currentRole
             });
         });
         await db.collection("uploadedFiles").doc("GLOBAL_MESSAGES").set({ messages: activeMessages });
@@ -6020,9 +6023,18 @@ function openMessagesPanel() {
             let targetLabel = "";
             if (isAdmin && m.target && m.target !== 'all') {
                 let targetText = m.target;
-                if (m.target !== "ايجار" && m.target !== "فرعي") targetText = "مورد: " + sanitizeHTML(m.target);
+                if (m.target !== "ايجار" && m.target !== "فرعي") {
+                    let _sd = (globalSupplierDataMap && globalSupplierDataMap.get) ? globalSupplierDataMap.get(m.target) : null;
+                    let _sn = (_sd && (_sd.ownerName || _sd.officeName)) || m.supplierName || "";
+                    targetText = "مورد: " + (_sn ? sanitizeHTML(_sn) + " " : "") + "(ساب: " + sanitizeHTML(m.target) + ")";
+                }
                 targetLabel = `<span style="background:#075bb5; color:#fff; padding:2px 6px; border-radius:4px; font-size:10px;">مخصصة: ${targetText}</span>`;
+            } else if (isAdmin) {
+                targetLabel = `<span style="background:#6c757d; color:#fff; padding:2px 6px; border-radius:4px; font-size:10px;">لجميع الموردين</span>`;
             }
+            let senderLabel = isAdmin
+                ? `<span style="background:#e8f0fe; color:#075bb5; border:1px solid #b6d0f5; padding:2px 6px; border-radius:4px; font-size:10px;">✉️ المرسل: ${m.by ? sanitizeHTML(m.by) : "غير مسجل"}</span>`
+                : "";
 
             html += `
             <div id="msg_${m.id}" style="background:${bg}; padding:12px 14px; border-radius:10px; margin-bottom:12px; border:${border}; cursor:pointer; transition:0.3s;" onclick="markMessageRead('${m.id}')">
@@ -6030,6 +6042,7 @@ function openMessagesPanel() {
                     <div style="font-size:12px; color:#555; font-weight:bold; display:flex; flex-wrap:wrap; align-items:center; gap:6px;">
                         <span>📅 ${dateStr}</span>
                         <span>${isRead ? '✓ مقروءة' : '🔴 جديدة'}</span>
+                        ${senderLabel}
                         ${targetLabel}
                     </div>
                     ${delBtn}
@@ -7922,7 +7935,7 @@ function loadMoreRecords() {
 
             let carIconHtml = `<div style="display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px; background:${carIconBg}; border-radius:8px; margin:0 5px; vertical-align: middle;"><svg viewBox="0 0 24 24" width="20" height="20" fill="${carIconFill}"><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5H6.5c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 7.5h11l1.5 4.5h-14l1.5-4.5zM8.5 16c-.83 0-1.5-.67-1.5-1.5S7.67 13 8.5 13s1.5.67 1.5 1.5S9.33 16 8.5 16zm7 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg></div>`;
             
-            mainInfo = `<div style="display:flex; align-items:center;">${serialBadge} ${carIconHtml} ${styledPlate} ${codeStr ? '<span style="color:#777; font-size:12px; margin:0 5px;">| كود: '+codeStr+'</span>' : ''} ${deskInfo}</div> <div style="margin-right:auto;">${rightSideContainer}</div>`;        } else if (activePanel === "المستحقات") {
+            mainInfo = `<div style="display:flex; align-items:center;">${serialBadge} ${carIconHtml} ${styledPlate} ${codeStr ? '<span style="color:#777; font-size:12px; margin:0 5px;">| كود: '+codeStr+'</span>' : ''} ${(isExpired && resolveRowBranch(x)) ? '<span style="background:#f8d7da; color:#721c24; border:1px solid #f5c6cb; padding:1px 6px; border-radius:4px; font-size:11px; font-weight:bold; margin:0 4px;">🏢 '+sanitizeHTML(resolveRowBranch(x))+'</span>' : ''} ${deskInfo}</div> <div style="margin-right:auto;">${rightSideContainer}</div>`;        } else if (activePanel === "المستحقات") {
             let rightSideContainer = providerInfoInner ? `<div style="margin-right:auto; display:flex; gap:5px; align-items:center;">${providerInfoInner}</div>` : "";
             let amountNum = typeof parseDuesMoney === "function" ? parseDuesMoney(x["مبلغ الرحلات"] || x["المبلغ"] || 0) : (parseFloat(String(x["مبلغ الرحلات"]||x["المبلغ"]||0).replace(/,/g,""))||0);
             let dedNum = typeof getDuesDeduction === "function" ? getDuesDeduction(x) : 0;
