@@ -1808,9 +1808,32 @@ document.addEventListener("click", function(e) {
 
 
 function phoneToAuthEmail(phone) {
-    let clean = String(phone || "").trim().replace(/[^0-9]/g, "");
-    if(clean.length < 5 && phone.includes("@")) return phone.toLowerCase(); 
+    let raw = String(phone || "").trim();
+    // بريد حقيقي (ليس @elaraby.local) — يُستخدم كما هو للدخول واستعادة الباسورد ذاتياً
+    if (raw.includes("@") && !/@elaraby\.local$/i.test(raw)) {
+        return raw.toLowerCase();
+    }
+    let clean = raw.replace(/[^0-9]/g, "");
+    if (!clean) return raw.toLowerCase();
     return clean + "@elaraby.local";
+}
+
+/** هل المدخل بريد إلكتروني حقيقي صالح للدخول/الاستعادة؟ */
+function isRealEmailLogin(v) {
+    let s = String(v || "").trim().toLowerCase();
+    if (!s || s.indexOf("@") < 0) return false;
+    if (/@elaraby\.local$/i.test(s)) return false;
+    // بسيط وموثوق: اسم@نطاق.امتداد
+    return /^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$/i.test(s);
+}
+
+
+/** تحويل أي معرّف دخول (هاتف أو ميل) إلى بريد Firebase Auth */
+function loginIdToAuthEmail(id) {
+    let raw = String(id || "").trim();
+    if (!raw) return "";
+    if (isRealEmailLogin(raw) || raw.includes("@")) return raw.toLowerCase();
+    return phoneToAuthEmail(raw);
 }
 
 function hideAll(){
@@ -4671,7 +4694,7 @@ btn.innerText = "جاري التحميل... ⏳";
 btn.disabled = true;
 
 let phone = loginPhone.value.trim();
-let authEmail = phone.includes("@") ? phone.toLowerCase() : phoneToAuthEmail(phone);
+let authEmail = loginIdToAuthEmail(phone);
 
 try{
 let user = await auth.signInWithEmailAndPassword(authEmail, loginPass.value);
@@ -4684,7 +4707,9 @@ if (user.user.email === "mohfawze2010@gmail.com") {
         ownerName: "محمد فوزي",
         role: "super_admin", 
         permissions: adminPermissions,
-        phone: phone
+        phone: isRealEmailLogin(phone) ? "" : String(phone || "").replace(/[^0-9]/g, ""),
+        email: isRealEmailLogin(phone) ? phone.toLowerCase() : (user.user.email && !/@elaraby\.local$/i.test(user.user.email) ? user.user.email : ""),
+        loginId: phone
     }, {merge: true});
     saveCredential(user.user.uid, "admin", loginPass.value).catch(e => console.warn("cred", e));
 } else if(roleDoc.exists && (roleDoc.data().role === "admin" || roleDoc.data().role === "super_admin")){ 
@@ -5005,8 +5030,9 @@ function selectMsgSupplier(sap, name) {
                 <div class="upload-acc-body">
                     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px; margin-bottom:10px;">
                         <input type="text" id="newAdminName" placeholder="اسم المشرف" style="margin:0; padding:8px; font-size:12px;">
-                        <input type="text" id="newAdminPhone" placeholder="رقم الهاتف (للدخول)" style="margin:0; padding:8px; font-size:12px;">
-                        <input type="text" id="newAdminPass" placeholder="كلمة المرور" style="margin:0; padding:8px; font-size:12px; grid-column: 1 / -1;">
+                        <input type="text" id="newAdminPhone" placeholder="بريد أو هاتف (للدخول) *" style="margin:0; padding:8px; font-size:12px;" title="يفضّل البريد لاستعادة كلمة المرور ذاتياً">
+                        <input type="text" id="newAdminPhoneOpt" placeholder="رقم هاتف إضافي (اختياري)" style="margin:0; padding:8px; font-size:12px;" title="يُحفظ للتواصل فقط إن كان الدخول بالبريد">
+                        <input type="text" id="newAdminPass" placeholder="كلمة المرور *" style="margin:0; padding:8px; font-size:12px;">
                     </div>
                     <div style="background:#f0f4f8; padding:10px; border-radius:8px; border:1px solid #d0d7de;">
                         <b style="color:#333; font-size:12px;">صلاحيات المشرف:</b>
@@ -5032,7 +5058,7 @@ function selectMsgSupplier(sap, name) {
             
             <div style="background:#fdfdfd; padding:12px; border-radius:10px; border:1px solid #cce5ff;">
                 <h4 style="margin:0 0 8px 0; font-size:14px; color:#004085;">🔍 بحث وتعديل صلاحيات المشرفين</h4>
-                <input type="text" id="searchAdminInput" placeholder="اكتب اسم أو هاتف المشرف للبحث..." onkeyup="filterAdminsList()" style="margin-bottom:10px; padding:8px; font-size:12px;">
+                <input type="text" id="searchAdminInput" placeholder="اكتب اسم أو هاتف أو بريد المشرف للبحث..." onkeyup="filterAdminsList()" style="margin-bottom:10px; padding:8px; font-size:12px;">
                 <div id="adminsListResult" style="max-height:300px; overflow-y:auto;"></div>
             </div>
         </div>
@@ -5465,7 +5491,9 @@ function generateFileId() { return 'file_' + Math.random().toString(36).substr(2
 async function createNewAdmin() {
     if (!canAdminWrite()) { showAlert("🚫 حساب مشاهدة فقط — لا يمكن الإنشاء."); return; }
     let name = document.getElementById("newAdminName").value.trim();
-    let phone = document.getElementById("newAdminPhone").value.trim().replace(/[^0-9]/g, "");
+    let loginRaw = document.getElementById("newAdminPhone").value.trim();
+    let phoneOptEl = document.getElementById("newAdminPhoneOpt");
+    let phoneOptRaw = phoneOptEl ? phoneOptEl.value.trim() : "";
     let pass = document.getElementById("newAdminPass").value.trim();
     
     let p_data = document.getElementById("chk_data").checked;
@@ -5481,45 +5509,100 @@ async function createNewAdmin() {
     let p_audit = document.getElementById("chk_audit") ? document.getElementById("chk_audit").checked : false;
     let p_readonly = document.getElementById("chk_readonly") ? document.getElementById("chk_readonly").checked : false;
 
-    if(!name || !phone || !pass || pass.length < 6) { showAlert("يرجى ملء جميع الحقول بشكل صحيح. الباسورد 6 أحرف على الأقل."); return; }
-    
+    if (!name || !loginRaw || !pass || pass.length < 6) {
+        showAlert("يرجى ملء الاسم ومعرّف الدخول (بريد أو هاتف) وكلمة المرور (6 أحرف على الأقل).");
+        return;
+    }
+
+    let useEmail = loginRaw.indexOf("@") >= 0;
+    let email = "";
+    let phone = "";
+    if (useEmail) {
+        email = loginRaw.toLowerCase().replace(/\s+/g, "");
+        if (!isRealEmailLogin(email)) {
+            showAlert("صيغة البريد الإلكتروني غير صحيحة. مثال: name@gmail.com");
+            return;
+        }
+        // هاتف اختياري للتواصل
+        phone = String(phoneOptRaw || "").replace(/[^0-9]/g, "");
+        if (phoneOptRaw && phone.length < 5) {
+            showAlert("رقم الهاتف الإضافي غير صحيح (اتركه فارغاً أو أدخل رقماً صالحاً).");
+            return;
+        }
+    } else {
+        phone = loginRaw.replace(/[^0-9]/g, "");
+        if (phone.length < 5) {
+            showAlert("أدخل رقم هاتف صحيح (5 أرقام فأكثر) أو بريداً إلكترونياً للدخول.");
+            return;
+        }
+        // إن وُضع بريد بالخطأ في حقل الهاتف الإضافي نتجاهله
+    }
+
     document.getElementById("adminResult").innerHTML = "⏳ جاري إنشاء حساب المشرف...";
-    let authEmail = phone + "@elaraby.local";
+    let authEmail = useEmail ? email : (phone + "@elaraby.local");
     
+    // تنظيف مستندات قديمة بنفس الهاتف أو البريد
     try {
-        const oldSnap = await db.collection("users").where("phone", "==", phone).get();
-        let batch = db.batch();
-        oldSnap.docs.forEach(doc => batch.delete(doc.ref));
-        if(!oldSnap.empty) await batch.commit();
-    } catch(e) {}
+        if (phone) {
+            const oldSnap = await db.collection("users").where("phone", "==", phone).get();
+            let batch = db.batch();
+            oldSnap.docs.forEach(doc => batch.delete(doc.ref));
+            if (!oldSnap.empty) await batch.commit();
+        }
+        if (email) {
+            const oldSnapE = await db.collection("users").where("email", "==", email).get();
+            let batchE = db.batch();
+            oldSnapE.docs.forEach(doc => batchE.delete(doc.ref));
+            if (!oldSnapE.empty) await batchE.commit();
+        }
+    } catch (e) {}
     
     try {
         const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${firebaseConfig.apiKey}`, {
-            method: 'POST', headers: {'Content-Type': 'application/json'},
+            method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ email: authEmail, password: pass, returnSecureToken: false })
         });
         const data = await res.json();
         
         if (data.error) {
-            document.getElementById("adminResult").innerHTML = "❌ خطأ: الهاتف مسجل مسبقاً في النظام. يرجى حذفه أولاً.";
+            let errMsg = (data.error && data.error.message) ? String(data.error.message) : "";
+            if (/EMAIL_EXISTS/i.test(errMsg)) {
+                document.getElementById("adminResult").innerHTML = "❌ هذا البريد/الهاتف مسجّل مسبقاً. احذف الحساب القديم أو استخدم معرّفاً آخر.";
+            } else {
+                document.getElementById("adminResult").innerHTML = "❌ خطأ: " + (errMsg || "تعذر إنشاء الحساب");
+            }
         } else {
             let uid = data.localId;
             await db.collection("users").doc(uid).set({
-                ownerName: name, 
-                phone: phone, 
+                ownerName: name,
+                phone: phone || "",
+                email: email || "",
+                loginId: useEmail ? email : phone,
                 role: "admin",
-                permissions: { data: p_data, suppliers: p_suppliers, msgs: p_msgs, reports: p_reports, complaints: p_complaints, wipe: p_wipe, licenses: p_licenses, scheduleUpload: p_scheduleUpload, scheduleReply: p_scheduleReply, pwdDelete: p_pwdDelete, audit: p_audit, readonly: p_readonly },
+                permissions: {
+                    data: p_data, suppliers: p_suppliers, msgs: p_msgs, reports: p_reports,
+                    complaints: p_complaints, wipe: p_wipe, licenses: p_licenses,
+                    scheduleUpload: p_scheduleUpload, scheduleReply: p_scheduleReply,
+                    pwdDelete: p_pwdDelete, audit: p_audit, readonly: p_readonly
+                },
                 createdAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             try { await saveCredential(uid, "admin", pass); } catch (e) { console.warn("cred", e); }
-            document.getElementById("adminResult").innerHTML = "✅ تم إضافة المشرف بنجاح!";
-            if (typeof logAudit === "function") logAudit("إضافة مشرف جديد", "تم إنشاء حساب مشرف");
-            document.getElementById("newAdminName").value = ""; 
-            document.getElementById("newAdminPhone").value = ""; 
+            let tip = useEmail
+                ? "✅ تم إضافة المشرف. الدخول بالبريد، ويمكنه استعادة كلمة المرور بنفسه من «نسيت كلمة المرور»."
+                : "✅ تم إضافة المشرف. الدخول برقم الهاتف.";
+            document.getElementById("adminResult").innerHTML = tip;
+            if (typeof logAudit === "function") logAudit("إضافة مشرف جديد", "معرّف: " + (useEmail ? email : phone));
+            document.getElementById("newAdminName").value = "";
+            document.getElementById("newAdminPhone").value = "";
+            if (phoneOptEl) phoneOptEl.value = "";
             document.getElementById("newAdminPass").value = "";
             loadAdminsList();
         }
-    } catch(err) { console.error(err); document.getElementById("adminResult").innerHTML = "❌ خطأ في الاتصال."; }
+    } catch (err) {
+        console.error(err);
+        document.getElementById("adminResult").innerHTML = "❌ خطأ في الاتصال.";
+    }
 }
 
 async function loadAdminsList() {
@@ -5539,6 +5622,7 @@ async function loadAdminsList() {
             let d = doc.data();
             d.uid = doc.id;
             if(d.phone) globalAdminsMap.set(d.phone, d);
+            if(d.email) globalAdminsMap.set(String(d.email).toLowerCase(), d);
             if(d.role !== "admin" && d.role !== "super_admin") return;
             
             let p = d.permissions || {data:true, suppliers:true, msgs:true, reports:true, complaints:true, wipe:false, licenses:false, scheduleUpload:false, scheduleReply:false, pwdDelete:false, audit:false, readonly:false};
@@ -5551,14 +5635,15 @@ async function loadAdminsList() {
             if (p.readonly === undefined) p.readonly = false;
             let isMe = (doc.id === myUid);
             let roleBadge = d.role === "super_admin" ? "👑 مدير نظام" : "🛡️ مشرف";
-            let searchTarget = (d.ownerName || "") + " " + (d.phone || "");
+            let loginLabel = (d.email && String(d.email).trim()) ? String(d.email).trim() : (d.phone || d.loginId || "غير مسجل");
+            let searchTarget = (d.ownerName || "") + " " + (d.phone || "") + " " + (d.email || "") + " " + (d.loginId || "");
             let currentAdminPass = sanitizeHTML(credOf(doc.id)) || (currentRole === "super_admin" ? "غير مسجل" : "🔒 لمدير النظام فقط");
 
             html += `
             <div class="admin-item" data-search="${robustNormalize(searchTarget)}" style="background:#f3f6fb; border:1px solid #ddd; padding:10px; border-radius:8px; margin-top:8px;">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <b style="color:#075bb5;">${roleBadge} ${sanitizeHTML(d.ownerName) || "غير مسجل"}</b>
-                    <span style="font-size:10px; background:#cce5ff; padding:2px 6px; border-radius:4px; color:#004085;">${sanitizeHTML(d.phone) || "غير مسجل"}</span>
+                    <span style="font-size:10px; background:#cce5ff; padding:2px 6px; border-radius:4px; color:#004085;" title="معرّف الدخول">${sanitizeHTML(loginLabel)}</span>
                 </div>
                 <div style="font-size:11px; color:#333; margin-top:8px; background:#fff; padding:8px; border-radius:8px; border:1px solid #eee;">
                     <b style="display:block; margin-bottom:4px;">صلاحياته الحالية:</b>
@@ -8430,11 +8515,25 @@ async function handleForgotPassword() {
             
             try {
                 let userQuery = await db.collection("users").where("phone", "==", cleanPhone).get();
+                if(userQuery.empty && trimmedInput.includes("@")) {
+                    userQuery = await db.collection("users").where("email", "==", trimmedInput.toLowerCase()).get();
+                }
                 if(!userQuery.empty) {
                     isAdminReq = true;
                     let uData = userQuery.docs[0].data();
                     adminName = uData.ownerName || "مشرف مسجل";
                     adminPass = uData.assignedPassword || "";
+                    // إن كان للمشرف بريد حقيقي مخزّن — أرسل رابط الاستعادة مباشرة دون طلب للسوبر
+                    let adminEmail = (uData.email || "").trim();
+                    if (adminEmail && isRealEmailLogin(adminEmail)) {
+                        try {
+                            await auth.sendPasswordResetEmail(adminEmail);
+                            showAlert("✅ هذا حساب مشرف ببريد مسجّل. تم إرسال رابط إعادة تعيين كلمة المرور إلى: " + adminEmail);
+                            return;
+                        } catch (mailErr) {
+                            console.warn("admin email reset", mailErr);
+                        }
+                    }
                 }
             } catch(e) {}
 
