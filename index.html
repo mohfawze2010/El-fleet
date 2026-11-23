@@ -2051,12 +2051,18 @@ function renderAnalysisView() {
     const pctE = s => _anaPct(s.elec, s.elec + s.manual);
     const pctS = s => _anaPct(s.success, s.success + s.failed);
 
-    // ترتيب رسم الموردين
+    // ترتيب رسم الموردين — كله بالنسب المئوية (وعند التساوي الأكثر رحلات أولاً)
+    const pctM = s => _anaPct(s.manual, s.elec + s.manual);
+    const pctF = s => _anaPct(s.failed, s.success + s.failed);
+    const totA = s => s.elec + s.manual, totT = s => s.success + s.failed;
     const sorters = {
-        manual: (a, b) => b.manual - a.manual, elec: (a, b) => b.elec - a.elec,
-        lowpct: (a, b) => pctE(a) - pctE(b), failed: (a, b) => b.failed - a.failed, success: (a, b) => b.success - a.success
+        manual: (a, b) => (pctM(b) - pctM(a)) || (totA(b) - totA(a)),
+        elec: (a, b) => (pctE(b) - pctE(a)) || (totA(b) - totA(a)),
+        failed: (a, b) => (pctF(b) - pctF(a)) || (totT(b) - totT(a)),
+        success: (a, b) => (pctS(b) - pctS(a)) || (totT(b) - totT(a))
     };
-    let list = A.sup.slice().sort(sorters[sortKey] || sorters.manual);
+    const tripMode = (sortKey === "failed" || sortKey === "success");
+    let list = A.sup.filter(s => tripMode ? totT(s) > 0 : totA(s) > 0).sort(sorters[sortKey] || sorters.manual);
 
     const T = A.tot;
     const tile = (icon, label, val, color, bg) => `<div style="flex:1 1 30%;min-width:100px;background:${bg};border:1px solid ${color}33;border-top:3px solid ${color};border-radius:10px;padding:8px 4px;text-align:center;box-sizing:border-box;">
@@ -2070,19 +2076,25 @@ function renderAnalysisView() {
         ${tile("🎯", "نسبة الإلكتروني", _anaPct(T.elec, T.elec + T.manual) + "%", "#155724", "#f1faf3")}
     </div>`;
 
-    // رسم الموردين (أعلى 15)
-    let chartRows = list.slice(0, 15), maxBar = 0;
-    chartRows.forEach(s => { let t = s.elec + s.manual; if (t > maxBar) maxBar = t; });
-    let bars = chartRows.map(s => {
-        let t = s.elec + s.manual, w = maxBar ? (t / maxBar) * 100 : 0, we = t ? (s.elec / t) * 100 : 0;
-        return `<div style="margin-bottom:10px;padding:0 6px;box-sizing:border-box;">
-            <div style="font-size:12px;font-weight:bold;word-break:break-word;">${sanitizeHTML(s.name)} <span style="color:#888;font-weight:normal;">(${sanitizeHTML(s.sap)})</span></div>
-            <div style="display:flex;flex-wrap:wrap;gap:6px;font-size:11px;margin:3px 0;">
-                <span style="background:#fff8f0;border:1px solid #f0d5b8;border-radius:5px;padding:1px 6px;">✍️ يدوي: <b>${s.manual}</b></span>
-                <span style="background:#f2f7fd;border:1px solid #bcd3ee;border-radius:5px;padding:1px 6px;">⚡ إلكتروني: <b>${s.elec}</b></span>
-                <span style="background:#f1faf3;border:1px solid #bfe0c6;border-radius:5px;padding:1px 6px;">🎯 نسبة الإلكتروني: <b dir="ltr">${pctE(s)}%</b></span>
+    // رسم الموردين (أعلى 15) — أعمدة نسب مئوية، والألوان والصفوف حسب الاختيار
+    const C = tripMode
+        ? { aName: "نجاح", bName: "فشل", aCol: "#2e9e5b", bCol: "#dc3545", aTint: "#e9f7ef", bTint: "#fdecec", aIcon: "✅", bIcon: "❌" }
+        : { aName: "إلكتروني", bName: "يدوي", aCol: "#1565c0", bCol: "#dc3545", aTint: "#e8f1fd", bTint: "#fdecec", aIcon: "⚡", bIcon: "✍️" };
+    const domCol = (sortKey === "elec" || sortKey === "success") ? C.aCol : C.bCol;
+    let bars = list.slice(0, 15).map((s, i) => {
+        let a = tripMode ? s.success : s.elec, b = tripMode ? s.failed : s.manual;
+        let pa = _anaPct(a, a + b), pb = a + b ? 100 - pa : 0;
+        let seg = (w, col, txt) => w > 0 ? `<div style="width:${w}%;background:${col};color:#fff;font-size:10px;font-weight:bold;display:flex;align-items:center;justify-content:center;min-width:0;overflow:hidden;" dir="ltr">${w >= 12 ? txt + "%" : ""}</div>` : "";
+        return `<div style="margin-bottom:5px;padding:5px 9px;border-radius:8px;border-right:4px solid ${domCol};box-sizing:border-box;background:linear-gradient(to left, ${C.aTint} 0%, ${C.aTint} ${pa}%, ${C.bTint} ${pa}%, ${C.bTint} 100%);box-shadow:0 1px 3px rgba(0,0,0,.08);">
+            <div style="display:flex;align-items:center;gap:8px;">
+                <span style="flex:0 0 20px;height:20px;border-radius:50%;background:${domCol};color:#fff;font-size:11px;font-weight:bold;display:flex;align-items:center;justify-content:center;">${i + 1}</span>
+                <div style="font-size:12px;font-weight:bold;word-break:break-word;color:#222;">${sanitizeHTML(s.name)} <span style="color:#777;font-weight:normal;font-size:11px;">(${sanitizeHTML(s.sap)})</span></div>
             </div>
-            <div style="background:#eee;border-radius:5px;height:12px;width:100%;"><div style="width:${w}%;height:12px;display:flex;border-radius:5px;overflow:hidden;"><div style="width:${we}%;background:#075bb5;"></div><div style="flex:1;background:#d9730d;"></div></div></div></div>`;
+            <div style="display:flex;height:16px;border-radius:8px;overflow:hidden;margin:4px 0 3px;background:#ddd;box-shadow:inset 0 1px 2px rgba(0,0,0,.15);">${seg(pa, C.aCol, pa)}${seg(pb, C.bCol, pb)}</div>
+            <div style="display:flex;justify-content:space-between;font-size:10px;color:#444;">
+                <span style="color:${C.aCol};font-weight:bold;">${C.aIcon} ${C.aName}: ${a} (<span dir="ltr">${pa}%</span>)</span>
+                <span style="color:${C.bCol};font-weight:bold;">${C.bIcon} ${C.bName}: ${b} (<span dir="ltr">${pb}%</span>)</span>
+            </div></div>`;
     }).join("");
 
     // جدول التفصيل مع ترتيب بالأعمدة
@@ -2107,12 +2119,12 @@ function renderAnalysisView() {
     const opt = (v, tx) => `<option value="${v}" ${sortKey === v ? "selected" : ""}>${tx}</option>`;
 
     body.innerHTML = `${tiles}
-        <h4 style="margin:6px 0;">🏢 الحضور الإلكتروني واليدوي لكل مورد (أعلى 15)</h4>
+        <h4 style="margin:6px 0;">${tripMode ? "📊 نسبة النجاح والفشل لكل مورد (أعلى 15)" : "🏢 نسبة الحضور الإلكتروني واليدوي لكل مورد (أعلى 15)"}</h4>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
             <select onchange="window.__anaSort=this.value;renderAnalysisView();" style="flex:1;min-width:160px;padding:6px;border:1px solid #ccc;border-radius:6px;">
-                ${opt("manual", "ترتيب: الأعلى حضوراً يدوياً")}${opt("elec", "ترتيب: الأعلى حضوراً إلكترونياً")}${opt("lowpct", "ترتيب: الأقل نسبة إلكتروني")}${opt("failed", "ترتيب: الأعلى فشلاً")}${opt("success", "ترتيب: الأعلى نجاحاً")}
+                ${opt("manual", "ترتيب: الأعلى نسبة حضور يدوي")}${opt("elec", "ترتيب: الأعلى نسبة حضور إلكتروني")}${opt("failed", "ترتيب: الأعلى نسبة فشل")}${opt("success", "ترتيب: الأعلى نسبة نجاح")}
             </select>
-            <span style="font-size:11px;color:#666;"><span style="color:#075bb5;">■</span> إلكتروني <span style="color:#d9730d;">■</span> يدوي</span>
+            <span style="font-size:11px;color:#666;"><span style="color:${C.aCol};">■</span> ${C.aName} <span style="color:${C.bCol};">■</span> ${C.bName}</span>
         </div>
         ${bars || "<p style='font-size:12px;color:#888;'>لا توجد بيانات.</p>"}
         <h4 style="margin:14px 0 6px;">📉 المنحنى الزمني (حسب اليوم)</h4>
@@ -3959,7 +3971,7 @@ function hasGateValue(row) { return getGateValue(row) !== ""; }
 function attendanceStatsHTML(elec, manual) {
     let tot = elec + manual;
     let pct = tot ? Math.round((elec / tot) * 100) : 0;
-    return `<span style="color:#075bb5;">⚡ إلكتروني: ${elec}</span> | <span style="color:#d9730d;">✍️ يدوي: ${manual}</span><br><span style="color:#155724;">نسبة الحضور الإلكتروني: ${pct}%</span>`;
+    return `<span style="color:#075bb5;">⚡ إلكتروني: ${elec}</span> | <span style="color:#dc3545;">✍️ يدوي: ${manual}</span><br><span style="color:#155724;font-size:15px;">نسبة الحضور الإلكتروني: <b style="font-size:20px;" dir="ltr">${pct}%</b></span>`;
 }
 
 function handleCardClick(panelName) {
