@@ -20,6 +20,7 @@ function logoutUser(){
  globalCreds = {}; _credsLoaded = false; globalScheduleItems = []; globalAdminLicenseUpdates = [];
  activeBranch = "";
  activeBranches = [];
+ myBranchScope = { all: true, keys: new Set(), names: [], restricted: false }; branchRegistry = []; _branchRegLoaded = false; window.__scopeVehKeys = null;
  activeServiceType = "";
  loggedInSupplierSapGlobal = "";
  currentSupplierServiceTypes = new Set();
@@ -547,6 +548,15 @@ button.dues-sort-chip.active, .dues-sort-chip.active { box-shadow:0 0 0 2px #075
 }
 .upload-accordion.open .upload-acc-body { display: block; }
 
+
+/* ===== سجل الفروع + نطاق المشرف ===== */
+.br-row { display:flex; align-items:center; gap:8px; background:#f3f6fb; border:1px solid #d6e0ee; border-radius:8px; padding:8px 10px; margin-top:6px; }
+.br-btn { width:auto; margin:0; padding:5px 9px; font-size:11px; color:#fff; border:none; border-radius:6px; cursor:pointer; }
+.br-scope { background:#fff; border:1px dashed #9db8d8; border-radius:8px; padding:8px; }
+.br-scope-all { display:flex; align-items:center; gap:6px; font-size:12px; font-weight:bold; color:#075bb5; cursor:pointer; }
+.br-scope-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(110px,1fr)); gap:4px; margin-top:6px; }
+.br-scope-item { display:flex; align-items:center; gap:5px; font-size:11px; background:#f0f4f8; border:1px solid #d0d7de; border-radius:6px; padding:4px 6px; cursor:pointer; }
+.br-scope input[type=checkbox], .br-scope-item input[type=checkbox] { width:auto; margin:0; }
 /* صلاحيات المشرفين - شبكة مدمجة */
 .perm-grid {
     display: grid;
@@ -1543,6 +1553,380 @@ let adminDashFilteredSap = null;
 let activeBranch = "";
 /** فروع محددة للفلتر الخارجي (مصفوفة فارغة = كل الفروع) */
 let activeBranches = [];
+/* ================= سجل الفروع + نطاق المشرف (V4.1) ================= */
+/** سجل الفروع الرسمي: [{id,name,aliases:[],createdAt,createdBy}] — محفوظ في system/branches */
+let branchRegistry = [];
+let _branchRegLoaded = false;
+/** نطاق الفروع للمشرف الحالي: all=true (مركزي/سوبر) أو قائمة مفاتيح فروع محددة */
+let myBranchScope = { all: true, keys: new Set(), names: [], restricted: false };
+
+/** مفتاح مقارنة «متسامح»: يوحّد (ق/ك) (ة/ه) (ي/ى) (أ/إ/ا) ويحذف «فرع» و«ال» والمسافات والتشكيل */
+function branchLooseKey(b) {
+    let s = String(b == null ? "" : b).trim();
+    if (!s) return "";
+    s = s.replace(/[ً-ْـ]/g, "");
+    s = s.replace(/[٠-٩]/g, function(d) { return "٠١٢٣٤٥٦٧٨٩".indexOf(d); });
+    s = s.replace(/^(?:فرع|فروع)\s+/u, "");
+    s = s.replace(/[أإآٱ]/g, "ا").replace(/[يىئ]/g, "ي").replace(/[ةه]/g, "ه").replace(/[ؤو]/g, "و").replace(/ء/g, "");
+    s = s.replace(/[قك]/g, "ك");
+    s = s.toLowerCase().replace(/[^a-z0-9؀-ۿ]/g, "");
+    s = s.replace(/^ال(?=.{2,})/, "");
+    return s;
+}
+function _branchLev(a, b) {
+    if (a === b) return 0;
+    let m = a.length, n = b.length;
+    if (Math.abs(m - n) > 1) return 2;
+    let prev = [], cur = [], i, j;
+    for (j = 0; j <= n; j++) prev[j] = j;
+    for (i = 1; i <= m; i++) {
+        cur = [i];
+        for (j = 1; j <= n; j++) {
+            cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+        }
+        prev = cur;
+    }
+    return prev[n];
+}
+function _branchEntryKeys(e) {
+    let ks = [];
+    let k = branchLooseKey(e && e.name);
+    if (k) ks.push(k);
+    ((e && e.aliases) || []).forEach(function(a) { let x = branchLooseKey(a); if (x && ks.indexOf(x) < 0) ks.push(x); });
+    return ks;
+}
+/** بحث بالاسم (أو مرادف) في السجل — يتجاهل اختلاف الصياغة */
+function findBranchEntry(name, items, excludeId) {
+    let k = branchLooseKey(name);
+    if (!k) return null;
+    items = items || branchRegistry;
+    for (let i = 0; i < items.length; i++) {
+        let e = items[i];
+        if (excludeId && e.id === excludeId) continue;
+        if (_branchEntryKeys(e).indexOf(k) >= 0) return e;
+    }
+    return null;
+}
+/** اسم قريب جداً (فرق حرف واحد) — للتنبيه من الأخطاء الإملائية */
+function findSimilarBranchEntry(name, items, excludeId) {
+    let k = branchLooseKey(name);
+    if (!k || k.length < 4) return null;
+    items = items || branchRegistry;
+    for (let i = 0; i < items.length; i++) {
+        let e = items[i];
+        if (excludeId && e.id === excludeId) continue;
+        let ks = _branchEntryKeys(e);
+        for (let j = 0; j < ks.length; j++) {
+            if (ks[j].length >= 4 && _branchLev(k, ks[j]) <= 1) return e;
+        }
+    }
+    return null;
+}
+function canonicalBranchName(raw) {
+    let e = findBranchEntry(raw);
+    return e ? e.name : String(raw || "").trim();
+}
+function cleanBranchInput(raw) {
+    return String(raw || "").replace(/[ً-ْـ]/g, "").replace(/^\s*(?:فرع|فروع)\s+/u, "").replace(/\s+/g, " ").trim();
+}
+function newBranchId() { return "b_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
+function canManageBranches() {
+    if (currentRole === "super_admin") return true;
+    return currentRole === "admin" && !!adminPermissions && adminPermissions.branchesManage === true && adminPermissions.readonly !== true;
+}
+
+async function loadBranchRegistry(force) {
+    if (_branchRegLoaded && !force) return branchRegistry;
+    try {
+        const doc = await db.collection("system").doc("branches").get();
+        branchRegistry = (doc.exists && Array.isArray(doc.data().items)) ? doc.data().items : [];
+        _branchRegLoaded = true;
+    } catch (e) { console.warn("branch registry", e); }
+    return branchRegistry;
+}
+
+/** تعديل السجل داخل transaction لمنع التكرار عند تزامن أكثر من مشرف */
+async function mutateBranchRegistry(mutator) {
+    const ref = db.collection("system").doc("branches");
+    let result;
+    await db.runTransaction(async function(tx) {
+        const snap = await tx.get(ref);
+        let items = (snap.exists && Array.isArray(snap.data().items)) ? snap.data().items.slice() : [];
+        result = mutator(items);
+        tx.set(ref, { items: items, updatedAt: new Date().toISOString(), updatedBy: currentUserName || "" }, { merge: true });
+    });
+    await loadBranchRegistry(true);
+    return result;
+}
+
+function buildMyBranchScope() {
+    let restricted = currentRole === "admin" && !!adminPermissions && adminPermissions.branchesAll === false;
+    if (!restricted) {
+        myBranchScope = { all: true, keys: new Set(), names: [], restricted: false };
+        window.__scopeVehKeys = null;
+        return;
+    }
+    let ids = new Set(Array.isArray(adminPermissions.branchIds) ? adminPermissions.branchIds : []);
+    let keys = new Set(), names = [];
+    branchRegistry.forEach(function(e) {
+        if (ids.has(e.id)) { _branchEntryKeys(e).forEach(function(k) { keys.add(k); }); names.push(e.name); }
+    });
+    myBranchScope = { all: false, keys: keys, names: names, restricted: true };
+}
+/** هل فرع الصف ضمن نطاق المشرف؟ (مقارنة صارمة بعد التوحيد — صف بلا فرع = خارج النطاق) */
+function branchInScope(b) {
+    if (myBranchScope.all) return true;
+    let k = branchLooseKey(b);
+    return !!k && myBranchScope.keys.has(k);
+}
+function updateScopeBadge() {
+    let el = document.getElementById("showRole");
+    if (!el || currentRole !== "admin") return;
+    el.innerHTML = "الصلاحية: Admin" + (myBranchScope.restricted
+        ? " — 🏢 " + sanitizeHTML(myBranchScope.names.join("، ") || "لا فروع مخصصة")
+        : " — 🌐 مركزي");
+}
+
+/** تقييد البيانات المحمّلة (سيارات/رحلات/مستحقات) على فروع المشرف — لا يرى غيرها إطلاقاً */
+function applyBranchScopeToData() {
+    if (currentRole !== "admin" || myBranchScope.all) { window.__scopeVehKeys = null; return; }
+    let v2b = new Map();
+    (globalVehicles || []).forEach(function(v) {
+        let b = String(v["الفرع"] || v["فرع"] || "").trim();
+        if (!b) return;
+        let p = normalizeValue(v["رقم اللوحة"]), c = normalizeValue(v["كود الحافلة"] || v["كود"]);
+        if (p) v2b.set(p, b);
+        if (c) v2b.set(c, b);
+    });
+    function rowBranch(d, isDues) {
+        let b = String((d && (d["الفرع"] || d["فرع"] || d["branch"] || d["Branch"])) || "").trim();
+        if (b) return b;
+        let p = normalizeValue(d["رقم اللوحة"] || d["رقم اللوحات"]);
+        let c = normalizeValue(d["كود الحافلة"] || d["كود"] || d["Bus Trip Code"]);
+        return (p && v2b.get(p)) || (c && v2b.get(c)) || "";
+    }
+    globalVehicles = (globalVehicles || []).filter(function(d) { return branchInScope(rowBranch(d)); });
+    globalTrips = (globalTrips || []).filter(function(d) { return branchInScope(rowBranch(d)); });
+    globalDues = (globalDues || []).filter(function(d) { return branchInScope(rowBranch(d, true)); });
+    let keys = new Set();
+    globalVehicles.forEach(function(v) {
+        let p = normalizeValue(v["رقم اللوحة"]), c = normalizeValue(v["كود الحافلة"] || v["كود"]);
+        if (p) keys.add(p);
+        if (c) keys.add(c);
+    });
+    window.__scopeVehKeys = keys;
+}
+function licenseInScope(u) {
+    if (currentRole !== "admin" || myBranchScope.all) return true;
+    let keys = window.__scopeVehKeys;
+    if (!keys) return false;
+    return keys.has(normalizeValue(u && u.plate)) || keys.has(normalizeValue(u && u.code));
+}
+function scheduleItemInScope(it) {
+    if (currentRole !== "admin" || myBranchScope.all) return true;
+    let b = String((it && it.branch) || "").trim();
+    if (b) return branchInScope(b);
+    let keys = window.__scopeVehKeys;
+    if (!keys) return false;
+    return keys.has(normalizeValue(it && it.plate)) || keys.has(normalizeValue(it && it.code));
+}
+function scopeScheduleItems(arr) {
+    if (currentRole !== "admin" || myBranchScope.all) return arr;
+    return (arr || []).filter(scheduleItemInScope);
+}
+
+/* ---------- واجهة تبويب «الفروع» ---------- */
+async function openBranchesTab() {
+    await loadBranchRegistry(true);
+    renderBranchesTab();
+}
+function renderBranchesTab() {
+    let box = document.getElementById("branchesListBox");
+    if (!box) return;
+    let canEdit = canManageBranches() && canAdminWrite();
+    let addRow = document.getElementById("branchAddRow");
+    if (addRow) addRow.style.display = canEdit ? "" : "none";
+    let imp = document.getElementById("btnImportBranches");
+    if (imp) imp.style.display = (canEdit && myBranchScope.all) ? "" : "none";
+
+    let counts = new Map();
+    (globalVehicles || []).forEach(function(v) {
+        let k = branchLooseKey(v["الفرع"] || v["فرع"] || "");
+        if (k) counts.set(k, (counts.get(k) || 0) + 1);
+    });
+    let q = robustNormalize((document.getElementById("searchBranchInput") || {}).value || "");
+    let list = branchRegistry.slice().sort(function(a, b) { return String(a.name).localeCompare(String(b.name), "ar"); });
+    if (q) list = list.filter(function(e) { return robustNormalize([e.name].concat(e.aliases || []).join(" ")).indexOf(q) >= 0; });
+    let cnt = document.getElementById("branchesCountBadge");
+    if (cnt) cnt.textContent = "(" + branchRegistry.length + " فرع)";
+    if (!list.length) {
+        box.innerHTML = '<span style="font-size:12px;color:#666;">' + (branchRegistry.length ? "لا نتائج." : "لا توجد فروع مسجّلة بعد. أضف الفرع الأول أو استورد الفروع من البيانات الموجودة.") + '</span>';
+        return;
+    }
+    box.innerHTML = list.map(function(e) {
+        let n = 0;
+        _branchEntryKeys(e).forEach(function(k) { n += (counts.get(k) || 0); });
+        let al = (e.aliases && e.aliases.length) ? '<div style="font-size:10px;color:#777;margin-top:2px;">مرادفات مقبولة: ' + e.aliases.map(sanitizeHTML).join("، ") + '</div>' : "";
+        let btns = canEdit ? '<button type="button" class="br-btn" style="background:#075bb5;" onclick="renameBranch(\'' + sanitizeHTML(e.id) + '\')">✏️ تعديل</button>'
+            + '<button type="button" class="br-btn" style="background:#e47377;" onclick="deleteBranchEntry(\'' + sanitizeHTML(e.id) + '\')">🗑 حذف</button>' : "";
+        return '<div class="br-row"><div style="flex:1;min-width:0;"><b style="color:#075bb5;">🏢 ' + sanitizeHTML(e.name) + '</b>'
+            + '<span style="font-size:10px;color:#555;margin-right:8px;">سيارات: ' + n + '</span>' + al + '</div><div style="display:flex;gap:4px;">' + btns + '</div></div>';
+    }).join("");
+}
+
+async function addBranchFromInput() {
+    if (!canManageBranches() || !canAdminWrite()) { showAlert("🚫 لا تملك صلاحية إدارة الفروع."); return; }
+    let inp = document.getElementById("newBranchName");
+    let name = cleanBranchInput(inp ? inp.value : "");
+    if (!name) { showAlert("اكتب اسم الفرع."); return; }
+    if (name.length > 40 || !/[؀-ۿa-zA-Z]/.test(name)) { showAlert("اسم الفرع غير صالح (حروف فقط، حتى 40 حرفاً)."); return; }
+    await loadBranchRegistry(true);
+    let dup = findBranchEntry(name);
+    if (dup) { showAlert("⚠️ هذا الفرع مسجّل بالفعل باسم «" + dup.name + "».\nلا يمكن تكرار نفس الفرع بصياغة مختلفة."); return; }
+    let sim = findSimilarBranchEntry(name);
+    if (sim && !confirm("الاسم «" + name + "» قريب جداً من الفرع المسجّل «" + sim.name + "».\nهل هو فرع مختلف فعلاً؟\nموافق = إضافته كفرع جديد | إلغاء = عدم الإضافة")) return;
+    try {
+        await mutateBranchRegistry(function(items) {
+            if (findBranchEntry(name, items)) throw new Error("DUP:" + name);
+            items.push({ id: newBranchId(), name: name, aliases: [], createdAt: new Date().toISOString(), createdBy: currentUserName || "" });
+        });
+        if (inp) inp.value = "";
+        if (typeof logAudit === "function") logAudit("إضافة فرع", "تسجيل فرع جديد", { after: name });
+        renderBranchesTab();
+        refreshNewAdminScopePicker();
+        flashAdminResult("✅ تمت إضافة الفرع «" + name + "».", 4000);
+    } catch (e) {
+        console.error(e);
+        showAlert(/^DUP/.test(String(e && e.message)) ? "⚠️ الفرع مسجّل بالفعل (أضافه مشرف آخر للتو)." : "❌ تعذر الحفظ: " + ((e && e.message) || e));
+        await loadBranchRegistry(true); renderBranchesTab();
+    }
+}
+
+async function renameBranch(id) {
+    if (!canManageBranches() || !canAdminWrite()) { showAlert("🚫 لا تملك صلاحية إدارة الفروع."); return; }
+    let cur = branchRegistry.find(function(e) { return e.id === id; });
+    if (!cur) return;
+    let nv = prompt("الاسم الجديد للفرع (الاسم القديم «" + cur.name + "» سيبقى مقبولاً كمرادف حتى لا تتأثر البيانات والصلاحيات):", cur.name);
+    if (nv === null) return;
+    let name = cleanBranchInput(nv);
+    if (!name || name === cur.name) return;
+    if (name.length > 40) { showAlert("الاسم طويل."); return; }
+    let dup = findBranchEntry(name, null, id);
+    if (dup) { showAlert("⚠️ الاسم يطابق فرعاً آخر مسجّلاً: «" + dup.name + "»."); return; }
+    try {
+        await mutateBranchRegistry(function(items) {
+            if (findBranchEntry(name, items, id)) throw new Error("DUP:" + name);
+            let e = items.find(function(x) { return x.id === id; });
+            if (!e) throw new Error("الفرع غير موجود");
+            let al = Array.isArray(e.aliases) ? e.aliases.slice() : [];
+            if (al.indexOf(e.name) < 0) al.push(e.name);
+            e.aliases = al.filter(function(a) { return branchLooseKey(a) !== branchLooseKey(name); });
+            e.name = name;
+        });
+        if (typeof logAudit === "function") logAudit("تعديل اسم فرع", "تغيير اسم فرع مسجّل", { before: cur.name, after: name });
+        renderBranchesTab(); refreshNewAdminScopePicker();
+    } catch (e) { showAlert("❌ " + ((e && e.message) || e)); }
+}
+
+async function deleteBranchEntry(id) {
+    if (!canManageBranches() || !canAdminWrite()) { showAlert("🚫 لا تملك صلاحية إدارة الفروع."); return; }
+    let cur = branchRegistry.find(function(e) { return e.id === id; });
+    if (!cur) return;
+    try {
+        let used = [];
+        let us = await db.collection("users").get();
+        us.forEach(function(doc) {
+            let d = doc.data() || {};
+            let p = d.permissions || {};
+            if (d.role === "admin" && p.branchesAll === false && Array.isArray(p.branchIds) && p.branchIds.indexOf(id) >= 0) used.push(d.ownerName || doc.id);
+        });
+        if (used.length) { showAlert("🚫 لا يمكن حذف الفرع «" + cur.name + "» لأنه مخصّص للمشرفين: " + used.join("، ") + "\nأزِله من صلاحياتهم أولاً."); return; }
+        if (!confirm("حذف الفرع «" + cur.name + "» من السجل؟\n(لا يحذف أي بيانات مرفوعة — لكن رفع ملف يحتوي هذا الفرع سيُرفض حتى يُسجَّل من جديد)")) return;
+        await mutateBranchRegistry(function(items) {
+            let i = items.findIndex(function(x) { return x.id === id; });
+            if (i >= 0) items.splice(i, 1);
+        });
+        if (typeof logAudit === "function") logAudit("حذف فرع", "حذف فرع من السجل", { before: cur.name });
+        renderBranchesTab(); refreshNewAdminScopePicker();
+    } catch (e) { showAlert("❌ " + ((e && e.message) || e)); }
+}
+
+/** استيراد أسماء الفروع الموجودة فعلاً في البيانات (توحيد الصياغات المتشابهة تلقائياً) */
+async function importBranchesFromData() {
+    if (!canManageBranches() || !canAdminWrite() || !myBranchScope.all) { showAlert("🚫 الاستيراد للإدارة المركزية فقط."); return; }
+    await loadBranchRegistry(true);
+    let groups = new Map();   // key -> Map(spelling -> count)
+    function add(raw) {
+        let s = cleanBranchInput(raw);
+        let k = branchLooseKey(s);
+        if (!k) return;
+        if (!groups.has(k)) groups.set(k, new Map());
+        let m = groups.get(k);
+        m.set(s, (m.get(s) || 0) + 1);
+    }
+    (globalVehicles || []).forEach(function(v) { add(v["الفرع"] || v["فرع"]); });
+    (globalTrips || []).forEach(function(t) { add(t["الفرع"] || t["فرع"]); });
+    (globalDues || []).forEach(function(d) { add(getDuesBranch(d)); });
+    let fresh = [];
+    groups.forEach(function(m, k) {
+        if (findBranchEntry(k)) return;
+        let best = null, bn = -1, others = [];
+        m.forEach(function(n, sp) { if (n > bn) { bn = n; best = sp; } });
+        m.forEach(function(n, sp) { if (sp !== best) others.push(sp); });
+        fresh.push({ name: best, aliases: others });
+    });
+    if (!fresh.length) { showAlert("لا توجد فروع جديدة في البيانات الحالية — كل الفروع مسجّلة."); return; }
+    fresh.sort(function(a, b) { return a.name.localeCompare(b.name, "ar"); });
+    if (!confirm("سيتم تسجيل " + fresh.length + " فرع من البيانات الحالية:\n\n" + fresh.map(function(f) { return "• " + f.name + (f.aliases.length ? "  (توحيد: " + f.aliases.join("، ") + ")" : ""); }).join("\n") + "\n\nراجع الأسماء جيداً — هل تريد المتابعة؟")) return;
+    try {
+        await mutateBranchRegistry(function(items) {
+            fresh.forEach(function(f) {
+                if (findBranchEntry(f.name, items)) return;
+                items.push({ id: newBranchId(), name: f.name, aliases: f.aliases, createdAt: new Date().toISOString(), createdBy: currentUserName || "" });
+            });
+        });
+        if (typeof logAudit === "function") logAudit("استيراد فروع", "تسجيل فروع من البيانات", { after: fresh.length + " فرع" });
+        renderBranchesTab(); refreshNewAdminScopePicker();
+        flashAdminResult("✅ تم تسجيل " + fresh.length + " فرع.", 4000);
+    } catch (e) { showAlert("❌ " + ((e && e.message) || e)); }
+}
+
+/* ---------- محدد نطاق الفروع (يُستخدم في إضافة وتعديل المشرف) ---------- */
+function branchScopePickerHtml(prefix, allFlag, selectedIds) {
+    let reg = branchRegistry.slice().sort(function(a, b) { return String(a.name).localeCompare(String(b.name), "ar"); });
+    let sel = new Set(selectedIds || []);
+    let h = '<div class="br-scope">';
+    h += '<label class="br-scope-all"><input type="checkbox" id="' + prefix + '_all" ' + (allFlag ? "checked" : "") + ' onchange="onScopeAllToggle(\'' + prefix + '\')"> 🌐 كل الفروع (مركزي)</label>';
+    if (!reg.length) h += '<div style="font-size:11px;color:#842029;margin-top:4px;">لا توجد فروع مسجّلة — سجّلها أولاً من تبويب «🏢 الفروع».</div>';
+    h += '<div class="br-scope-list" id="' + prefix + '_list" style="' + (allFlag ? "opacity:.4;pointer-events:none;" : "") + '">';
+    reg.forEach(function(e) {
+        h += '<label class="br-scope-item"><input type="checkbox" class="' + prefix + '_cb" value="' + sanitizeHTML(e.id) + '" ' + (sel.has(e.id) ? "checked" : "") + '> ' + sanitizeHTML(e.name) + '</label>';
+    });
+    h += '</div></div>';
+    return h;
+}
+function onScopeAllToggle(prefix) {
+    let all = document.getElementById(prefix + "_all");
+    let list = document.getElementById(prefix + "_list");
+    if (!all || !list) return;
+    list.style.opacity = all.checked ? ".4" : "1";
+    list.style.pointerEvents = all.checked ? "none" : "auto";
+}
+function readBranchScope(prefix) {
+    let all = document.getElementById(prefix + "_all");
+    if (!all) return null;
+    let ids = [];
+    document.querySelectorAll("." + prefix + "_cb").forEach(function(cb) { if (cb.checked) ids.push(cb.value); });
+    return { all: all.checked, ids: ids };
+}
+function refreshNewAdminScopePicker() {
+    let c = document.getElementById("newAdminBranchScope");
+    if (!c) return;
+    let cur = readBranchScope("new_scope");
+    c.innerHTML = branchScopePickerHtml("new_scope", cur ? cur.all : true, cur ? cur.ids : []);
+}
+
 /** غيّر هذا الرقم مع كل إصدار منطق جديد لإبطال كاش IndexedDB تلقائياً */
 const APP_LOGIC_VERSION = "9.8";
 const APP_DISPLAY_VERSION = "V1.1";
@@ -2206,6 +2590,7 @@ function renderLicenseNotificationsContent() {
             globalAdminLicenseUpdates.forEach(update => {
                 // حماية: تجاهل أي سجل مُعرّفه يحوي رموزاً غير آمنة (لمنع حقن كود في شاشة الإدارة)
                 if (!update || !/^[A-Za-z0-9_\-]{1,80}$/.test(String(update.id))) return;
+                if (!licenseInScope(update)) return;
                 let isUpdated = update.isUpdated === true;
                 let dt = update.timestamp ? new Date(update.timestamp).toLocaleString('ar-EG') : "الآن";
                 
@@ -2438,7 +2823,7 @@ async function deleteLicenseUpdateRecord(updateId) {
 }
 
 function updateAdminLicenseBadge() {
-    let unreadCount = globalAdminLicenseUpdates.filter(u => !u.isUpdated).length;
+    let unreadCount = globalAdminLicenseUpdates.filter(u => !u.isUpdated && licenseInScope(u)).length;
     let badge = document.getElementById("licenseBadge");
     if(badge) {
         if(unreadCount > 0) {
@@ -3069,6 +3454,10 @@ async function loadUploadedFiles() {
         // مرتّبة من الأحدث — نعرض أول ظهور فقط لكل (اسم+نوع)
         snap.forEach(doc => {
             let d = doc.data() || {};
+            if (myBranchScope.restricted) {   // المشرف المقيّد يرى فقط ملفات فروعه
+                let _bs = Array.isArray(d.branches) ? d.branches : [];
+                if (!(_bs.length && _bs.every(function(b) { return branchInScope(b); }))) return;
+            }
             let key = String(d.name || "").trim().toLowerCase() + "|" + String(d.type || "").toLowerCase();
             if (key !== "|" && seenKey.has(key)) return;
             if (key !== "|") seenKey.add(key);
@@ -3501,6 +3890,88 @@ async function safeUploadTest(inputId, label) {
             }
             data = rowsWithSap;
 
+            // ===== الفروع: تطبيع على سجل الفروع + تقييد نطاق المشرف =====
+            const uploadRestricted = myBranchScope.restricted === true;
+            let scopeNote = "";
+            let fileBranchNames = new Set();
+            try { await loadBranchRegistry(true); } catch (eReg) {}
+            {
+                let v2b = new Map();
+                (globalVehicles || []).forEach(function(v) {
+                    let b = String(v["الفرع"] || v["فرع"] || "").trim();
+                    if (!b) return;
+                    let p = normalizeValue(v["رقم اللوحة"]), c = normalizeValue(v["كود الحافلة"] || v["كود"]);
+                    if (p) v2b.set(p, b);
+                    if (c) v2b.set(c, b);
+                });
+                let outScope = new Map(), unknownRaw = new Map(), kept = [];
+                data.forEach(function(r) {
+                    let raw = String(r["الفرع"] || r["فرع"] || r["اسم الفرع"] || "").trim();
+                    if (!raw && collectionName === "dues") raw = getDuesBranch(r);
+                    let eff = raw;
+                    if (!eff && collectionName === "trips") {
+                        eff = v2b.get(normalizeValue(r["رقم اللوحة"] || r["رقم اللوحات"])) || v2b.get(normalizeValue(r["كود الحافلة"] || r["كود"])) || "";
+                    }
+                    if (uploadRestricted && (!eff || !branchInScope(eff))) {
+                        let k = eff || "(بدون فرع)";
+                        outScope.set(k, (outScope.get(k) || 0) + 1);
+                        return;
+                    }
+                    if (eff && branchRegistry.length) {
+                        let ent = findBranchEntry(eff);
+                        if (!ent) {
+                            let kk = branchLooseKey(eff);
+                            if (!unknownRaw.has(kk)) unknownRaw.set(kk, { name: eff, n: 0 });
+                            unknownRaw.get(kk).n++;
+                        } else { r["الفرع"] = ent.name; fileBranchNames.add(ent.name); }
+                    } else if (eff) { fileBranchNames.add(eff); }
+                    kept.push(r);
+                });
+
+                if (unknownRaw.size) {
+                    let list = Array.from(unknownRaw.values());
+                    let txt = list.slice(0, 12).map(function(u) {
+                        let sm = findSimilarBranchEntry(u.name);
+                        return "• " + u.name + " (" + u.n + " صف)" + (sm ? "  ← هل تقصد «" + sm.name + "»؟" : "");
+                    }).join("\n");
+                    let registered = false;
+                    if (canManageBranches() && canAdminWrite() &&
+                        confirm("⚠️ فروع غير مسجّلة في سجل الفروع:\n" + txt + "\n\nإن كانت أخطاء إملائية لفرع مسجّل فاضغط «إلغاء» وصحّحها في الملف.\nهل تريد تسجيلها كفروع جديدة وإكمال الرفع؟")) {
+                        try {
+                            await mutateBranchRegistry(function(items) {
+                                list.forEach(function(u) {
+                                    let nm = cleanBranchInput(u.name);
+                                    if (nm && !findBranchEntry(nm, items)) items.push({ id: newBranchId(), name: nm, aliases: [], createdAt: new Date().toISOString(), createdBy: currentUserName || "" });
+                                });
+                            });
+                            registered = true;
+                        } catch (eAdd) { console.error(eAdd); }
+                    }
+                    if (!registered) {
+                        resultDiv.innerHTML = "❌ لم يتم الرفع — فروع غير مسجّلة في سجل الفروع:<br>" + list.slice(0, 12).map(function(u) { return sanitizeHTML(u.name) + " (" + u.n + " صف)"; }).join(" | ") + "<br><span style='font-size:12px;'>صحّح الاسم في الملف ليطابق فرعاً مسجّلاً، أو اطلب من مدير النظام تسجيل الفرع من تبويب «🏢 الفروع».</span>";
+                        window.__uploadInProgress = false;
+                        return;
+                    }
+                    kept.forEach(function(r) {
+                        let b = String(r["الفرع"] || r["فرع"] || r["اسم الفرع"] || "").trim();
+                        if (!b && collectionName === "dues") b = getDuesBranch(r);
+                        if (!b) return;
+                        let ent = findBranchEntry(b);
+                        if (ent) { r["الفرع"] = ent.name; fileBranchNames.add(ent.name); }
+                    });
+                }
+                if (!kept.length) {
+                    resultDiv.innerHTML = "❌ لم يتم رفع الملف: لا توجد صفوف ضمن نطاق فروعك" + (myBranchScope.names.length ? " (" + sanitizeHTML(myBranchScope.names.join("، ")) + ")" : "") + ". تأكد من عمود «الفرع» وأن اسمه مطابق للفرع المسجّل.";
+                    window.__uploadInProgress = false;
+                    return;
+                }
+                if (outScope.size) {
+                    let tot = 0; outScope.forEach(function(n) { tot += n; });
+                    scopeNote = "<br><span style='color:#842029;font-size:12px;'>🚫 " + tot + " صف خارج نطاق فروعك لم يُرفع: " + Array.from(outScope.entries()).slice(0, 6).map(function(en) { return sanitizeHTML(en[0]) + " (" + en[1] + ")"; }).join(" | ") + "</span>";
+                }
+                data = kept;
+            }
+
             // تقرير: أرقام ساب في الملف بدون حساب مورد
             let fileSaps = new Set(data.map(r => r["رقم المورد"]));
             let noAccountSaps = [];
@@ -3513,15 +3984,27 @@ async function safeUploadTest(inputId, label) {
 
             // الملفات السابقة بنفس الاسم والنوع (تُحذف بعد نجاح كتابة الجديد)
             let replacedOldIds = [];
+            let blockedByScope = false;
             try {
                 let sfSnap = await db.collection("systemFiles").get();
                 sfSnap.docs.forEach(doc => {
                     let d = doc.data() || {};
                     let n = String(d.name || "").trim().toLowerCase();
                     let t = String(d.type || "").toLowerCase();
-                    if (n && n === fileNameNorm && t === collectionName) replacedOldIds.push(d.id || doc.id);
+                    if (n && n === fileNameNorm && t === collectionName) {
+                        if (uploadRestricted) {
+                            let bs = Array.isArray(d.branches) ? d.branches : [];
+                            if (bs.length && bs.every(function(b) { return branchInScope(b); })) replacedOldIds.push(d.id || doc.id);
+                            else blockedByScope = true;
+                        } else replacedOldIds.push(d.id || doc.id);
+                    }
                 });
             } catch (eSf) { console.warn("systemFiles dedupe", eSf); }
+            if (blockedByScope) {
+                resultDiv.innerHTML = "❌ لم يتم الرفع: يوجد ملف بنفس الاسم يخص فروعاً خارج نطاقك (رفعه مشرف آخر/إدارة مركزية). غيّر اسم ملفك (مثلاً أضف اسم الفرع) ثم أعد الرفع حتى لا تتكرر البيانات.";
+                window.__uploadInProgress = false;
+                return;
+            }
 
             // 1) إضافة وثائق الملف الجديد (لا يُحذف أي شيء قبل نجاح الكتابة)
             setAdminProgress(30, "جاري تجهيز البيانات للرفع...");
@@ -3533,7 +4016,9 @@ async function safeUploadTest(inputId, label) {
                 type: collectionName,
                 typeName: typeName,
                 date: uploadDate,
-                uploader: currentUserName || "الإدارة"
+                uploader: currentUserName || "الإدارة",
+                branches: Array.from(fileBranchNames),
+                scoped: uploadRestricted
             });
 
             setAdminProgress(88, "جاري توثيق الملف...");
@@ -3549,6 +4034,7 @@ async function safeUploadTest(inputId, label) {
             await db.collection("system").doc("meta").set({ version: Date.now() }, { merge: true });
 
             let matchNote = `<br><span style="color:#155724;font-size:12px;">✓ ${data.length} صف مرتبط بـ ${fileSaps.size} مورد (برقم ساب).</span>`;
+            matchNote += scopeNote;
             if (rowsNoSap > 0) {
                 matchNote += `<br><span style="color:#856404;font-size:12px;">⚠️ ${rowsNoSap} صف بدون رقم مورد لم يُرفع.</span>`;
             }
@@ -3600,6 +4086,13 @@ async function safeUploadTest(inputId, label) {
 }
 
 async function deleteUploadedFile(fileId, collectionName, fileName) {
+    if (myBranchScope.restricted) {
+        try {
+            let _sd = await db.collection("systemFiles").doc(String(fileId)).get();
+            let _bs = (_sd.exists && Array.isArray(_sd.data().branches)) ? _sd.data().branches : [];
+            if (!(_bs.length && _bs.every(function(b) { return branchInScope(b); }))) { showAlert("🚫 هذا الملف خارج نطاق فروعك — لا يمكنك حذفه."); return; }
+        } catch (eG) { showAlert("🚫 تعذر التحقق من نطاق الملف."); return; }
+    }
     if(!confirm(`هل أنت متأكد من حذف ملف "${fileName}" وكافة السجلات المرتبطة به؟`)) return;
 
     setAdminProgress(5, "جاري حذف الملف واستبعاد بياناته...");
@@ -3702,7 +4195,7 @@ async function loadAuditLog() {
 }
 
 async function downloadSystemBackup() {
-    if (currentRole !== "super_admin" && !(adminPermissions && adminPermissions.data)) {
+    if (currentRole !== "super_admin" && !(adminPermissions && adminPermissions.data && myBranchScope.all)) {
         showAlert("🚫 النسخة الاحتياطية للمشرفين المخوّلين أو السوبر.");
         return;
     }
@@ -3850,7 +4343,7 @@ async function factoryResetSection(section) {
 }
 
 async function wipeAllData() {
-    let canWipe = (currentRole === "super_admin") || (currentRole === "admin" && adminPermissions && adminPermissions.wipe);
+    let canWipe = (currentRole === "super_admin") || (currentRole === "admin" && adminPermissions && adminPermissions.wipe && myBranchScope.all);
     if (!canWipe) {
         showAlert("🚫 ليس لديك صلاحية المسح الشامل لقاعدة البيانات. اطلب تفعيلها من مدير النظام.");
         return;
@@ -4534,7 +5027,7 @@ async function exportAdminDataToExcel() {
 
 function applyAdminPermissionsUI() {
     if(currentRole === "super_admin") {
-        ["btn-tab-admins","btn-tab-data","btn-tab-suppliers","btn-tab-msgs","btn-tab-reports","btn-tab-complaints","btn-tab-settings","btn-tab-audit"].forEach(id => {
+        ["btn-tab-admins","btn-tab-branches","btn-tab-data","btn-tab-suppliers","btn-tab-msgs","btn-tab-reports","btn-tab-complaints","btn-tab-settings","btn-tab-audit"].forEach(id => {
             let el = document.getElementById(id); if (el) el.classList.remove("hide");
         });
         document.getElementById("adminNotificationBtn").classList.remove("hide");
@@ -4586,10 +5079,13 @@ function applyAdminPermissionsUI() {
             });
         }
 
+        let btnBr = document.getElementById("btn-tab-branches");
+        if (btnBr) { if (canManageBranches()) btnBr.classList.remove("hide"); else btnBr.classList.add("hide"); }
+
         // قسم المسح الشامل: سوبر أدمن دائماً، أو أدمن بصلاحية wipe فقط
         let wipeEl = document.getElementById("acc_wipe");
         if (wipeEl) {
-            if (adminPermissions && adminPermissions.wipe) wipeEl.style.display = "";
+            if (adminPermissions && adminPermissions.wipe && myBranchScope.all) wipeEl.style.display = "";
             else wipeEl.style.display = "none";
         }
 
@@ -4842,7 +5338,8 @@ function switchAdminTab(tabId, btnElement) {
             "tab-suppliers": "suppliers",
             "tab-msgs": "msgs",
             "tab-complaints": "complaints",
-            "tab-reports": "reports"
+            "tab-reports": "reports",
+            "tab-branches": "branchesManage"
         };
         let need = map[tabId];
         if (need && !(adminPermissions && adminPermissions[need])) {
@@ -4871,6 +5368,8 @@ function switchAdminTab(tabId, btnElement) {
         refreshFailedTripsStats();
     }
     if (tabId === 'tab-audit' && typeof loadAuditLog === 'function') loadAuditLog();
+    if (tabId === 'tab-branches') openBranchesTab();
+    if (tabId === 'tab-admins') refreshNewAdminScopePicker();
     if (tabId === 'tab-settings') {
         let dn = document.getElementById('setDesignerName');
         let de = document.getElementById('setDesignerEmail');
@@ -4899,6 +5398,7 @@ function openAdmin(){
    { perm: "msgs", btn: "btn-tab-msgs", tab: "tab-msgs" },
    { perm: "complaints", btn: "btn-tab-complaints", tab: "tab-complaints", needComps: true },
    { perm: "reports", btn: "btn-tab-reports", tab: "tab-reports" },
+   { perm: "branchesManage", btn: "btn-tab-branches", tab: "tab-branches" },
    { perm: "audit", btn: "btn-tab-audit", tab: "tab-audit" },
    { perm: "admins", btn: "btn-tab-admins", tab: "tab-admins", needAdmins: true, superOnly: true },
    { perm: "settings", btn: "btn-tab-settings", tab: "tab-settings", superOnly: true, needSettings: true }
@@ -5008,6 +5508,7 @@ function selectMsgSupplier(sap, name) {
     <div class="admin-tabs">
       <button id="btn-tab-data" class="tab-btn active hide" onclick="switchAdminTab('tab-data', this)">📂 البيانات</button>
       <button id="btn-tab-admins" class="tab-btn hide" onclick="switchAdminTab('tab-admins', this)">👑 المشرفين</button>
+      <button id="btn-tab-branches" class="tab-btn hide" onclick="switchAdminTab('tab-branches', this)">🏢 الفروع</button>
       <button id="btn-tab-suppliers" class="tab-btn hide" onclick="switchAdminTab('tab-suppliers', this)">👥 الموردين</button>
       <button id="btn-tab-msgs" class="tab-btn hide" onclick="switchAdminTab('tab-msgs', this)">✉️ الرسائل</button>
       <button id="btn-tab-complaints" class="tab-btn hide" onclick="switchAdminTab('tab-complaints', this)">💡 الشكاوى <span id="adminCompBadge" style="background:#dc3545;color:white;border-radius:10px;padding:2px 6px;font-size:10px;display:none;margin-right:5px;">0</span></button>
@@ -5049,6 +5550,12 @@ function selectMsgSupplier(sap, name) {
                             <label class="perm-item" title="زر مسح طلب نسيان كلمة السر من قائمة الإشعارات فقط — لا يحذف المورد">🔑 مسح إشعار طلب الباسورد<input type="checkbox" id="chk_pwdDelete"></label>
                             <label class="perm-item" title="عرض سجل العمليات (من فعل ماذا ومتى)">📋 عرض سجل العمليات<input type="checkbox" id="chk_audit"></label>
                             <label class="perm-item" style="border-color:#ffc107; color:#856404;" title="يمنع أي تعديل أو حذف أو إنشاء — عرض فقط">👁 مشاهدة فقط (بدون تعديل)<input type="checkbox" id="chk_readonly"></label>
+                            <label class="perm-item" title="إضافة/تعديل/حذف الفروع في سجل الفروع">🏢 إدارة سجل الفروع<input type="checkbox" id="chk_branchesManage"></label>
+                        </div>
+                        <div style="margin-top:10px;">
+                            <b style="color:#333; font-size:12px;">🏢 نطاق الفروع (ما يراه ويرفعه المشرف):</b>
+                            <div id="newAdminBranchScope" style="margin-top:6px;"></div>
+                            <p style="font-size:10px; color:#555; margin:4px 0 0 0;">«مركزي» = كل الفروع. غير ذلك: لا يرى المشرف أي رحلات أو مبالغ أو سيارات خارج الفروع المحددة، ولا يستطيع رفع بيانات غيرها.</p>
                         </div>
                         <p style="font-size:10px; color:#842029; margin:8px 0 0 0; line-height:1.5;">⚠️ «مسح إشعار طلب الباسورد» = حذف الطلب من الجرس فقط وليس حساب المورد. «مشاهدة فقط» تلغي التعديل حتى مع تفعيل صلاحيات أخرى. سحب أي صلاحية يُطبَّق فوراً على المشرف المتصل.</p>
                     </div>
@@ -5061,6 +5568,20 @@ function selectMsgSupplier(sap, name) {
                 <input type="text" id="searchAdminInput" placeholder="اكتب اسم أو هاتف أو بريد المشرف للبحث..." onkeyup="filterAdminsList()" style="margin-bottom:10px; padding:8px; font-size:12px;">
                 <div id="adminsListResult" style="max-height:300px; overflow-y:auto;"></div>
             </div>
+        </div>
+
+        <div id="tab-branches" class="tab-content">
+            <div style="background:#fff8e1; border:1px solid #ffe08a; border-radius:8px; padding:10px; font-size:12px; line-height:1.7; color:#6b5200; margin-bottom:10px;">
+                🏢 <b>سجل الفروع الرسمي</b> <span id="branchesCountBadge" style="font-weight:bold;"></span><br>
+                كل فرع يُسجَّل مرة واحدة فقط. النظام يمنع التكرار بصياغة مختلفة (مثل «قويسنا» و«كويسنا» أو «فرع قويسنا»)، ورفع أي ملف يحتوي فرعاً غير مسجّل يُرفض أو يُطلب تسجيله.
+            </div>
+            <div id="branchAddRow" style="display:flex; gap:6px; margin-bottom:8px;">
+                <input type="text" id="newBranchName" placeholder="اسم الفرع (مثال: قويسنا)" style="margin:0; padding:8px; font-size:12px; flex:1;" onkeydown="if(event.key==='Enter'){addBranchFromInput();}">
+                <button type="button" onclick="addBranchFromInput()" style="margin:0; width:auto; padding:8px 14px; font-size:12px; background:#28a745; color:#fff; border:none; border-radius:8px; cursor:pointer;">➕ إضافة فرع</button>
+            </div>
+            <button type="button" id="btnImportBranches" onclick="importBranchesFromData()" style="width:auto; margin:0 0 10px 0; padding:7px 12px; font-size:11px; background:#6f42c1; color:#fff; border:none; border-radius:8px; cursor:pointer;">📥 استيراد الفروع الموجودة في البيانات الحالية</button>
+            <input type="text" id="searchBranchInput" placeholder="بحث في الفروع..." onkeyup="renderBranchesTab()" style="margin-bottom:6px; padding:8px; font-size:12px;">
+            <div id="branchesListBox"></div>
         </div>
 
         <div id="tab-data" class="tab-content active">
@@ -5508,12 +6029,18 @@ async function createNewAdmin() {
     let p_pwdDelete = document.getElementById("chk_pwdDelete") ? document.getElementById("chk_pwdDelete").checked : false;
     let p_audit = document.getElementById("chk_audit") ? document.getElementById("chk_audit").checked : false;
     let p_readonly = document.getElementById("chk_readonly") ? document.getElementById("chk_readonly").checked : false;
+    let p_branchesManage = document.getElementById("chk_branchesManage") ? document.getElementById("chk_branchesManage").checked : false;
+    let _scopeSel = readBranchScope("new_scope") || { all: true, ids: [] };
 
     if (!name || !loginRaw || !pass || pass.length < 6) {
         showAlert("يرجى ملء الاسم ومعرّف الدخول (بريد أو هاتف) وكلمة المرور (6 أحرف على الأقل).");
         return;
     }
 
+    if (!_scopeSel.all && !_scopeSel.ids.length) {
+        showAlert("حدّد فرعاً واحداً على الأقل في «نطاق الفروع»، أو اختر «كل الفروع (مركزي)».");
+        return;
+    }
     let useEmail = loginRaw.indexOf("@") >= 0;
     let email = "";
     let phone = "";
@@ -5583,7 +6110,8 @@ async function createNewAdmin() {
                     data: p_data, suppliers: p_suppliers, msgs: p_msgs, reports: p_reports,
                     complaints: p_complaints, wipe: p_wipe, licenses: p_licenses,
                     scheduleUpload: p_scheduleUpload, scheduleReply: p_scheduleReply,
-                    pwdDelete: p_pwdDelete, audit: p_audit, readonly: p_readonly
+                    pwdDelete: p_pwdDelete, audit: p_audit, readonly: p_readonly,
+                    branchesManage: p_branchesManage, branchesAll: _scopeSel.all, branchIds: _scopeSel.all ? [] : _scopeSel.ids
                 },
                 createdAt: firebase.firestore.FieldValue.serverTimestamp()
             });
@@ -5633,6 +6161,9 @@ async function loadAdminsList() {
             if (p.pwdDelete === undefined) p.pwdDelete = false;
             if (p.audit === undefined) p.audit = false;
             if (p.readonly === undefined) p.readonly = false;
+            if (p.branchesAll === undefined) p.branchesAll = true;
+            if (!Array.isArray(p.branchIds)) p.branchIds = [];
+            if (p.branchesManage === undefined) p.branchesManage = false;
             let isMe = (doc.id === myUid);
             let roleBadge = d.role === "super_admin" ? "👑 مدير نظام" : "🛡️ مشرف";
             let loginLabel = (d.email && String(d.email).trim()) ? String(d.email).trim() : (d.phone || d.loginId || "غير مسجل");
@@ -5660,6 +6191,11 @@ async function loadAdminsList() {
                         <label class="perm-item" title="مسح إشعار طلب الباسورد فقط">مسح إشعار طلب الباسورد<input type="checkbox" id="edit_p_pwd_${doc.id}" ${p.pwdDelete?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
                         <label class="perm-item" title="سجل العمليات">عرض سجل العمليات<input type="checkbox" id="edit_p_audit_${doc.id}" ${p.audit?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
                         <label class="perm-item" style="border-color:#ffc107; color:#856404;" title="بدون تعديل">مشاهدة فقط<input type="checkbox" id="edit_p_ro_${doc.id}" ${p.readonly?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                        <label class="perm-item" title="إدارة سجل الفروع">🏢 إدارة سجل الفروع<input type="checkbox" id="edit_p_brm_${doc.id}" ${p.branchesManage?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                    </div>
+                    <div style="border-top:1px dashed #ddd; padding-top:6px; margin-top:8px;">
+                        <b>🏢 نطاق الفروع:</b>
+                        ${d.role === 'super_admin' ? '<span style="color:#075bb5;">🌐 كل الفروع (مركزي)</span>' : branchScopePickerHtml('edit_scope_' + doc.id, p.branchesAll !== false, p.branchIds)}
                     </div>
                     <div style="border-top:1px dashed #ddd; padding-top:6px; margin-top:8px;">
                         <b>كلمة المرور:</b>
@@ -5727,6 +6263,8 @@ function filterAdminComplaints() {
 
 async function updateAdminPerms(uid) {
     try {
+        let _sc = readBranchScope("edit_scope_" + uid) || { all: true, ids: [] };
+        if (!_sc.all && !_sc.ids.length) { showAlert("حدّد فرعاً واحداً على الأقل، أو اختر «كل الفروع (مركزي)»."); return; }
         let perms = {
             data: document.getElementById("edit_p_data_" + uid).checked,
             suppliers: document.getElementById("edit_p_sup_" + uid).checked,
@@ -5739,7 +6277,10 @@ async function updateAdminPerms(uid) {
             scheduleReply: document.getElementById("edit_p_schRep_" + uid) ? document.getElementById("edit_p_schRep_" + uid).checked : false,
             pwdDelete: document.getElementById("edit_p_pwd_" + uid) ? document.getElementById("edit_p_pwd_" + uid).checked : false,
             audit: document.getElementById("edit_p_audit_" + uid) ? document.getElementById("edit_p_audit_" + uid).checked : false,
-            readonly: document.getElementById("edit_p_ro_" + uid) ? document.getElementById("edit_p_ro_" + uid).checked : false
+            readonly: document.getElementById("edit_p_ro_" + uid) ? document.getElementById("edit_p_ro_" + uid).checked : false,
+            branchesManage: document.getElementById("edit_p_brm_" + uid) ? document.getElementById("edit_p_brm_" + uid).checked : false,
+            branchesAll: _sc.all,
+            branchIds: _sc.all ? [] : _sc.ids
         };
         await db.collection("users").doc(uid).update({ permissions: perms });
         if (typeof logAudit === "function") logAudit("تحديث صلاحيات مشرف", "تعديل صلاحيات حساب", { before: "صلاحيات سابقة", after: "صلاحيات جديدة للحساب" });
@@ -6695,6 +7236,9 @@ async function _loadSupplierDataImpl(){
    const user = firebase.auth().currentUser;
    if(!user) return;
    
+   if (currentRole === "admin" || currentRole === "super_admin") { try { await loadBranchRegistry(); } catch (eBR) {} }
+   buildMyBranchScope();
+   try { updateScopeBadge(); } catch (eSB) {}
    let userDocCol = (currentRole === "admin" || currentRole === "super_admin") ? "users" : "suppliers";
    const supplierDoc = await db.collection(userDocCol).doc(user.uid).get();
    
@@ -6781,6 +7325,9 @@ async function _loadSupplierDataImpl(){
        }
        
        window.__loadedVersion = serverVersion;
+
+       // المشرف المقيّد بفروع: لا يرى أي سيارات/رحلات/مبالغ خارج فروعه (بعد حفظ الكاش الكامل وقبل أي عرض)
+       applyBranchScopeToData();
 
        // ضمان وجود id ثابت لكل رحلة (مطلوب لحفظ الملاحظات)
        globalTrips.forEach(t => {
@@ -6950,6 +7497,7 @@ async function _loadSupplierDataImpl(){
        }
    });
    let branchesArr = Array.from(branchNormMap.values());
+   if (branchRegistry && branchRegistry.length) branchesArr = branchesArr.map(function(b) { return canonicalBranchName(b); });
    // إن كان activeBranch يطابق أحد الفروع بعد التطبيع، ثبّت القيمة
    if (activeBranch) {
        let an = normalizeBranchName(activeBranch);
@@ -7257,8 +7805,15 @@ firebase.auth().onAuthStateChanged(async function(user){
                      if (!doc.exists) return;
                      let d = doc.data() || {};
                      if (d.role === "super_admin") return;
+                     let _oldSig = JSON.stringify([myBranchScope.restricted, Array.from(myBranchScope.keys).sort()]);
                      adminPermissions = d.permissions || {};
                      if (adminPermissions.pwdDelete === undefined) adminPermissions.pwdDelete = false;
+                     (async function() {
+                         try { await loadBranchRegistry(true); } catch (eR) {}
+                         buildMyBranchScope(); updateScopeBadge();
+                         let _newSig = JSON.stringify([myBranchScope.restricted, Array.from(myBranchScope.keys).sort()]);
+                         if (_newSig !== _oldSig) { dataLoaded = false; applyGlobalFilter(); }
+                     })();
                      if (typeof applyAdminPermissionsUI === "function") applyAdminPermissionsUI();
                      if (typeof updateAdminNotificationsBadge === "function") updateAdminNotificationsBadge();
                      if (activePanel === "الاشعارات" && document.getElementById("popupBox") && document.getElementById("popupBox").style.display === "flex") {
@@ -7548,12 +8103,7 @@ function getDuesExtraRowsHtml(d) {
 /** توحيد اسم الفرع للمقارنة (فرع بنها ≈ بنها) */
 function normalizeBranchName(b) {
     if (!b) return "";
-    let s = String(b).trim();
-    // إزالة بادئة «فرع» الشائعة
-    s = s.replace(/^فرع\s*/u, "").replace(/^فرع\s*/u, "").trim();
-    if (typeof deepCleanArabic === "function") s = deepCleanArabic(s);
-    else s = s.replace(/\s+/g, " ").toLowerCase();
-    return s;
+    return branchLooseKey(b);   // يوحّد ق/ك و ة/ه و ي/ى و أ/ا ويحذف «فرع» و«ال»
 }
 
 /** هل فرع الصف يطابق الفرع المختار؟ */
@@ -9620,7 +10170,7 @@ async function loadScheduleItems(force) {
             d.id = doc.id;
             arr.push(d);
         });
-        globalScheduleItems = arr;
+        globalScheduleItems = scopeScheduleItems(arr);
         _scheduleLoadedAt = now;
     } catch (e) {
         console.warn("loadScheduleItems", e);
@@ -9631,7 +10181,7 @@ async function loadScheduleItems(force) {
             let arr = [];
             snap2.forEach(doc => { let d = doc.data()||{}; d.id = doc.id; arr.push(d); });
             arr.sort((a,b) => String(b.executionDate||"").localeCompare(String(a.executionDate||"")));
-            globalScheduleItems = arr;
+            globalScheduleItems = scopeScheduleItems(arr);
             _scheduleLoadedAt = now;
         } catch (e2) {
             console.warn(e2);
@@ -10378,12 +10928,18 @@ async function uploadScheduleFile() {
         let today = scheduleTodayStr();
         let batch = [];
         let skipped = 0;
+        let outScopeSched = 0;
         rows.forEach((r, idx) => {
             let code = String(r["كود الحافلة"] || r["كود"] || r["code"] || "").trim();
             let plate = String(r["رقم اللوحة"] || r["اللوحة"] || r["plate"] || "").trim();
             let st = scheduleNormStatus(r["الموقف"] || r["الحالة"] || r["status"] || "");
             let exec = scheduleParseDate(r["تاريخ التنفيذ"] || r["التاريخ"] || r["executionDate"] || "");
             if ((!code && !plate) || !st || !exec) { skipped++; return; }
+            if (myBranchScope.restricted) {   // المشرف المقيّد: بنود فروعه فقط
+                let _brx = String(r["الفرع"] || "").trim();
+                let _okS = _brx ? branchInScope(_brx) : !!(window.__scopeVehKeys && (window.__scopeVehKeys.has(normalizeValue(code)) || window.__scopeVehKeys.has(normalizeValue(plate))));
+                if (!_okS) { outScopeSched++; return; }
+            }
             let visibleFrom = today;
             if (mode === "day_before") {
                 try {
@@ -10454,7 +11010,7 @@ async function uploadScheduleFile() {
             });
         });
 
-        if (!batch.length) throw new Error("لا صفوف صالحة. تأكد من الموقف وتاريخ التنفيذ والكود/اللوحة.");
+        if (!batch.length) throw new Error("لا صفوف صالحة ضمن نطاق فروعك. تأكد من الموقف وتاريخ التنفيذ والكود/اللوحة والفرع." + (outScopeSched ? " (" + outScopeSched + " صف خارج نطاق فروعك)" : ""));
 
         // كتابة على دفعات (حد 400)
         await commitOpsAdaptive(batch, (b, row) => b.set(db.collection("schedulePlans").doc(), row));
@@ -10462,7 +11018,7 @@ async function uploadScheduleFile() {
         if (typeof logAudit === "function") {
             logAudit("رفع جدولة تشغيل", file.name + " — " + batch.length + " بند", { after: "visible=" + mode });
         }
-        if (msg) msg.innerHTML = `✅ تم حفظ <b>${batch.length}</b> بند` + (skipped ? ` (تُخطّي ${skipped} صف غير مكتمل)` : "");
+        if (msg) msg.innerHTML = `✅ تم حفظ <b>${batch.length}</b> بند` + (skipped ? ` (تُخطّي ${skipped} صف غير مكتمل)` : "") + (outScopeSched ? ` — 🚫 ${outScopeSched} صف خارج نطاق فروعك لم يُرفع` : "");
         input.value = "";
         _scheduleLoadedAt = 0;
         await renderSchedulePanel();
