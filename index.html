@@ -557,11 +557,11 @@ button.dues-sort-chip.active, .dues-sort-chip.active { box-shadow:0 0 0 2px #075
 .br-scope-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(110px,1fr)); gap:4px; margin-top:6px; }
 .br-scope-item { display:flex; align-items:center; gap:5px; font-size:11px; background:#f0f4f8; border:1px solid #d0d7de; border-radius:6px; padding:4px 6px; cursor:pointer; }
 .br-scope input[type=checkbox], .br-scope-item input[type=checkbox] { width:auto; margin:0; }
-/* صلاحيات المشرفين - شبكة مدمجة */
+/* صلاحيات المشرفين - شبكة مدمجة (مربعات أصغر لتوفير المساحة) */
 .perm-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
-    gap: 8px;
+    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+    gap: 5px;
     margin-top: 6px;
 }
 .perm-item {
@@ -572,26 +572,70 @@ button.dues-sort-chip.active, .dues-sort-chip.active { box-shadow:0 0 0 2px #075
     text-align: center;
     background: #fff;
     border: 1px solid #d0d7de;
-    border-radius: 8px;
-    padding: 8px 4px 6px;
-    font-size: 11px;
+    border-radius: 6px;
+    padding: 5px 3px 4px;
+    font-size: 10px;
     color: #333;
     cursor: pointer;
     user-select: none;
-    line-height: 1.3;
-    min-height: 58px;
+    line-height: 1.25;
+    min-height: 46px;
 }
 .perm-item:hover { border-color: #075bb5; background: #f5f9ff; }
 .perm-item input[type="checkbox"] {
-    margin: 6px 0 0 0;
-    width: 16px;
-    height: 16px;
+    margin: 4px 0 0 0;
+    width: 14px;
+    height: 14px;
     cursor: pointer;
     accent-color: #075bb5;
 }
 .perm-item input[type="checkbox"]:disabled {
     cursor: not-allowed;
     opacity: 0.6;
+}
+/* قائمة المشرفين المضغوطة */
+.admin-item {
+    background: #f3f6fb;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    margin-top: 5px;
+    overflow: hidden;
+}
+.admin-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    cursor: pointer;
+    user-select: none;
+}
+.admin-item-header:hover { background: #e8f1fb; }
+.admin-item-header .admin-chevron {
+    font-size: 11px;
+    color: #075bb5;
+    flex-shrink: 0;
+    transition: transform 0.2s;
+}
+.admin-item.open .admin-item-header .admin-chevron { transform: rotate(180deg); }
+.admin-item-body {
+    display: none;
+    padding: 0 10px 10px;
+    border-top: 1px solid #dde6f0;
+    background: #fff;
+}
+.admin-item.open .admin-item-body { display: block; }
+.admin-item-name { color: #075bb5; font-weight: bold; font-size: 13px; }
+.admin-item-login {
+    font-size: 10px;
+    background: #cce5ff;
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: #004085;
+    max-width: 42%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 
@@ -850,7 +894,7 @@ if (typeof XLSX === "undefined" || !XLSX.style_version) {
 
             <div class="exit-container" id="changePassBtn" onclick="changeMyPassword()" title="تعديل الرقم السري" style="text-align:center;">
                 <div class="exit-icon-circle icon-text-blue">🔒</div>
-                <div class="exit-text" style="text-align:center; margin-top:5px; max-width:72px; line-height:1.25; white-space:normal;">تعديل الرقم السري</div>
+                <div class="exit-text" style="text-align:center; margin-top:5px; max-width:72px; line-height:1.25; white-space:normal;">الباسورد</div>
             </div>
             
             <div class="exit-container hide" id="complaintBtn" onclick="openComplaintModal()" title="مقترحات وشكاوى">
@@ -902,7 +946,7 @@ if (typeof XLSX === "undefined" || !XLSX.style_version) {
 
     <div class="card stat locked" id="card_success" style="border-color:#d4edda; background:#f9fff9 !important;">
         <div class="stat-title">رحلات ناجحة 🟢</div><div class="num" id="numSuccess" style="color:#28a745;">0</div>
-        <div id="successAttendance" style="display:none; font-size:11px; font-weight:bold; margin-top:4px; line-height:1.6; color:#333;"></div>
+        <div id="successAttendance" style="display:none; font-size:11px; font-weight:bold; margin-top:4px; line-height:1.5; color:#333; width:100%; text-align:center;"></div>
     </div>
     
     <div class="card stat clickable" id="card_failed" onclick="handleCardClick('رحلات فاشلة')" style="border-color:#f5c6cb; background:#fff5f5 !important;">
@@ -1720,8 +1764,9 @@ function applyBranchScopeToData() {
 function licenseInScope(u) {
     if (currentRole !== "admin" || myBranchScope.all) return true;
     let keys = window.__scopeVehKeys;
-    if (!keys) return false;
-    return keys.has(normalizeValue(u && u.plate)) || keys.has(normalizeValue(u && u.code));
+    if (keys && (keys.has(normalizeValue(u && u.plate)) || keys.has(normalizeValue(u && u.code)))) return true;
+    let ub = String((u && u.branch) || "").trim();
+    return ub ? branchInScope(ub) : false;
 }
 function scheduleItemInScope(it) {
     if (currentRole !== "admin" || myBranchScope.all) return true;
@@ -1898,7 +1943,7 @@ function branchScopePickerHtml(prefix, allFlag, selectedIds) {
     let sel = new Set(selectedIds || []);
     let h = '<div class="br-scope">';
     h += '<label class="br-scope-all"><input type="checkbox" id="' + prefix + '_all" ' + (allFlag ? "checked" : "") + ' onchange="onScopeAllToggle(\'' + prefix + '\')"> 🌐 كل الفروع (مركزي)</label>';
-    if (!reg.length) h += '<div style="font-size:11px;color:#842029;margin-top:4px;">لا توجد فروع مسجّلة — سجّلها أولاً من تبويب «🏢 الفروع».</div>';
+    if (!reg.length) h += '<div style="font-size:11px;color:#842029;margin-top:4px;">لا توجد فروع مسجّلة — سجّلها أولاً من الإعدادات ← سجل الفروع.</div>';
     h += '<div class="br-scope-list" id="' + prefix + '_list" style="' + (allFlag ? "opacity:.4;pointer-events:none;" : "") + '">';
     reg.forEach(function(e) {
         h += '<label class="br-scope-item"><input type="checkbox" class="' + prefix + '_cb" value="' + sanitizeHTML(e.id) + '" ' + (sel.has(e.id) ? "checked" : "") + '> ' + sanitizeHTML(e.name) + '</label>';
@@ -2328,8 +2373,24 @@ function _anaSupName(sap, row) {
     return (sd && (sd.ownerName || sd.officeName)) || String((row && row["اسم المورد"]) || "").trim() || "غير معروف";
 }
 
+/** خريطة كود/لوحة → (وصف الخط، الفرع، اللوحة) من السيارات المحمّلة — لعرض التحليل حسب الأكواد */
+function _anaVehInfo() {
+    let m = new Map();
+    (globalVehicles || []).forEach(v => {
+        let code = normalizeValue(v["كود الحافلة"] || v["كود"]);
+        let plateRaw = String(v["رقم اللوحة"] || v["رقم اللوحات"] || "").trim();
+        let plate = normalizeValue(plateRaw);
+        let info = { line: (typeof scheduleLineFromVehicle === "function" ? scheduleLineFromVehicle(v) : ""), branch: resolveRowBranch(v), plate: plateRaw };
+        if (code && !m.has("c:" + code)) m.set("c:" + code, info);
+        if (plate && !m.has("p:" + plate)) m.set("p:" + plate, info);
+    });
+    return m;
+}
+
 function computeAnalysisData() {
     const F = window.__anaF || {};
+    const mode = (F.view === "code") ? "code" : "sup";
+    const vi = (mode === "code") ? _anaVehInfo() : null;
     const sup = new Map();
     const days = new Map();
     let tot = { success: 0, failed: 0, elec: 0, manual: 0, nogate: 0 };
@@ -2342,8 +2403,21 @@ function computeAnalysisData() {
         if (!isS && !isF) return;
         let sap = normalizeValue(x["رقم المورد"]) || "—";
         if (F.sap && sap !== F.sap) return;
-        let s = sup.get(sap);
-        if (!s) { s = { sap: sap, name: _anaSupName(sap, x), success: 0, failed: 0, elec: 0, manual: 0, nogate: 0 }; sup.set(sap, s); }
+        if (currentRole === "supplier" && sap !== normalizeValue(window.__activeSap || "")) return;   // المورد: بياناته فقط
+        let gKey = sap, gName = null, gLine = "", gBranch = "", gPlate = "";
+        if (mode === "code") {
+            let codeRaw = String(x["كود الحافلة"] || x["كود"] || x["Bus Trip Code"] || "").trim();
+            let plateRaw = String(x["رقم اللوحة"] || x["رقم اللوحات"] || "").trim();
+            let code = normalizeValue(codeRaw), plate = normalizeValue(plateRaw);
+            let info = vi.get("c:" + code) || vi.get("p:" + plate) || null;
+            gKey = code ? ("c:" + code) : (plate ? ("p:" + plate) : "—");
+            gName = codeRaw || plateRaw || "—";
+            gLine = (info && info.line) || String(x["وصف الخط"] || x["اسم الخط"] || x["خط السير"] || "").trim();
+            gBranch = (info && info.branch) || resolveRowBranch(x);
+            gPlate = plateRaw || (info && info.plate) || "";
+        }
+        let s = sup.get(gKey);
+        if (!s) { s = { sap: sap, name: gName !== null ? gName : _anaSupName(sap, x), line: gLine, branch: gBranch, plate: gPlate, success: 0, failed: 0, elec: 0, manual: 0, nogate: 0 }; sup.set(gKey, s); }
         let d = days.get(date);
         if (!d) { d = { date: date, success: 0, failed: 0, elec: 0, manual: 0 }; days.set(date, d); }
         if (isF) { s.failed++; tot.failed++; d.failed++; return; }
@@ -2352,15 +2426,16 @@ function computeAnalysisData() {
         else if (hasGateValue(x)) { s.elec++; tot.elec++; d.elec++; }
         else { s.nogate++; tot.nogate++; }
     });
-    return { sup: Array.from(sup.values()), days: Array.from(days.values()).filter(d => d.date).sort((a, b) => a.date < b.date ? -1 : 1), tot: tot };
+    return { mode: mode, sup: Array.from(sup.values()), days: Array.from(days.values()).filter(d => d.date).sort((a, b) => a.date < b.date ? -1 : 1), tot: tot };
 }
 
 function openAnalysisPanel() {
-    if (!(currentRole === "admin" || currentRole === "super_admin")) return;
+    if (currentRole !== "admin" && currentRole !== "super_admin" && currentRole !== "supplier") return;
+    const isSupRole = (currentRole === "supplier");
     activePanel = "تحليل";
     document.getElementById("popupBox").style.display = "flex";
     history.pushState(null, null, "#analysis");
-    document.getElementById("popupTitle").innerHTML = "📊 تحليل الرحلات والحضور";
+    document.getElementById("popupTitle").innerHTML = isSupRole ? "📊 تحليل سياراتي والرحلات" : "📊 تحليل الرحلات والحضور";
     document.getElementById("searchInput").style.display = "none";
     document.getElementById("popupCount").style.display = "none";
     document.getElementById("failedTripsHint").style.display = "none";
@@ -2372,12 +2447,13 @@ function openAnalysisPanel() {
     (globalTrips || []).forEach(x => {
         let b = resolveRowBranch(x); if (b) brs.add(b);
         let sap = normalizeValue(x["رقم المورد"]);
+        if (isSupRole && sap !== normalizeValue(window.__activeSap || "")) return;
         if (sap && !sups.has(sap)) sups.set(sap, _anaSupName(sap, x));
     });
     const brList = Array.from(brs).sort((a, b) => a.localeCompare(b, "ar"));
     const supList = Array.from(sups.entries()).sort((a, b) => a[1].localeCompare(b[1], "ar"));
 
-    window.__anaF = { from: (document.getElementById("globalFromDate") || {}).value || "", to: (document.getElementById("globalToDate") || {}).value || "", branch: "", sap: "" };
+    window.__anaF = { from: (document.getElementById("globalFromDate") || {}).value || "", to: (document.getElementById("globalToDate") || {}).value || "", branch: "", sap: "", view: isSupRole ? "code" : "sup" };
     window.__anaSort = "manual";
     window.__anaQuery = "";
     window.__anaTbl = { key: "manual", dir: "desc" };
@@ -2390,7 +2466,8 @@ function openAnalysisPanel() {
             <div style="font-size:12px;font-weight:bold;margin-bottom:6px;">🎛️ فلاتر التحليل</div>
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;">
                 <div><label style="${lbl}">🏢 الفرع</label><select style="${inp}" onchange="window.__anaF.branch=this.value;renderAnalysisView();"><option value="">كل الفروع</option>${brList.map(b => `<option value="${sanitizeHTML(b)}">${sanitizeHTML(b)}</option>`).join("")}</select></div>
-                <div><label style="${lbl}">🚚 المورد</label><select style="${inp}" onchange="window.__anaF.sap=this.value;renderAnalysisView();"><option value="">كل الموردين</option>${supList.map(s => `<option value="${sanitizeHTML(s[0])}">${sanitizeHTML(s[1])} (${sanitizeHTML(s[0])})</option>`).join("")}</select></div>
+                ${isSupRole ? "" : `<div><label style="${lbl}">👁️ عرض النتائج</label><select style="${inp}" onchange="window.__anaF.view=this.value;window.__anaQuery='';renderAnalysisView();"><option value="sup">الموردين</option><option value="code">الأكواد</option></select></div>
+                <div><label style="${lbl}">🚚 المورد</label><select style="${inp}" onchange="window.__anaF.sap=this.value;renderAnalysisView();"><option value="">كل الموردين</option>${supList.map(s => `<option value="${sanitizeHTML(s[0])}">${sanitizeHTML(s[1])} (${sanitizeHTML(s[0])})</option>`).join("")}</select></div>`}
                 <div><label style="${lbl}">📅 من تاريخ</label><input type="date" style="${inp}" value="${sanitizeHTML(window.__anaF.from)}" onchange="window.__anaF.from=this.value;renderAnalysisView();"></div>
                 <div><label style="${lbl}">📅 إلى تاريخ</label><input type="date" style="${inp}" value="${sanitizeHTML(window.__anaF.to)}" onchange="window.__anaF.to=this.value;renderAnalysisView();"></div>
             </div>
@@ -2453,6 +2530,8 @@ function renderAnalysisView() {
     const body = document.getElementById("anaBody");
     if (!body) return;
     const A = computeAnalysisData();
+    const isCode = (A.mode === "code");
+    const unitWord = isCode ? "كود" : "مورد";
     const sortKey = window.__anaSort || "manual";
     const q = robustNormalize(window.__anaQuery || "");
     const pctE = s => _anaPct(s.elec, s.elec + s.manual);
@@ -2495,7 +2574,9 @@ function renderAnalysisView() {
         return `<div style="margin-bottom:5px;padding:5px 9px;border-radius:8px;border-right:4px solid ${domCol};box-sizing:border-box;background:linear-gradient(to left, ${C.aTint} 0%, ${C.aTint} ${pa}%, ${C.bTint} ${pa}%, ${C.bTint} 100%);box-shadow:0 1px 3px rgba(0,0,0,.08);">
             <div style="display:flex;align-items:center;gap:8px;">
                 <span style="flex:0 0 20px;height:20px;border-radius:50%;background:${domCol};color:#fff;font-size:11px;font-weight:bold;display:flex;align-items:center;justify-content:center;">${i + 1}</span>
-                <div style="font-size:12px;font-weight:bold;word-break:break-word;color:#222;">${sanitizeHTML(s.name)} <span style="color:#777;font-weight:normal;font-size:11px;">(${sanitizeHTML(s.sap)})</span></div>
+                <div style="font-size:12px;font-weight:bold;word-break:break-word;color:#222;">${isCode
+                    ? sanitizeHTML(s.name) + (s.line ? ` <span style="color:#555;font-weight:normal;font-size:11px;">— ${sanitizeHTML(s.line)}</span>` : "") + (s.branch ? ` <span style="background:#eef2f7;border:1px solid #d6dde8;border-radius:6px;padding:0 5px;color:#075bb5;font-weight:normal;font-size:10px;">🏢 ${sanitizeHTML(s.branch)}</span>` : "")
+                    : sanitizeHTML(s.name) + ` <span style="color:#777;font-weight:normal;font-size:11px;">(${sanitizeHTML(s.sap)})</span>`}</div>
             </div>
             <div style="display:flex;height:16px;border-radius:8px;overflow:hidden;margin:4px 0 3px;background:#ddd;box-shadow:inset 0 1px 2px rgba(0,0,0,.15);">${seg(pa, C.aCol, pa)}${seg(pb, C.bCol, pb)}</div>
             <div style="display:flex;justify-content:space-between;font-size:10px;color:#444;">
@@ -2507,16 +2588,20 @@ function renderAnalysisView() {
     // جدول التفصيل مع ترتيب بالأعمدة
     const t = window.__anaTbl || { key: "manual", dir: "desc" };
     const val = {
-        name: s => s.name, success: s => s.success, failed: s => s.failed, pctS: pctS,
+        name: s => s.name, line: s => s.line || "", branch: s => s.branch || "", success: s => s.success, failed: s => s.failed, pctS: pctS,
         elec: s => s.elec, manual: s => s.manual, pctE: pctE
     };
-    let tbl = A.sup.filter(s => !q || robustNormalize(s.name + " " + s.sap).includes(q));
+    let tbl = A.sup.filter(s => !q || robustNormalize(s.name + " " + s.sap + " " + (s.line || "") + " " + (s.branch || "") + " " + (s.plate || "")).includes(q));
     const f = val[t.key] || val.manual, m = t.dir === "asc" ? 1 : -1;
     tbl.sort((a, b) => { let x = f(a), y = f(b); return (typeof x === "string" ? x.localeCompare(y, "ar") : x - y) * m; });
     const th = (k, label) => `<th onclick="anaSortTable('${k}')" style="padding:6px;cursor:pointer;white-space:nowrap;user-select:none;">${label} <span style="font-size:10px;opacity:${t.key === k ? 1 : 0.5};">${t.key === k ? (t.dir === "desc" ? "▼" : "▲") : "⇅"}</span></th>`;
     let rows = tbl.map((s, i) => `<tr style="border-bottom:1px solid #eee;">
         <td style="padding:5px;">${i + 1}</td>
-        <td style="padding:5px;text-align:right;">${sanitizeHTML(s.name)}<br><span style="color:#888;font-size:11px;">${sanitizeHTML(s.sap)}</span></td>
+        ${isCode
+            ? `<td style="padding:5px;text-align:right;font-weight:bold;">${sanitizeHTML(s.name)}${s.plate && s.plate !== s.name ? `<br><span style="color:#888;font-size:11px;font-weight:normal;">${sanitizeHTML(s.plate)}</span>` : ""}</td>
+        <td style="padding:5px;text-align:right;min-width:110px;">${sanitizeHTML(s.line || "—")}</td>
+        <td style="padding:5px;white-space:nowrap;">${sanitizeHTML(s.branch || "—")}</td>`
+            : `<td style="padding:5px;text-align:right;">${sanitizeHTML(s.name)}<br><span style="color:#888;font-size:11px;">${sanitizeHTML(s.sap)}</span></td>`}
         <td style="padding:5px;color:#28a745;font-weight:bold;">${s.success}</td>
         <td style="padding:5px;color:#dc3545;font-weight:bold;">${s.failed}</td>
         <td style="padding:5px;" dir="ltr">${pctS(s)}%</td>
@@ -2526,7 +2611,7 @@ function renderAnalysisView() {
     const opt = (v, tx) => `<option value="${v}" ${sortKey === v ? "selected" : ""}>${tx}</option>`;
 
     body.innerHTML = `${tiles}
-        <h4 style="margin:6px 0;">${tripMode ? "📊 نسبة النجاح والفشل لكل مورد (أعلى 15)" : "🏢 نسبة الحضور الإلكتروني واليدوي لكل مورد (أعلى 15)"}</h4>
+        <h4 style="margin:6px 0;">${tripMode ? "📊 نسبة النجاح والفشل لكل " + unitWord + " (أعلى 15)" : "🏢 نسبة الحضور الإلكتروني واليدوي لكل " + unitWord + " (أعلى 15)"}</h4>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
             <select onchange="window.__anaSort=this.value;renderAnalysisView();" style="flex:1;min-width:160px;padding:6px;border:1px solid #ccc;border-radius:6px;">
                 ${opt("manual", "ترتيب: الأعلى نسبة حضور يدوي")}${opt("elec", "ترتيب: الأعلى نسبة حضور إلكتروني")}${opt("failed", "ترتيب: الأعلى نسبة فشل")}${opt("success", "ترتيب: الأعلى نسبة نجاح")}
@@ -2538,11 +2623,11 @@ function renderAnalysisView() {
         ${_anaLineChart(A.days)}
         ${_anaTopDays(A.days, "manual", "حضور يدوي", "#d9730d")}
         ${_anaTopDays(A.days, "failed", "رحلات فاشلة", "#dc3545")}
-        <h4 style="margin:14px 0 6px;">📋 تفصيل الموردين (${tbl.length})</h4>
-        <input type="text" id="anaQ" placeholder="🔍 بحث باسم/رقم المورد" value="${sanitizeHTML(window.__anaQuery || "")}" oninput="window.__anaQuery=this.value;clearTimeout(window.__anaT);window.__anaT=setTimeout(function(){renderAnalysisView();var e=document.getElementById('anaQ');if(e){e.focus();e.setSelectionRange(e.value.length,e.value.length);}},350);" style="width:100%;box-sizing:border-box;padding:6px;border:1px solid #ccc;border-radius:6px;margin-bottom:6px;">
+        <h4 style="margin:14px 0 6px;">📋 تفصيل ${isCode ? "الأكواد" : "الموردين"} (${tbl.length})</h4>
+        <input type="text" id="anaQ" placeholder="${isCode ? "🔍 بحث بالكود أو الخط أو الفرع أو اللوحة" : "🔍 بحث باسم/رقم المورد"}" value="${sanitizeHTML(window.__anaQuery || "")}" oninput="window.__anaQuery=this.value;clearTimeout(window.__anaT);window.__anaT=setTimeout(function(){renderAnalysisView();var e=document.getElementById('anaQ');if(e){e.focus();e.setSelectionRange(e.value.length,e.value.length);}},350);" style="width:100%;box-sizing:border-box;padding:6px;border:1px solid #ccc;border-radius:6px;margin-bottom:6px;">
         <div style="overflow-x:auto;max-height:380px;overflow-y:auto;border:1px solid #eee;border-radius:8px;">
         <table style="width:100%;border-collapse:collapse;font-size:12px;text-align:center;">
-            <thead style="position:sticky;top:0;background:#075bb5;color:#fff;"><tr><th style="padding:6px;">#</th>${th("name", "المورد")}${th("success", "ناجحة")}${th("failed", "فاشلة")}${th("pctS", "% نجاح")}${th("elec", "إلكتروني")}${th("manual", "يدوي")}${th("pctE", "% إلكتروني")}</tr></thead>
+            <thead style="position:sticky;top:0;background:#075bb5;color:#fff;"><tr><th style="padding:6px;">#</th>${isCode ? th("name", "الكود") + th("line", "وصف الخط") + th("branch", "الفرع") : th("name", "المورد")}${th("success", "ناجحة")}${th("failed", "فاشلة")}${th("pctS", "% نجاح")}${th("elec", "إلكتروني")}${th("manual", "يدوي")}${th("pctE", "% إلكتروني")}</tr></thead>
             <tbody>${rows}</tbody></table></div>
         ${T.nogate > 0 ? `<p style="font-size:11px;color:#888;margin-top:6px;">ملاحظة: ${T.nogate} رحلة ناجحة بدون قيمة في عمود البوابة (غير محسوبة في الإلكتروني أو اليدوي).</p>` : ""}`;
 }
@@ -4487,7 +4572,11 @@ function hasGateValue(row) { return getGateValue(row) !== ""; }
 function attendanceStatsHTML(elec, manual) {
     let tot = elec + manual;
     let pct = tot ? Math.round((elec / tot) * 100) : 0;
-    return `<span style="color:#075bb5;">⚡ إلكتروني: ${elec}</span> | <span style="color:#dc3545;">✍️ يدوي: ${manual}</span><br><span style="color:#155724;font-size:15px;">نسبة الحضور الإلكتروني: <b style="font-size:20px;" dir="ltr">${pct}%</b></span>`;
+    // عرض مدمج ومتوسط مناسب للموبايل: العدد + النسبة بجانب بعض
+    return `<div style="display:flex; justify-content:center; align-items:center; gap:10px; flex-wrap:wrap; width:100%; margin-top:2px; text-align:center;">
+        <span style="color:#075bb5; font-size:11px; white-space:nowrap;">⚡ إلكتروني <b dir="ltr">${elec}</b> <span dir="ltr" style="color:#155724;">(${pct}%)</span></span>
+        <span style="color:#dc3545; font-size:11px; white-space:nowrap;">✍️ يدوي <b dir="ltr">${manual}</b></span>
+    </div>`;
 }
 
 function handleCardClick(panelName) {
@@ -5027,7 +5116,7 @@ async function exportAdminDataToExcel() {
 
 function applyAdminPermissionsUI() {
     if(currentRole === "super_admin") {
-        ["btn-tab-admins","btn-tab-branches","btn-tab-data","btn-tab-suppliers","btn-tab-msgs","btn-tab-reports","btn-tab-complaints","btn-tab-settings","btn-tab-audit"].forEach(id => {
+        ["btn-tab-admins","btn-tab-data","btn-tab-suppliers","btn-tab-msgs","btn-tab-reports","btn-tab-complaints","btn-tab-settings","btn-tab-audit"].forEach(id => {
             let el = document.getElementById(id); if (el) el.classList.remove("hide");
         });
         document.getElementById("adminNotificationBtn").classList.remove("hide");
@@ -5079,8 +5168,11 @@ function applyAdminPermissionsUI() {
             });
         }
 
-        let btnBr = document.getElementById("btn-tab-branches");
-        if (btnBr) { if (canManageBranches()) btnBr.classList.remove("hide"); else btnBr.classList.add("hide"); }
+        // الفروع أصبحت داخل تبويب الإعدادات — إظهار الإعدادات للمشرف إن كان يدير الفروع
+        let btnSetBr = document.getElementById("btn-tab-settings");
+        if (btnSetBr && typeof canManageBranches === "function" && canManageBranches()) {
+            btnSetBr.classList.remove("hide");
+        }
 
         // قسم المسح الشامل: سوبر أدمن دائماً، أو أدمن بصلاحية wipe فقط
         let wipeEl = document.getElementById("acc_wipe");
@@ -5299,7 +5391,7 @@ if(currentRole==="admin" || currentRole==="super_admin"){
  document.getElementById("msgIconWrap").classList.remove("hide");
  document.getElementById("changePassBtn").classList.remove("hide"); 
  document.getElementById("licenseNotificationBtn").classList.remove("hide");
- document.getElementById("analysisBtn").classList.add("hide");
+ document.getElementById("analysisBtn").classList.remove("hide");
  document.getElementById("scheduleBtn").classList.add("hide");
 }
 
@@ -5338,14 +5430,17 @@ function switchAdminTab(tabId, btnElement) {
             "tab-suppliers": "suppliers",
             "tab-msgs": "msgs",
             "tab-complaints": "complaints",
-            "tab-reports": "reports",
-            "tab-branches": "branchesManage"
+            "tab-reports": "reports"
         };
         let need = map[tabId];
         if (need && !(adminPermissions && adminPermissions[need])) {
             return;
         }
-        if (tabId === "tab-admins" || tabId === "tab-settings") return;
+        if (tabId === "tab-admins") return;
+        if (tabId === "tab-settings") {
+            // السماح: سوبر أدمن أو مشرف بصلاحية إدارة الفروع
+            if (!(typeof canManageBranches === "function" && canManageBranches()) && currentRole !== "super_admin") return;
+        }
         if (tabId === "tab-audit" && !(adminPermissions && adminPermissions.audit)) return;
     }
     document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
@@ -5363,12 +5458,31 @@ function switchAdminTab(tabId, btnElement) {
         if (c) c.value = appSettings.companyNote || '';
         if (prev && appSettings.logoDataUrl) { prev.src = appSettings.logoDataUrl; prev.style.display = 'block'; }
         else if (prev) { prev.style.display = 'none'; }
+        // مشرف عادي بصلاحية الفروع فقط: إخفاء بقية أقسام الإعدادات
+        let isSuper = (currentRole === "super_admin");
+        ["acc_set_brand","acc_set_credits","acc_set_factory"].forEach(function(id){
+            let el = document.getElementById(id);
+            if (el) el.style.display = isSuper ? "" : "none";
+        });
+        let brAcc = document.getElementById("acc_set_branches");
+        if (brAcc) {
+            brAcc.style.display = (isSuper || (typeof canManageBranches==="function" && canManageBranches())) ? "" : "none";
+            if (!isSuper && typeof canManageBranches==="function" && canManageBranches()) {
+                brAcc.classList.add("open");
+            }
+        }
+        if (typeof openBranchesTab === "function") openBranchesTab();
     }
     if (tabId === 'tab-reports' && typeof refreshFailedTripsStats === 'function') {
         refreshFailedTripsStats();
     }
     if (tabId === 'tab-audit' && typeof loadAuditLog === 'function') loadAuditLog();
-    if (tabId === 'tab-branches') openBranchesTab();
+    if (tabId === 'tab-msgs' && typeof populateMsgBranchChecks === 'function') {
+        try { populateMsgBranchChecks(); } catch (e) {}
+        if (typeof loadBranchRegistry === 'function') {
+            loadBranchRegistry(false).then(function(){ try { populateMsgBranchChecks(); } catch(e2){} });
+        }
+    }
     if (tabId === 'tab-admins') refreshNewAdminScopePicker();
     if (tabId === 'tab-settings') {
         let dn = document.getElementById('setDesignerName');
@@ -5398,15 +5512,18 @@ function openAdmin(){
    { perm: "msgs", btn: "btn-tab-msgs", tab: "tab-msgs" },
    { perm: "complaints", btn: "btn-tab-complaints", tab: "tab-complaints", needComps: true },
    { perm: "reports", btn: "btn-tab-reports", tab: "tab-reports" },
-   { perm: "branchesManage", btn: "btn-tab-branches", tab: "tab-branches" },
    { perm: "audit", btn: "btn-tab-audit", tab: "tab-audit" },
    { perm: "admins", btn: "btn-tab-admins", tab: "tab-admins", needAdmins: true, superOnly: true },
-   { perm: "settings", btn: "btn-tab-settings", tab: "tab-settings", superOnly: true, needSettings: true }
+   { perm: "settings", btn: "btn-tab-settings", tab: "tab-settings", needSettings: true, needBranches: true }
  ];
  let chosen = null;
  for (let t of tabOrder) {
    if (currentRole === "super_admin") { chosen = t; break; }
    if (t.superOnly) continue;
+   if (t.perm === "settings") {
+     if (typeof canManageBranches === "function" && canManageBranches()) { chosen = t; break; }
+     continue;
+   }
    if (adminPermissions && adminPermissions[t.perm]) { chosen = t; break; }
  }
  // إخفاء محتوى كل التبويبات أولاً
@@ -5482,15 +5599,17 @@ function filterMsgSuppliers() {
     
     let terms = robustNormalize(inputStr).split(" ").filter(t => t);
     dd.style.display = "block"; let html = ""; let matched = 0;
+    let restricted = (typeof myBranchScope !== "undefined" && myBranchScope && myBranchScope.restricted);
     
     globalSupplierDataMap.forEach((d, sap) => {
-        let str = robustNormalize(d.ownerName + " " + d.sapNumber);
+        if (restricted && typeof supplierHasVehiclesInMyScope === "function" && !supplierHasVehiclesInMyScope(sap)) return;
+        let str = robustNormalize((d.ownerName || "") + " " + (d.officeName || "") + " " + (d.sapNumber || sap));
         if (terms.every(t => str.includes(t))) {
-            html += `<div onclick="selectMsgSupplier('${sap}', '${d.ownerName}')"><b>${sanitizeHTML(d.ownerName)}</b> - ${sanitizeHTML(sap)}</div>`;
+            html += `<div onclick="selectMsgSupplier('${sap}', '${sanitizeHTML(d.ownerName || sap)}')"><b>${sanitizeHTML(d.ownerName || "—")}</b> - ${sanitizeHTML(sap)}</div>`;
             matched++;
         }
     });
-    if (matched === 0) html = `<div style="color:red; text-align:center;">لا توجد نتائج مطابقة</div>`;
+    if (matched === 0) html = `<div style="color:red; text-align:center;">لا توجد نتائج مطابقة` + (restricted ? " ضمن فروع صلاحيتك" : "") + `</div>`;
     dd.innerHTML = html;
 }
 
@@ -5508,7 +5627,6 @@ function selectMsgSupplier(sap, name) {
     <div class="admin-tabs">
       <button id="btn-tab-data" class="tab-btn active hide" onclick="switchAdminTab('tab-data', this)">📂 البيانات</button>
       <button id="btn-tab-admins" class="tab-btn hide" onclick="switchAdminTab('tab-admins', this)">👑 المشرفين</button>
-      <button id="btn-tab-branches" class="tab-btn hide" onclick="switchAdminTab('tab-branches', this)">🏢 الفروع</button>
       <button id="btn-tab-suppliers" class="tab-btn hide" onclick="switchAdminTab('tab-suppliers', this)">👥 الموردين</button>
       <button id="btn-tab-msgs" class="tab-btn hide" onclick="switchAdminTab('tab-msgs', this)">✉️ الرسائل</button>
       <button id="btn-tab-complaints" class="tab-btn hide" onclick="switchAdminTab('tab-complaints', this)">💡 الشكاوى <span id="adminCompBadge" style="background:#dc3545;color:white;border-radius:10px;padding:2px 6px;font-size:10px;display:none;margin-right:5px;">0</span></button>
@@ -5566,22 +5684,8 @@ function selectMsgSupplier(sap, name) {
             <div style="background:#fdfdfd; padding:12px; border-radius:10px; border:1px solid #cce5ff;">
                 <h4 style="margin:0 0 8px 0; font-size:14px; color:#004085;">🔍 بحث وتعديل صلاحيات المشرفين</h4>
                 <input type="text" id="searchAdminInput" placeholder="اكتب اسم أو هاتف أو بريد المشرف للبحث..." onkeyup="filterAdminsList()" style="margin-bottom:10px; padding:8px; font-size:12px;">
-                <div id="adminsListResult" style="max-height:300px; overflow-y:auto;"></div>
+                <div id="adminsListResult" style="max-height:420px; overflow-y:auto;"></div>
             </div>
-        </div>
-
-        <div id="tab-branches" class="tab-content">
-            <div style="background:#fff8e1; border:1px solid #ffe08a; border-radius:8px; padding:10px; font-size:12px; line-height:1.7; color:#6b5200; margin-bottom:10px;">
-                🏢 <b>سجل الفروع الرسمي</b> <span id="branchesCountBadge" style="font-weight:bold;"></span><br>
-                كل فرع يُسجَّل مرة واحدة فقط. النظام يمنع التكرار بصياغة مختلفة (مثل «قويسنا» و«كويسنا» أو «فرع قويسنا»)، ورفع أي ملف يحتوي فرعاً غير مسجّل يُرفض أو يُطلب تسجيله.
-            </div>
-            <div id="branchAddRow" style="display:flex; gap:6px; margin-bottom:8px;">
-                <input type="text" id="newBranchName" placeholder="اسم الفرع (مثال: قويسنا)" style="margin:0; padding:8px; font-size:12px; flex:1;" onkeydown="if(event.key==='Enter'){addBranchFromInput();}">
-                <button type="button" onclick="addBranchFromInput()" style="margin:0; width:auto; padding:8px 14px; font-size:12px; background:#28a745; color:#fff; border:none; border-radius:8px; cursor:pointer;">➕ إضافة فرع</button>
-            </div>
-            <button type="button" id="btnImportBranches" onclick="importBranchesFromData()" style="width:auto; margin:0 0 10px 0; padding:7px 12px; font-size:11px; background:#6f42c1; color:#fff; border:none; border-radius:8px; cursor:pointer;">📥 استيراد الفروع الموجودة في البيانات الحالية</button>
-            <input type="text" id="searchBranchInput" placeholder="بحث في الفروع..." onkeyup="renderBranchesTab()" style="margin-bottom:6px; padding:8px; font-size:12px;">
-            <div id="branchesListBox"></div>
         </div>
 
         <div id="tab-data" class="tab-content active">
@@ -5804,6 +5908,16 @@ function selectMsgSupplier(sap, name) {
                     <input type="hidden" id="selectedMsgSap">
                 </div>
 
+                <div id="msgBranchBox" style="background:#f0f7ff; border:1px solid #b8daff; border-radius:8px; padding:10px; margin-bottom:8px;">
+                    <div style="font-size:12px; font-weight:bold; color:#075bb5; margin-bottom:6px;">🏢 تحديد الفرع المستهدف</div>
+                    <div id="msgBranchChecks" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px;"></div>
+                    <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                        <button type="button" onclick="msgBranchSelectAll()" style="width:auto; margin:0; padding:5px 10px; font-size:11px; background:#075bb5; color:#fff; border:none; border-radius:6px; cursor:pointer;">كل الفروع</button>
+                        <button type="button" onclick="msgBranchClear()" style="width:auto; margin:0; padding:5px 10px; font-size:11px; background:#6c757d; color:#fff; border:none; border-radius:6px; cursor:pointer;">مسح</button>
+                    </div>
+                    <div style="font-size:10px; color:#555; margin-top:6px; line-height:1.5;">اختر فرعاً أو أكثر (مثل قويسنا / بنها) أو كل الفروع. إن لم تُحدَّد فروع تُرسل لكل الفروع.</div>
+                </div>
+
                 <textarea id="adminMsgInput" placeholder="اكتب رسالة جديدة لتظهر للموردين المستهدفين..." style="height:100px;"></textarea>
                 <button onclick="sendAdminMessage()" style="background:#f0ad4e; color:#fff; font-weight:bold;">🚀 إرسال الرسالة الآن</button>
             </div>
@@ -5909,6 +6023,26 @@ function selectMsgSupplier(sap, name) {
                 </div>
             </div>
 
+
+            <div class="upload-accordion" data-color="teal" id="acc_set_branches" style="margin-bottom:10px;">
+                <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_set_branches'); if(typeof openBranchesTab==='function') openBranchesTab();">
+                    <span class="upload-acc-plus">+</span>
+                    <p class="upload-acc-title">🏢 سجل الفروع</p>
+                </div>
+                <div class="upload-acc-body">
+            <div style="background:#fff8e1; border:1px solid #ffe08a; border-radius:8px; padding:10px; font-size:12px; line-height:1.7; color:#6b5200; margin-bottom:10px;">
+                🏢 <b>سجل الفروع الرسمي</b> <span id="branchesCountBadge" style="font-weight:bold;"></span><br>
+                كل فرع يُسجَّل مرة واحدة فقط. النظام يمنع التكرار بصياغة مختلفة (مثل «قويسنا» و«كويسنا» أو «فرع قويسنا»)، ورفع أي ملف يحتوي فرعاً غير مسجّل يُرفض أو يُطلب تسجيله.
+            </div>
+            <div id="branchAddRow" style="display:flex; gap:6px; margin-bottom:8px;">
+                <input type="text" id="newBranchName" placeholder="اسم الفرع (مثال: قويسنا)" style="margin:0; padding:8px; font-size:12px; flex:1;" onkeydown="if(event.key==='Enter'){addBranchFromInput();}">
+                <button type="button" onclick="addBranchFromInput()" style="margin:0; width:auto; padding:8px 14px; font-size:12px; background:#28a745; color:#fff; border:none; border-radius:8px; cursor:pointer;">➕ إضافة فرع</button>
+            </div>
+            <button type="button" id="btnImportBranches" onclick="importBranchesFromData()" style="width:auto; margin:0 0 10px 0; padding:7px 12px; font-size:11px; background:#6f42c1; color:#fff; border:none; border-radius:8px; cursor:pointer;">📥 استيراد الفروع الموجودة في البيانات الحالية</button>
+            <input type="text" id="searchBranchInput" placeholder="بحث في الفروع..." onkeyup="renderBranchesTab()" style="margin-bottom:6px; padding:8px; font-size:12px;">
+            <div id="branchesListBox"></div>
+                </div>
+            </div>
 
             <div class="upload-accordion" data-color="red" id="acc_set_factory" style="margin-bottom:10px;">
                 <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_set_factory')">
@@ -6171,57 +6305,60 @@ async function loadAdminsList() {
             let currentAdminPass = sanitizeHTML(credOf(doc.id)) || (currentRole === "super_admin" ? "غير مسجل" : "🔒 لمدير النظام فقط");
 
             html += `
-            <div class="admin-item" data-search="${robustNormalize(searchTarget)}" style="background:#f3f6fb; border:1px solid #ddd; padding:10px; border-radius:8px; margin-top:8px;">
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <b style="color:#075bb5;">${roleBadge} ${sanitizeHTML(d.ownerName) || "غير مسجل"}</b>
-                    <span style="font-size:10px; background:#cce5ff; padding:2px 6px; border-radius:4px; color:#004085;" title="معرّف الدخول">${sanitizeHTML(loginLabel)}</span>
+            <div class="admin-item" data-search="${robustNormalize(searchTarget)}" id="admin_card_${doc.id}">
+                <div class="admin-item-header" onclick="toggleAdminCard('${doc.id}')" title="اضغط لعرض/إخفاء الصلاحيات">
+                    <span class="admin-item-name">${roleBadge} ${sanitizeHTML(d.ownerName) || "غير مسجل"}</span>
+                    <span class="admin-item-login" title="معرّف الدخول">${sanitizeHTML(loginLabel)}</span>
+                    <span class="admin-chevron">▼</span>
                 </div>
-                <div style="font-size:11px; color:#333; margin-top:8px; background:#fff; padding:8px; border-radius:8px; border:1px solid #eee;">
-                    <b style="display:block; margin-bottom:4px;">صلاحياته الحالية:</b>
-                    <div class="perm-grid">
-                        <label class="perm-item" title="رفع ملفات البيانات">رفع ملفات البيانات<input type="checkbox" id="edit_p_data_${doc.id}" ${p.data?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
-                        <label class="perm-item" title="إدارة الموردين">إدارة الموردين<input type="checkbox" id="edit_p_sup_${doc.id}" ${p.suppliers?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
-                        <label class="perm-item" title="إرسال الرسائل">إرسال الرسائل<input type="checkbox" id="edit_p_msg_${doc.id}" ${p.msgs?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
-                        <label class="perm-item" title="الشكاوى">الشكاوى والمقترحات<input type="checkbox" id="edit_p_comp_${doc.id}" ${p.complaints?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
-                        <label class="perm-item" title="التقارير">تقرير الرحلات الفاشلة<input type="checkbox" id="edit_p_rep_${doc.id}" ${p.reports?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
-                        <label class="perm-item" style="border-color:#f5c6cb; color:#842029;" title="مسح البيانات المرفوعة">مسح البيانات المرفوعة<input type="checkbox" id="edit_p_wipe_${doc.id}" ${p.wipe?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
-                        <label class="perm-item" title="الرخص">تنظيف صور الرخص<input type="checkbox" id="edit_p_lic_${doc.id}" ${p.licenses?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
-                        <label class="perm-item" title="رفع بيانات الجدولة">📅 رفع بيانات الجدولة<input type="checkbox" id="edit_p_schUp_${doc.id}" ${p.scheduleUpload?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
-                        <label class="perm-item" title="الرد على نتائج الجدولة">✅ الرد على نتائج الجدولة<input type="checkbox" id="edit_p_schRep_${doc.id}" ${p.scheduleReply?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
-                        <label class="perm-item" title="مسح إشعار طلب الباسورد فقط">مسح إشعار طلب الباسورد<input type="checkbox" id="edit_p_pwd_${doc.id}" ${p.pwdDelete?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
-                        <label class="perm-item" title="سجل العمليات">عرض سجل العمليات<input type="checkbox" id="edit_p_audit_${doc.id}" ${p.audit?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
-                        <label class="perm-item" style="border-color:#ffc107; color:#856404;" title="بدون تعديل">مشاهدة فقط<input type="checkbox" id="edit_p_ro_${doc.id}" ${p.readonly?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
-                        <label class="perm-item" title="إدارة سجل الفروع">🏢 إدارة سجل الفروع<input type="checkbox" id="edit_p_brm_${doc.id}" ${p.branchesManage?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                <div class="admin-item-body" id="admin_body_${doc.id}">
+                    <div style="font-size:11px; color:#333; margin-top:8px; background:#fff; padding:8px; border-radius:8px; border:1px solid #eee;">
+                        <b style="display:block; margin-bottom:4px;">صلاحياته الحالية:</b>
+                        <div class="perm-grid">
+                            <label class="perm-item" title="رفع ملفات البيانات">رفع ملفات البيانات<input type="checkbox" id="edit_p_data_${doc.id}" ${p.data?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                            <label class="perm-item" title="إدارة الموردين">إدارة الموردين<input type="checkbox" id="edit_p_sup_${doc.id}" ${p.suppliers?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                            <label class="perm-item" title="إرسال الرسائل">إرسال الرسائل<input type="checkbox" id="edit_p_msg_${doc.id}" ${p.msgs?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                            <label class="perm-item" title="الشكاوى">الشكاوى والمقترحات<input type="checkbox" id="edit_p_comp_${doc.id}" ${p.complaints?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                            <label class="perm-item" title="التقارير">تقرير الرحلات الفاشلة<input type="checkbox" id="edit_p_rep_${doc.id}" ${p.reports?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                            <label class="perm-item" style="border-color:#f5c6cb; color:#842029;" title="مسح البيانات المرفوعة">مسح البيانات المرفوعة<input type="checkbox" id="edit_p_wipe_${doc.id}" ${p.wipe?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                            <label class="perm-item" title="الرخص">تنظيف صور الرخص<input type="checkbox" id="edit_p_lic_${doc.id}" ${p.licenses?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                            <label class="perm-item" title="رفع بيانات الجدولة">📅 رفع بيانات الجدولة<input type="checkbox" id="edit_p_schUp_${doc.id}" ${p.scheduleUpload?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                            <label class="perm-item" title="الرد على نتائج الجدولة">✅ الرد على نتائج الجدولة<input type="checkbox" id="edit_p_schRep_${doc.id}" ${p.scheduleReply?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                            <label class="perm-item" title="مسح إشعار طلب الباسورد فقط">مسح إشعار طلب الباسورد<input type="checkbox" id="edit_p_pwd_${doc.id}" ${p.pwdDelete?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                            <label class="perm-item" title="سجل العمليات">عرض سجل العمليات<input type="checkbox" id="edit_p_audit_${doc.id}" ${p.audit?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                            <label class="perm-item" style="border-color:#ffc107; color:#856404;" title="بدون تعديل">مشاهدة فقط<input type="checkbox" id="edit_p_ro_${doc.id}" ${p.readonly?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                            <label class="perm-item" title="إدارة سجل الفروع">🏢 إدارة سجل الفروع<input type="checkbox" id="edit_p_brm_${doc.id}" ${p.branchesManage?'checked':''} ${d.role==='super_admin'?'disabled':''}></label>
+                        </div>
+                        <div style="border-top:1px dashed #ddd; padding-top:6px; margin-top:8px;">
+                            <b>🏢 نطاق الفروع:</b>
+                            ${d.role === 'super_admin' ? '<span style="color:#075bb5;">🌐 كل الفروع (مركزي)</span>' : branchScopePickerHtml('edit_scope_' + doc.id, p.branchesAll !== false, p.branchIds)}
+                        </div>
+                        <div style="border-top:1px dashed #ddd; padding-top:6px; margin-top:8px;">
+                            <b>كلمة المرور:</b>
+                            <span id="admin_pass_${doc.id}" style="color:#d9534f; font-weight:bold; font-size:13px; display:none;">${currentAdminPass}</span>
+                            <button type="button" onclick="togglePassVisibility('admin_pass_${doc.id}', this)" style="border:none; background:none; color:#075bb5; font-size:11px; cursor:pointer; padding:0; margin:0 5px; text-decoration:underline;">إظهار 👁</button>
+                        </div>
                     </div>
-                    <div style="border-top:1px dashed #ddd; padding-top:6px; margin-top:8px;">
-                        <b>🏢 نطاق الفروع:</b>
-                        ${d.role === 'super_admin' ? '<span style="color:#075bb5;">🌐 كل الفروع (مركزي)</span>' : branchScopePickerHtml('edit_scope_' + doc.id, p.branchesAll !== false, p.branchIds)}
+                    <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;">
+                        ${d.role === 'super_admin' ? 
+                            `<button disabled style="margin:0; width:auto; padding:6px 10px; font-size:11px; background:#6c757d; color:#fff; border-radius:4px; border:none;">صلاحيات كاملة (سوبر)</button>` 
+                            : 
+                            `<button onclick="updateAdminPerms('${doc.id}')" style="margin:0; width:auto; padding:6px 10px; font-size:11px; background:#28a745; color:#fff; border-radius:4px; border:none; cursor:pointer;">تحديث الصلاحيات</button>`
+                        }
+                        ${(d.role !== 'super_admin' && currentRole === 'super_admin') ? 
+                            `<button onclick="promoteAdminToSuper('${doc.id}', '${sanitizeHTML(d.ownerName) || ''}')" style="margin:0; width:auto; padding:6px 10px; font-size:11px; background:#6f42c1; color:#fff; border-radius:4px; border:none; cursor:pointer;">👑 ترقية لسوبر</button>` 
+                            : ''
+                        }
+                        ${(d.role === 'super_admin' && currentRole === 'super_admin' && !isMe) ? 
+                            `<button onclick="demoteSuperToAdmin('${doc.id}', '${sanitizeHTML(d.ownerName) || ''}')" style="margin:0; width:auto; padding:6px 10px; font-size:11px; background:#fd7e14; color:#fff; border-radius:4px; border:none; cursor:pointer;">⬇️ تخفيض إلى أدمن</button>` 
+                            : ''
+                        }
+                        ${isMe ? 
+                            `<button disabled style="margin:0; width:auto; padding:6px 10px; font-size:11px; background:#6c757d; color:#fff; border-radius:4px; border:none;">هذا حسابك</button>`
+                            :
+                            `<button onclick="deleteAdminUser('${doc.id}', '${sanitizeHTML(d.ownerName) || ''}')" style="margin:0; width:auto; padding:6px 10px; font-size:11px; background:#e47377; color:#fff; border-radius:4px; border:none; cursor:pointer;">حذف المشرف</button>`
+                        }
                     </div>
-                    <div style="border-top:1px dashed #ddd; padding-top:6px; margin-top:8px;">
-                        <b>كلمة المرور:</b>
-                        <span id="admin_pass_${doc.id}" style="color:#d9534f; font-weight:bold; font-size:13px; display:none;">${currentAdminPass}</span>
-                        <button type="button" onclick="togglePassVisibility('admin_pass_${doc.id}', this)" style="border:none; background:none; color:#075bb5; font-size:11px; cursor:pointer; padding:0; margin:0 5px; text-decoration:underline;">إظهار 👁</button>
-                    </div>
-                </div>
-                <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;">
-                    ${d.role === 'super_admin' ? 
-                        `<button disabled style="margin:0; width:auto; padding:6px 10px; font-size:11px; background:#6c757d; color:#fff; border-radius:4px; border:none;">صلاحيات كاملة (سوبر)</button>` 
-                        : 
-                        `<button onclick="updateAdminPerms('${doc.id}')" style="margin:0; width:auto; padding:6px 10px; font-size:11px; background:#28a745; color:#fff; border-radius:4px; border:none; cursor:pointer;">تحديث الصلاحيات</button>`
-                    }
-                    ${(d.role !== 'super_admin' && currentRole === 'super_admin') ? 
-                        `<button onclick="promoteAdminToSuper('${doc.id}', '${sanitizeHTML(d.ownerName) || ''}')" style="margin:0; width:auto; padding:6px 10px; font-size:11px; background:#6f42c1; color:#fff; border-radius:4px; border:none; cursor:pointer;">👑 ترقية لسوبر</button>` 
-                        : ''
-                    }
-                    ${(d.role === 'super_admin' && currentRole === 'super_admin' && !isMe) ? 
-                        `<button onclick="demoteSuperToAdmin('${doc.id}', '${sanitizeHTML(d.ownerName) || ''}')" style="margin:0; width:auto; padding:6px 10px; font-size:11px; background:#fd7e14; color:#fff; border-radius:4px; border:none; cursor:pointer;">⬇️ تخفيض إلى أدمن</button>` 
-                        : ''
-                    }
-                    ${isMe ? 
-                        `<button disabled style="margin:0; width:auto; padding:6px 10px; font-size:11px; background:#6c757d; color:#fff; border-radius:4px; border:none;">هذا حسابك</button>`
-                        :
-                        `<button onclick="deleteAdminUser('${doc.id}', '${sanitizeHTML(d.ownerName) || ''}')" style="margin:0; width:auto; padding:6px 10px; font-size:11px; background:#e47377; color:#fff; border-radius:4px; border:none; cursor:pointer;">حذف المشرف</button>`
-                    }
                 </div>
             </div>`;
         });
@@ -6229,6 +6366,18 @@ async function loadAdminsList() {
         if(html === "") html = "<span style='font-size:12px; color:#666;'>لا يوجد مشرفين إضافيين حتى الآن.</span>";
         resultContainer.innerHTML = html;
     } catch(e) { console.error(e); resultContainer.innerHTML = "❌ خطأ في تحميل المشرفين."; }
+}
+
+
+function toggleAdminCard(uid) {
+    let card = document.getElementById("admin_card_" + uid);
+    if (!card) return;
+    let opening = !card.classList.contains("open");
+    document.querySelectorAll(".admin-item.open").forEach(el => {
+        if (el !== card) el.classList.remove("open");
+    });
+    if (opening) card.classList.add("open");
+    else card.classList.remove("open");
 }
 
 function filterAdminsList() {
@@ -6516,6 +6665,87 @@ async function exportSuppliersToExcel() {
     }
 }
 
+
+/** هل للمورد سيارات ضمن نطاق فروع المشرف الحالي؟ */
+function supplierHasVehiclesInMyScope(sap) {
+    if (!myBranchScope || !myBranchScope.restricted) return true;
+    let s = normalizeValue(sap || "");
+    if (!s) return false;
+    let found = false;
+    (globalVehicles || []).forEach(function(v) {
+        if (found) return;
+        if (normalizeValue(v["رقم المورد"] || "") !== s) return;
+        let b = String(v["الفرع"] || v["فرع"] || "").trim();
+        if (b && branchInScope(b)) found = true;
+    });
+    // إن لم تُحمَّل سيارات بعد: اسمح إن لم نستطع التحقق (تجنّب حظر خاطئ) — لكن الأفضل الرفض الآمن
+    if (!(globalVehicles || []).length) return true;
+    return found;
+}
+
+function collectMsgBranchTargets() {
+    let box = document.getElementById("msgBranchChecks");
+    if (!box) return [];
+    let selected = [];
+    box.querySelectorAll("input.msg-br-cb:checked").forEach(function(cb) {
+        if (cb.value) selected.push(cb.value);
+    });
+    return selected;
+}
+function msgBranchSelectAll() {
+    let box = document.getElementById("msgBranchChecks");
+    if (!box) return;
+    box.querySelectorAll("input.msg-br-cb").forEach(function(cb) { cb.checked = true; });
+}
+function msgBranchClear() {
+    let box = document.getElementById("msgBranchChecks");
+    if (!box) return;
+    box.querySelectorAll("input.msg-br-cb").forEach(function(cb) { cb.checked = false; });
+}
+function populateMsgBranchChecks() {
+    let box = document.getElementById("msgBranchChecks");
+    if (!box) return;
+    let names = [];
+    try {
+        if (branchRegistry && branchRegistry.length) {
+            names = branchRegistry.map(function(e) { return e.name; }).filter(Boolean);
+        }
+    } catch (e) {}
+    if (!names.length) {
+        let set = new Set();
+        (globalVehicles || []).forEach(function(v) {
+            let b = String(v["الفرع"] || v["فرع"] || "").trim();
+            if (b) set.add(b);
+        });
+        names = Array.from(set).sort(function(a, b) { return String(a).localeCompare(String(b), "ar"); });
+    } else {
+        names = names.slice().sort(function(a, b) { return String(a).localeCompare(String(b), "ar"); });
+    }
+    // تقييد المشرف بفروع نطاقه فقط — لا تظهر فروع خارج الصلاحية
+    let restricted = (typeof myBranchScope !== "undefined" && myBranchScope && myBranchScope.restricted);
+    if (restricted) {
+        names = names.filter(function(n) {
+            return (typeof branchInScope === "function") ? branchInScope(n) : true;
+        });
+        // إن لم يظهر شيء من السجل، استخدم أسماء النطاق مباشرة
+        if (!names.length && Array.isArray(myBranchScope.names) && myBranchScope.names.length) {
+            names = myBranchScope.names.slice().sort(function(a, b) { return String(a).localeCompare(String(b), "ar"); });
+        }
+    }
+    if (!names.length) {
+        box.innerHTML = restricted
+            ? '<span style="font-size:11px;color:#c0392b;">لا فروع ضمن نطاق صلاحيتك — لا يمكن إرسال رسائل لفروع أخرى.</span>'
+            : '<span style="font-size:11px;color:#888;">لا فروع مسجّلة — تُرسل لكل الفروع.</span>';
+        return;
+    }
+    let note = restricted
+        ? '<div style="width:100%;font-size:11px;color:#856404;background:#fff8e6;border:1px solid #ffe0a3;border-radius:6px;padding:6px 8px;margin-bottom:6px;">🔒 نطاقك: تظهر فقط الفروع المخصصة لك (' + sanitizeHTML((myBranchScope.names || []).join("، ") || "—") + '). لا يمكن إرسال رسائل لفرع خارج هذا النطاق.</div>'
+        : '';
+    box.innerHTML = note + names.map(function(n) {
+        return '<label style="display:inline-flex;align-items:center;gap:4px;background:#fff;border:1px solid #c5d5e8;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;"><input type="checkbox" class="msg-br-cb" value="' + sanitizeHTML(n) + '" style="width:14px;height:14px;margin:0;" checked> ' + sanitizeHTML(n) + '</label>';
+    }).join("");
+}
+
 async function sendAdminMessage() {
     let msgInput = document.getElementById("adminMsgInput").value.trim();
     let target = document.getElementById("adminMsgTarget").value;
@@ -6526,13 +6756,45 @@ async function sendAdminMessage() {
             showAlert("الرجاء اختيار المورد من قائمة البحث أولاً.");
             return;
         }
+        // مشرف مقيّد: المورد المحدد يجب أن يكون له سيارات ضمن فروع النطاق
+        if (typeof myBranchScope !== "undefined" && myBranchScope && myBranchScope.restricted) {
+            if (!supplierHasVehiclesInMyScope(target)) {
+                showAlert("🚫 هذا المورد ليس ضمن فروع صلاحيتك. لا يمكن إرسال رسالة له.");
+                return;
+            }
+        }
     }
     
     if(!msgInput) { showAlert("الرجاء كتابة الرسالة."); return; }
+
+    let branchTargets = collectMsgBranchTargets();
+    // تقييد المشرف: لا يُسمح بإرسال لكل الفروع ولا لفرع خارج النطاق
+    if (typeof myBranchScope !== "undefined" && myBranchScope && myBranchScope.restricted) {
+        let scopedNames = Array.isArray(myBranchScope.names) ? myBranchScope.names.slice() : [];
+        branchTargets = (branchTargets || []).filter(function(b) {
+            return (typeof branchInScope === "function") ? branchInScope(b) : false;
+        });
+        // فارغ كان يعني «كل الفروع» — للمشرف المقيّد نُلزم بفروعه فقط
+        if (!branchTargets.length) {
+            if (!scopedNames.length) {
+                showAlert("🚫 لا فروع مخصصة لك. لا يمكن إرسال رسائل عامة خارج نطاقك.");
+                return;
+            }
+            branchTargets = scopedNames.slice();
+        }
+    }
     
     try {
         let dt = new Date().toISOString();
-        let newMsg = { id: generateFileId(), text: msgInput, date: dt, target: target, by: (currentUserName || "الإدارة"), byRole: currentRole };
+        let newMsg = {
+            id: generateFileId(),
+            text: msgInput,
+            date: dt,
+            target: target,
+            branches: branchTargets, // فارغ = كل الفروع (للمشرف غير المقيّد فقط)
+            by: (currentUserName || "الإدارة"),
+            byRole: currentRole
+        };
         
         let cutoff = new Date();
         cutoff.setDate(cutoff.getDate() - 61);
@@ -6542,14 +6804,18 @@ async function sendAdminMessage() {
         activeMessages.push(newMsg);
         
         await db.collection("uploadedFiles").doc("GLOBAL_MESSAGES").set({ messages: activeMessages });
+        globalMessages = activeMessages;
         
         document.getElementById("adminMsgInput").value = "";
         document.getElementById("msgSupplierSearch").value = "";
         document.getElementById("selectedMsgSap").value = "";
+        msgBranchSelectAll();
         
-        document.getElementById("adminResult").innerHTML = "✅ تم إرسال الرسالة بنجاح.";
-        if (typeof logAudit === "function") logAudit("إرسال رسالة عامة", "تم إرسال إشعار للموردين");
-        showAlert("✅ تم إرسال الرسالة بنجاح.");
+        let brNote = branchTargets.length ? (" — فروع: " + branchTargets.join("، ")) : " — كل الفروع";
+        document.getElementById("adminResult").innerHTML = "✅ تم إرسال الرسالة بنجاح" + brNote;
+        if (typeof logAudit === "function") logAudit("إرسال رسالة عامة", "هدف: " + target + brNote);
+        showAlert("✅ تم إرسال الرسالة بنجاح" + brNote);
+        if (typeof updateMessagesBadge === "function") updateMessagesBadge();
     } catch(e) { console.error(e); showAlert("❌ خطأ أثناء الإرسال."); }
 }
 
@@ -6611,21 +6877,27 @@ async function uploadBulkMessagesFile() {
             }
             return "";
         }
-        let prepared = [], skipped = 0;
+        let prepared = [], skipped = 0, skippedScope = 0;
+        let restricted = (typeof myBranchScope !== "undefined" && myBranchScope && myBranchScope.restricted);
+        let scopeBranchList = (restricted && Array.isArray(myBranchScope.names)) ? myBranchScope.names.slice() : [];
         rows.forEach((r) => {
             let sap = pick(r, ["رقم ساب المورد", "رقم المورد", "رقم المورد (ساب)", "الساب", "SAP", "sap", "رقم ساب"]);
             let name = pick(r, ["اسم المورد", "المورد", "اسم المكتب"]);
             let text = pick(r, ["نص الرسالة", "الرسالة", "نص", "رسالة", "message"]);
             sap = (typeof normalizeValue === "function") ? normalizeValue(sap || "") : String(sap || "").trim();
             if (!sap || !text) { skipped++; return; }
+            if (restricted && typeof supplierHasVehiclesInMyScope === "function" && !supplierHasVehiclesInMyScope(sap)) {
+                skippedScope++;
+                return;
+            }
             if (!name && typeof globalSupplierDataMap !== "undefined" && globalSupplierDataMap && globalSupplierDataMap.get(sap)) {
                 let sd = globalSupplierDataMap.get(sap);
                 name = sd.ownerName || sd.officeName || "";
             }
             prepared.push({ sap, name, text });
         });
-        if (!prepared.length) throw new Error("لا صفوف صالحة. تأكد من أعمدة: رقم ساب المورد + نص الرسالة.");
-        if (!confirm("سيتم إرسال " + prepared.length + " رسالة للموردين المذكورين في الشيت فقط.\nمتابعة؟")) {
+        if (!prepared.length) throw new Error("لا صفوف صالحة" + (skippedScope ? " ضمن فروع صلاحيتك (" + skippedScope + " خارج النطاق)" : "") + ". تأكد من أعمدة: رقم ساب المورد + نص الرسالة.");
+        if (!confirm("سيتم إرسال " + prepared.length + " رسالة للموردين المذكورين في الشيت فقط" + (skippedScope ? "\n(تم استبعاد " + skippedScope + " مورد خارج فروع صلاحيتك)" : "") + ".\nمتابعة؟")) {
             if (msgBox) msgBox.innerHTML = "تم الإلغاء."; return;
         }
         if (msgBox) msgBox.innerHTML = "⏳ جاري الحفظ (" + prepared.length + ")...";
@@ -6634,18 +6906,21 @@ async function uploadBulkMessagesFile() {
         let activeMessages = (typeof globalMessages !== "undefined" && Array.isArray(globalMessages) ? globalMessages : []).filter(m => m.date >= cutoffStr);
         let dtBase = Date.now();
         prepared.forEach((p, i) => {
-            activeMessages.push({
+            let msgObj = {
                 id: (typeof generateFileId === "function" ? generateFileId() : ("bm_" + dtBase + "_" + i)),
                 text: p.text, date: new Date(dtBase + i).toISOString(), target: p.sap,
                 supplierName: p.name || "", bulk: true, bulkFile: file.name || "", by: (currentUserName || "الإدارة"), byRole: currentRole
-            });
+            };
+            // تقييد ظهور الرسالة بفروع المشرف إن وُجد نطاق
+            if (restricted && scopeBranchList.length) msgObj.branches = scopeBranchList.slice();
+            activeMessages.push(msgObj);
         });
         await db.collection("uploadedFiles").doc("GLOBAL_MESSAGES").set({ messages: activeMessages });
-        if (typeof logAudit === "function") logAudit("إرسال رسائل مجمّعة", file.name + " — " + prepared.length + " رسالة", { after: "skipped=" + skipped });
+        if (typeof logAudit === "function") logAudit("إرسال رسائل مجمّعة", file.name + " — " + prepared.length + " رسالة", { after: "skipped=" + skipped + ", outScope=" + skippedScope });
         input.value = "";
         let sample = prepared.slice(0, 5).map(p => (p.name || p.sap) + " ← " + p.sap).join(" | ");
-        if (msgBox) msgBox.innerHTML = "✅ تم إرسال <b>" + prepared.length + "</b> رسالة" + (skipped ? " (تُخطّي " + skipped + " صف)" : "") + "<br><span style='font-size:11px;color:#666;'>أمثلة: " + sample + "</span>";
-        showAlert("✅ تم إرسال " + prepared.length + " رسالة مجمّعة بنجاح.\nتظهر كل رسالة فقط للمورد المحدد في صفها.");
+        if (msgBox) msgBox.innerHTML = "✅ تم إرسال <b>" + prepared.length + "</b> رسالة" + (skipped ? " (تُخطّي " + skipped + " صف)" : "") + (skippedScope ? " — استُبعد " + skippedScope + " خارج النطاق" : "") + "<br><span style='font-size:11px;color:#666;'>أمثلة: " + sample + "</span>";
+        showAlert("✅ تم إرسال " + prepared.length + " رسالة مجمّعة بنجاح.\nتظهر كل رسالة فقط للمورد المحدد في صفها." + (skippedScope ? "\nاستُبعد " + skippedScope + " خارج فروع صلاحيتك." : ""));
     } catch (e) {
         console.error(e);
         if (msgBox) msgBox.innerHTML = "❌ " + (e.message || e);
@@ -6854,9 +7129,49 @@ async function deletePasswordRequest(reqId, event) {
     }
 }
 
+function supplierBranchKeysForMessages() {
+    let keys = new Set();
+    try {
+        let sap = normalizeValue(loggedInSupplierSapGlobal || "");
+        (globalVehicles || []).forEach(function(v) {
+            if (sap && normalizeValue(v["رقم المورد"] || "") !== sap) return;
+            let b = String(v["الفرع"] || v["فرع"] || "").trim();
+            if (b) {
+                keys.add(branchLooseKey(b));
+                keys.add(normalizeBranchName ? normalizeBranchName(b) : b);
+            }
+        });
+        // الفروع المعروضة حالياً للمورد
+        let cont = document.getElementById("showBranchContainer");
+        if (cont) {
+            cont.querySelectorAll(".branch-cb").forEach(function(cb) {
+                if (cb.value) {
+                    keys.add(branchLooseKey(cb.value));
+                    if (typeof normalizeBranchName === "function") keys.add(normalizeBranchName(cb.value));
+                }
+            });
+        }
+    } catch (e) {}
+    return keys;
+}
+function messageMatchesSupplierBranches(m) {
+    // رسائل قديمة بلا حقل branches = لكل الفروع
+    if (!m || !m.branches || !Array.isArray(m.branches) || !m.branches.length) return true;
+    let myKeys = supplierBranchKeysForMessages();
+    if (!myKeys.size) return true; // لا فروع معروفة للمورد → اعرض (توافق)
+    for (let i = 0; i < m.branches.length; i++) {
+        let b = String(m.branches[i] || "").trim();
+        if (!b) continue;
+        let k1 = branchLooseKey(b);
+        let k2 = (typeof normalizeBranchName === "function") ? normalizeBranchName(b) : b;
+        if ((k1 && myKeys.has(k1)) || (k2 && myKeys.has(k2))) return true;
+    }
+    return false;
+}
 function getVisibleMessages() {
     if(currentRole === "admin" || currentRole === "super_admin") return globalMessages;
     return globalMessages.filter(m => {
+        if (!messageMatchesSupplierBranches(m)) return false;
         if(!m.target || m.target === "all") return true;
         if(m.target === loggedInSupplierSapGlobal) return true; 
         
@@ -6917,6 +7232,11 @@ function openMessagesPanel() {
                 targetLabel = `<span style="background:#075bb5; color:#fff; padding:2px 6px; border-radius:4px; font-size:10px;">مخصصة: ${targetText}</span>`;
             } else if (isAdmin) {
                 targetLabel = `<span style="background:#6c757d; color:#fff; padding:2px 6px; border-radius:4px; font-size:10px;">لجميع الموردين</span>`;
+            }
+            if (isAdmin && m.branches && m.branches.length) {
+                targetLabel += ` <span style="background:#0d6efd; color:#fff; padding:2px 6px; border-radius:4px; font-size:10px;">🏢 ${sanitizeHTML(m.branches.join("، "))}</span>`;
+            } else if (isAdmin && (!m.branches || !m.branches.length)) {
+                targetLabel += ` <span style="background:#17a2b8; color:#fff; padding:2px 6px; border-radius:4px; font-size:10px;">🏢 كل الفروع</span>`;
             }
             let senderLabel = isAdmin
                 ? `<span style="background:#e8f0fe; color:#075bb5; border:1px solid #b6d0f5; padding:2px 6px; border-radius:4px; font-size:10px;">✉️ المرسل: ${m.by ? sanitizeHTML(m.by) : "غير مسجل"}</span>`
@@ -7858,7 +8178,7 @@ firebase.auth().onAuthStateChanged(async function(user){
              document.getElementById("msgIconWrap").classList.remove("hide");
              document.getElementById("changePassBtn").classList.remove("hide"); 
              document.getElementById("licenseNotificationBtn").classList.remove("hide");
- document.getElementById("analysisBtn").classList.add("hide");
+ document.getElementById("analysisBtn").classList.remove("hide");
              if(document.getElementById("scheduleBtn")) document.getElementById("scheduleBtn").classList.add("hide");
 
              if (unsubAdminLicenses) unsubAdminLicenses();
@@ -10715,6 +11035,7 @@ function renderScheduleSupplierPicks() {
     let list = [];
     if (globalSupplierDataMap && globalSupplierDataMap.size) {
         globalSupplierDataMap.forEach((d, sap) => {
+            if (myBranchScope.restricted && !scheduleVehiclesForSap(sap, d).length) return;   // مورد بلا سيارات في فروعي
             list.push({
                 sap: sap || normalizeValue(d.sapNumber || ""),
                 owner: d.ownerName || "",
