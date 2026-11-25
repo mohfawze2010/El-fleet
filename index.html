@@ -23,6 +23,8 @@ function logoutUser(){
  myBranchScope = { all: true, keys: new Set(), names: [], restricted: false }; branchRegistry = []; _branchRegLoaded = false; window.__scopeVehKeys = null;
  activeServiceType = "";
  loggedInSupplierSapGlobal = "";
+ loggedInDelegatePhone = ""; loggedInDelegateSaps = []; window.__delSelSaps = null; window.__delAll = null;
+ isDelegateUser = false;
  currentSupplierServiceTypes = new Set();
 }
 
@@ -450,6 +452,7 @@ button.dues-sort-chip.active, .dues-sort-chip.active { box-shadow:0 0 0 2px #075
     font-weight: bold;
 }
 .tab-btn.hide { display: none !important; }
+#btn-tab-complaints { display: none !important; } /* زر الشكاوى انتقل للأيقونات الخارجية (تواصل) */
 
 .lic-actions-bar {
     display: flex;
@@ -942,6 +945,11 @@ if (typeof XLSX === "undefined" || !XLSX.style_version) {
                 <div class="exit-text">تواصل</div>
             </div>
             
+            <div class="exit-container hide" id="adminComplaintBtn" onclick="openAdminComplaints()" title="المقترحات والشكاوى">
+                <div class="exit-icon-circle icon-text-warn" style="color:#856404; background:#fff3cd; position:relative;">💡<span id="adminCompBadgeOuter" class="msg-badge">0</span></div>
+                <div class="exit-text">تواصل</div>
+            </div>
+
             <div class="exit-container hide" id="supplierExportBtn" onclick="handleTopExportClick()" title="تحميل / تصدير البيانات">
                 <div class="exit-icon-circle icon-text-success">📥</div>
                 <div class="exit-text" id="exportBtnLabel">تصدير</div>
@@ -2043,6 +2051,14 @@ const APP_DISPLAY_VERSION = "V1.1";
 let activeServiceType = "";
 let currentSupplierServiceTypes = new Set();
 let loggedInSupplierSapGlobal = "";
+/** هاتف المفوض المسجّل دخوله (فارغ = حساب المورد الرئيسي) */
+let loggedInDelegatePhone = "";
+/** كل أرقام الساب المرتبط بها المفوض (قد يكون أمام أكثر من مورد) — الأول هو الأساسي */
+let loggedInDelegateSaps = [];
+/** مكاتب (ساب) مختارة من قائمة المكاتب؛ null = كل المكاتب */
+window.__delSelSaps = null;
+/** true إذا كان الحساب مفوضاً وليس المورد الأساسي */
+let isDelegateUser = false;
 let activePanel = "";
 let selectedDuesPeriod = "";
 let __duesSortKey = "amount"; // amount | deduction | code
@@ -2491,7 +2507,7 @@ function checkLicenseNotifications() {
     let readLicenses = JSON.parse(localStorage.getItem('readLicenses_' + loggedInSupplierSapGlobal) || '[]');
     
     globalVehicles.forEach(v => {
-        if(normalizeValue(v["رقم المورد"]) === loggedInSupplierSapGlobal) {
+        if(isMySapValue(v["رقم المورد"])) {
             let details = getLicenseExpiryDetails(v);
             if(details.parsedDateStr) {
                 let plate = sanitizeHTML(v["رقم اللوحة"] || "غير محدد");
@@ -2616,6 +2632,7 @@ function openAnalysisPanel() {
     window.__anaQuery = "";
     window.__anaTbl = { key: "manual", dir: "desc" };
     window.__anaSeries = { success: true, failed: true, elec: true, manual: true };
+    window.__anaLabels = !!window.__anaLabels; // عرض الأرقام داخل دوائر على المنحنى
 
     const inp = "padding:6px;border:1px solid #ccc;border-radius:6px;width:100%;box-sizing:border-box;font-family:inherit;";
     const lbl = "font-size:11px;font-weight:bold;color:#555;display:block;margin-bottom:2px;";
@@ -2637,6 +2654,7 @@ function openAnalysisPanel() {
 function _anaPct(a, b) { return b ? Math.round((a / b) * 100) : 0; }
 
 function anaToggleSeries(k, on) { window.__anaSeries[k] = !!on; renderAnalysisView(); }
+function anaToggleLabels() { window.__anaLabels = !window.__anaLabels; renderAnalysisView(); }
 function anaSortTable(k) {
     const t = window.__anaTbl;
     if (t.key === k) t.dir = (t.dir === "desc") ? "asc" : "desc"; else { t.key = k; t.dir = "desc"; }
@@ -2655,8 +2673,14 @@ function _anaLineChart(days) {
     let max = 0;
     days.forEach(d => act.forEach(s => { if (d[s.k] > max) max = d[s.k]; }));
     if (max === 0) max = 1;
-    const step = 34, padL = 36, padR = 14, padT = 14, padB = 44, H = 230;
-    const W = Math.max(320, padL + padR + (days.length - 1) * step + 10);
+    const step = 34, padL = 36, padR = 18, padT = 16, padB = 44, H = 230;
+    // عرض الرسم: لو الأيام قليلة يتمدد على عرض الحاوية بدل ما يتجمّع في الجانب؛ ولو كثيرة يبقى بالتمرير الأفقي
+    let _availW = 0;
+    try {
+        const _bEl = document.getElementById("anaBody");
+        if (_bEl) { const _cs = getComputedStyle(_bEl); _availW = Math.floor(_bEl.clientWidth - (parseFloat(_cs.paddingLeft) || 0) - (parseFloat(_cs.paddingRight) || 0) - 2); }
+    } catch (e) {}
+    const W = Math.max(320, padL + padR + (days.length - 1) * step + 10, _availW || 0);
     const iw = W - padL - padR, ih = H - padT - padB;
     const X = i => padL + (days.length === 1 ? iw / 2 : (i * iw) / (days.length - 1));
     const Y = v => padT + ih - (v / max) * ih;
@@ -2666,14 +2690,33 @@ function _anaLineChart(days) {
         g += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="#eee"/><text x="${padL - 4}" y="${y + 3}" font-size="9" fill="#777" text-anchor="end">${v}</text>`;
     }
     const every = Math.max(1, Math.ceil(days.length / Math.floor(iw / 38)));
-    days.forEach((d, i) => { if (i % every === 0) g += `<text x="${X(i)}" y="${H - padB + 14}" font-size="9" fill="#555" text-anchor="middle">${sanitizeHTML(d.date.slice(5))}</text>`; });
+    // نُظهر دائماً تاريخ أول وآخر يوم؛ ونُسقط التسمية السابقة للأخيرة لو قريبة منها حتى لا تتداخل
+    const _lastI = days.length - 1;
+    days.forEach((d, i) => {
+        const regular = (i % every === 0) && !(i !== _lastI && (_lastI - i) < every * 0.75);
+        if (regular || i === _lastI) g += `<text x="${X(i)}" y="${H - padB + 14}" font-size="9" fill="#555" text-anchor="middle">${sanitizeHTML(d.date.slice(5))}</text>`;
+    });
+    const showLbl = !!window.__anaLabels;
+    // الخطوط أولاً
     act.forEach(s => {
         let pts = days.map((d, i) => X(i) + "," + Y(d[s.k])).join(" ");
         g += `<polyline points="${pts}" fill="none" stroke="${s.c}" stroke-width="2" stroke-linejoin="round"/>`;
-        days.forEach((d, i) => { g += `<circle cx="${X(i)}" cy="${Y(d[s.k])}" r="3" fill="${s.c}"><title>${sanitizeHTML(d.date)} — ${s.n}: ${d[s.k]}</title></circle>`; });
     });
-    const legend = defs.map(d => `<label style="display:inline-flex;align-items:center;gap:4px;margin:2px 6px;font-size:12px;cursor:pointer;"><input type="checkbox" ${on[d.k] ? "checked" : ""} onchange="anaToggleSeries('${d.k}', this.checked)"><span style="width:14px;height:3px;background:${d.c};display:inline-block;"></span>${d.n}</label>`).join("");
-    return `<div style="margin-bottom:4px;">${legend}</div>
+    // ثم النقاط (أو دوائر بها الأرقام) فوق الخطوط
+    act.forEach(s => {
+        days.forEach((d, i) => {
+            const v = d[s.k], tip = `<title>${sanitizeHTML(d.date)} — ${s.n}: ${v}</title>`;
+            if (showLbl) {
+                const len = String(v).length, r = len <= 1 ? 8 : (len === 2 ? 9 : (len === 3 ? 11 : 13)), fs = len <= 2 ? 9 : (len === 3 ? 8 : 7);
+                g += `<g><circle cx="${X(i)}" cy="${Y(v)}" r="${r}" fill="${s.c}" stroke="#fff" stroke-width="1.5">${tip}</circle><text x="${X(i)}" y="${Y(v) + fs * 0.36}" font-size="${fs}" font-weight="bold" fill="#fff" text-anchor="middle" style="pointer-events:none;">${v}</text></g>`;
+            } else {
+                g += `<circle cx="${X(i)}" cy="${Y(v)}" r="3" fill="${s.c}">${tip}</circle>`;
+            }
+        });
+    });
+    const legend = defs.map(d => `<label style="display:inline-flex;align-items:center;gap:3px;margin:0;font-size:11px;cursor:pointer;white-space:nowrap;flex:none;"><input type="checkbox" style="width:auto;margin:0;padding:0;" ${on[d.k] ? "checked" : ""} onchange="anaToggleSeries('${d.k}', this.checked)"><span style="width:16px;height:16px;border-radius:50%;background:${d.c};display:inline-block;border:2px solid #fff;box-shadow:0 0 0 1.5px ${d.c};opacity:${on[d.k] ? 1 : 0.3};flex:none;"></span>${d.n}</label>`).join("");
+    const lblBtn = `<button type="button" onclick="anaToggleLabels()" title="${showLbl ? "إخفاء الأرقام" : "إظهار الأرقام"}" style="display:inline-flex;align-items:center;gap:3px;width:auto;margin:0;padding:1px 8px;line-height:1.5;font-size:11px;border-radius:12px;font-family:inherit;white-space:nowrap;flex:none;border:1.5px solid #075bb5;${showLbl ? "background:#075bb5;color:#fff;" : "background:#fff;color:#075bb5;"}">🔢 عرض الأرقام</button>`;
+    return `<div style="margin-bottom:4px;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:4px 10px;padding:2px 0;">${legend}${lblBtn}</div>
         <div style="overflow-x:auto;direction:ltr;border:1px solid #eee;border-radius:8px;"><svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;">${g}</svg></div>`;
 }
 
@@ -2922,7 +2965,7 @@ function renderLicenseNotificationsContent() {
             globalLicenseNotifs.forEach(n => {
                 let alreadyUploaded = globalAdminLicenseUpdates.some(u => 
                     (u.vId === n.id || (u.plate && n.plate && normalizeValue(u.plate) === normalizeValue(n.plate))) &&
-                    (normalizeValue(u.supplierSap) === loggedInSupplierSapGlobal)
+                    isMySapValue(u.supplierSap)
                 );
 
                 let uploadedBadge = alreadyUploaded ? `
@@ -3862,35 +3905,89 @@ function getRowSap(row) {
     return normalizeValue(row["رقم المورد"] || row["SAP"] || row["Sap"] || row["رقم ساب"] || row["ساب"]);
 }
 
-/** كتابة وثائق ملف واحد: معرّف الوثيقة f_<fileId>__<sap>__cN — إضافة فقط، لا حذف */
+
+/** ربط صفوف الرحلات/المستحقات برقم المفوض من سيارات نفس الساب (لوحة/كود) قبل التقسيم والرفع */
+function stampDelegatePhoneOnRowsFromVehicles(rows, vehicleSource) {
+    let map = new Map(); // plate|code -> phone
+    (vehicleSource || []).forEach(function(v) {
+        let ph = (typeof getRowDelegatePhone === "function") ? getRowDelegatePhone(v) : "";
+        if (!ph) return;
+        let p = normalizeValue(v["رقم اللوحة"] || v["رقم اللوحات"] || "");
+        let c = normalizeValue(v["كود الحافلة"] || v["كود"] || "");
+        if (p) map.set("p:" + p, ph);
+        if (c) map.set("c:" + c, ph);
+    });
+    if (!map.size) return rows;
+    (rows || []).forEach(function(r) {
+        if ((typeof getRowDelegatePhone === "function") && getRowDelegatePhone(r)) return; // موجود مسبقاً
+        let p = normalizeValue(r["رقم اللوحة"] || r["رقم اللوحات"] || "");
+        let c = normalizeValue(r["كود الحافلة"] || r["كود"] || r["Bus Trip Code"] || "");
+        let ph = (p && map.get("p:" + p)) || (c && map.get("c:" + c)) || "";
+        if (ph) r["المفوض"] = ph;
+    });
+    return rows;
+}
+
+/**
+ * مفتاح تقسيم الوثيقة: ساب فقط، أو ساب+هاتف المفوض إن وُجد.
+ * يُخزَّن كل جزء في وثائق منفصلة حتى لا يحمّل المفوض بيانات باقي المورد.
+ */
+function getRowDelegatePartition(row) {
+    let sap = getRowSap(row);
+    let ph = "";
+    try { ph = (typeof getRowDelegatePhone === "function") ? getRowDelegatePhone(row) : ""; } catch (e) { ph = ""; }
+    return { sap: sap, phone: ph || "" };
+}
+
+/** كتابة وثائق ملف واحد: f_<fileId>__<sap>[__d_<phone>]__cN — تقسيم بالساب، وبالساب+المفوض عند وجود رقم مفوض */
 async function writeFileDocs(collectionName, fileId, rows) {
-    const bySap = new Map();
+    // مفتاح المجموعة: sap + "\x1e" + phone (phone فارغ = بيانات المورد غير المفوَّضة / العامة تحت الساب)
+    const byPart = new Map();
     rows.forEach(r => {
-        const s = getRowSap(r);
-        if (!s) return;
-        if (!bySap.has(s)) bySap.set(s, []);
-        bySap.get(s).push(r);
+        const p = getRowDelegatePartition(r);
+        if (!p.sap) return;
+        if (p.phone) {
+            try { r["المفوض"] = p.phone; } catch (e) {}
+        }
+        const key = p.sap + "\x1e" + (p.phone || "");
+        if (!byPart.has(key)) byPart.set(key, { sap: p.sap, phone: p.phone || "", rows: [] });
+        byPart.get(key).rows.push(r);
     });
     const col = db.collection("data_" + collectionName);
     const jobs = [];
-    for (const [sap, rs] of bySap) {
+    let sapSet = new Set();
+    for (const [, part] of byPart) {
+        const sap = part.sap;
+        const phone = part.phone || "";
         const clean = sanitizeDocId(sap);
-        splitRowsIntoChunks(rs).forEach((ch, c) => {
+        const phoneClean = phone ? sanitizeDocId(phone) : "";
+        sapSet.add(sap);
+        splitRowsIntoChunks(part.rows).forEach((ch, c) => {
             const json = JSON.stringify(ch);
             const bytes = utf8ByteLength(json);
             if (bytes > 1048487) {
-                throw new Error("FILE_TOO_LARGE|بيانات المورد (" + sap + ") تجاوزت الحد المسموح. قسّم الملف يدوياً (مثلاً حسب الفرع).");
+                throw new Error("FILE_TOO_LARGE|بيانات المورد (" + sap + (phone ? " / مفوض " + phone : "") + ") تجاوزت الحد. قسّم الملف يدوياً.");
             }
+            // معرّف فريد لكل قسم: ساب، أو ساب+مفوض
+            const id = phoneClean
+                ? ("f_" + fileId + "__" + clean + "__d_" + phoneClean + "__c" + c)
+                : ("f_" + fileId + "__" + clean + "__c" + c);
             jobs.push({
-                id: "f_" + fileId + "__" + clean + "__c" + c,
+                id: id,
                 bytes: bytes,
-                data: { payload: json, sapNumberClean: clean, sapNumber: sap, fileId: fileId, chunkIndex: c }
+                data: {
+                    payload: json,
+                    sapNumberClean: clean,
+                    sapNumber: sap,
+                    delegatePhoneClean: phoneClean || "",
+                    hasDelegate: !!phoneClean,
+                    fileId: fileId,
+                    chunkIndex: c
+                }
             });
         });
     }
-    // دفعات: حتى 400 عملية و ~6MB (وتتقلص تلقائياً عند الحاجة)
     let i = 0, done = 0, maxOps = 400;
-    const resultDiv = document.getElementById("adminResult");
     while (i < jobs.length) {
         const batch = db.batch();
         let n = 0, bytes = 0;
@@ -3907,7 +4004,7 @@ async function writeFileDocs(collectionName, fileId, rows) {
         i += n; done += n;
         setAdminProgress(30 + (done / jobs.length) * 55, "جاري رفع البيانات لقاعدة البيانات... (" + done + " من " + jobs.length + ")");
     }
-    return { docs: jobs.length, saps: bySap.size };
+    return { docs: jobs.length, saps: sapSet.size, partitions: byPart.size };
 }
 
 /** مسح كل وثائق مجموعة بيانات */
@@ -3941,13 +4038,62 @@ async function downloadAllData(collectionName) {
 }
 
 async function downloadSupplierDataBySap(collectionName, sapNumber) {
+    // المورد الأساسي / الإدارة: كل أقسام هذا الساب (بما فيها المفوضين)
     let sanitizedSap = sanitizeDocId(sapNumber);
     let snap = await db.collection("data_" + collectionName).where("sapNumberClean", "==", sanitizedSap).get();
     if (snap.empty) return [];
     let fullArray = [];
     snap.docs.forEach(doc => {
         let d = doc.data();
-        if (d.payload && d.fileId) {   // وثائق النظام القديم (بدون fileId) تُتجاهل
+        if (d.payload && d.fileId) {
+            let parsed = JSON.parse(d.payload);
+            for (let i = 0; i < parsed.length; i++) fullArray.push(parsed[i]);
+        }
+    });
+    return fullArray;
+}
+
+/**
+ * تحميل بيانات المفوض فقط من السيرفر: وثائق مقسّمة بـ ساب + هاتف المفوض.
+ * لا يُجلب باقي ملف المورد — يمنع عرض/اختراق بيانات غير مفوَّضة من الاستجابة.
+ */
+async function downloadSupplierDataBySapAndDelegate(collectionName, sapNumber, delegatePhone) {
+    let sanitizedSap = sanitizeDocId(sapNumber);
+    let phoneClean = sanitizeDocId(normalizePhoneDigits(delegatePhone || ""));
+    if (!sanitizedSap || !phoneClean) return [];
+    let fullArray = [];
+    try {
+        // استعلام مركّب: يتطلب فهرساً في Firestore (sapNumberClean + delegatePhoneClean) إن طُلب إنشاؤه
+        let snap = await db.collection("data_" + collectionName)
+            .where("sapNumberClean", "==", sanitizedSap)
+            .where("delegatePhoneClean", "==", phoneClean)
+            .get();
+        snap.docs.forEach(doc => {
+            let d = doc.data();
+            if (d.payload && d.fileId) {
+                let parsed = JSON.parse(d.payload);
+                for (let i = 0; i < parsed.length; i++) fullArray.push(parsed[i]);
+            }
+        });
+    } catch (e) {
+        console.warn("downloadSapDelegate composite query", e);
+        // لا نرجع لجلب الساب كاملاً — أماناً: نفضّل فراغ أو محاولة قراءة بالمعرّف إن أمكن
+        throw e;
+    }
+    return fullArray;
+}
+
+/** تحميل بيانات المفوض: كل الوثائق المسجّلة على هاتفه (أي مورد/فرع) — بدون اشتراط ساب واحد */
+async function downloadDelegateDataByPhone(collectionName, delegatePhone) {
+    let phoneClean = sanitizeDocId(normalizeDelegatePhone(delegatePhone || ""));
+    if (!phoneClean) return [];
+    let fullArray = [];
+    let snap = await db.collection("data_" + collectionName)
+        .where("delegatePhoneClean", "==", phoneClean)
+        .get();
+    snap.docs.forEach(doc => {
+        let d = doc.data();
+        if (d.payload && d.fileId) {
             let parsed = JSON.parse(d.payload);
             for (let i = 0; i < parsed.length; i++) fullArray.push(parsed[i]);
         }
@@ -4028,8 +4174,325 @@ async function downloadSupplierDataByOffice(collectionName, officeName) {
 function rowMatchesActiveSupplier(row, activeSap, officeKeysSet) {
     // الربط برقم المورد (ساب) فقط — بدون تخمين بالاسم
     if (!row || !activeSap) return false;
-    return normalizeValue(row["رقم المورد"]) === activeSap;
+    let _rs = normalizeValue(row["رقم المورد"]);
+    // مفوض أمام أكثر من مورد: كل أرقام الساب المرتبطة به (الاختيار من قائمة المكاتب يُطبَّق على البيانات نفسها)
+    if (isDelegateUser && loggedInDelegateSaps.length > 1 && activeSap === loggedInSupplierSapGlobal) {
+        return loggedInDelegateSaps.indexOf(_rs) >= 0;
+    }
+    return _rs === activeSap;
 }
+
+/** تطبيع رقم هاتف للمقارنة (أرقام فقط) */
+function normalizePhoneDigits(v) {
+    return String(v == null ? "" : v).replace(/[^0-9]/g, "");
+}
+
+/** قراءة رقم المفوض من صف السيارة (عمود المفوض أو مرادفات) */
+function getRowDelegatePhone(row) {
+    if (!row) return "";
+    let raw = row["المفوض"] || row["رقم المفوض"] || row["هاتف المفوض"] || row["مفوض"] || row["delegate"] || row["Delegate"] || "";
+    return normalizeDelegatePhone(raw);
+}
+
+/** بناء مفاتيح لوحات/أكواد السيارات المفوَّضة لهاتف معيّن ضمن ساب */
+function buildDelegateVehicleKeys(vehicles, sap, phone) {
+    let keys = new Set();
+    let sapN = normalizeValue(sap || "");
+    let ph = normalizePhoneDigits(phone || "");
+    if (!ph) return keys;
+    (vehicles || []).forEach(function(v) {
+        if (sapN && normalizeValue(v["رقم المورد"]) !== sapN) return;
+        if (getRowDelegatePhone(v) !== ph) return;
+        let p = normalizeValue(v["رقم اللوحة"] || v["رقم اللوحات"] || "");
+        let c = normalizeValue(v["كود الحافلة"] || v["كود"] || "");
+        if (p) keys.add(p);
+        if (c) keys.add(c);
+    });
+    return keys;
+}
+
+/**
+ * هل الصف ظاهر للمستخدم الحالي؟
+ * - المورد الأساسي / الأدمن: حسب الساب فقط
+ * - المفوض: الساب + (المفوض على صف السيارة، أو كود/لوحة ضمن سياراته المفوضة)
+ */
+function rowVisibleToCurrentUser(row, activeSap, officeKeysSet, vehicleKeysForDelegate) {
+    if (!rowMatchesActiveSupplier(row, activeSap, officeKeysSet)) return false;
+    if (!isDelegateUser || !loggedInDelegatePhone) return true;
+    let ph = loggedInDelegatePhone;
+    let dPh = getRowDelegatePhone(row);
+    if (dPh && dPh === ph) return true;
+    let keys = vehicleKeysForDelegate || window.__delegateVehKeys;
+    if (keys && keys.size) {
+        let p = normalizeValue(row["رقم اللوحة"] || row["رقم اللوحات"] || "");
+        let c = normalizeValue(row["كود الحافلة"] || row["كود"] || row["Bus Trip Code"] || "");
+        if (p && keys.has(p)) return true;
+        if (c && keys.has(c)) return true;
+    }
+    return false;
+}
+
+/** تصفية السيارات/الرحلات/المستحقات لحساب المفوض بعد التحميل بالساب */
+function applyDelegateDataFilter() {
+    window.__delegateVehKeys = null;
+    window.__delAll = null;
+    if (!isDelegateUser || !loggedInDelegatePhone || !loggedInSupplierSapGlobal) return;
+    let ph = loggedInDelegatePhone;
+    let saps = new Set((loggedInDelegateSaps && loggedInDelegateSaps.length) ? loggedInDelegateSaps : [loggedInSupplierSapGlobal]);
+    globalVehicles = (globalVehicles || []).filter(function(v) {
+        return saps.has(normalizeValue(v["رقم المورد"])) && getRowDelegatePhone(v) === ph;
+    });
+    let keys = buildDelegateVehicleKeys(globalVehicles, "", ph);
+    window.__delegateVehKeys = keys;
+    function tripOrDueMatch(d) {
+        if (!saps.has(normalizeValue(d["رقم المورد"]))) return false;
+        let dPh = getRowDelegatePhone(d);
+        if (dPh && dPh === ph) return true;
+        let p = normalizeValue(d["رقم اللوحة"] || d["رقم اللوحات"] || "");
+        let c = normalizeValue(d["كود الحافلة"] || d["كود"] || d["Bus Trip Code"] || "");
+        if (p && keys.has(p)) return true;
+        if (c && keys.has(c)) return true;
+        return false;
+    }
+    globalTrips = (globalTrips || []).filter(tripOrDueMatch);
+    globalDues = (globalDues || []).filter(tripOrDueMatch);
+    // نحتفظ بالكل ثم نطبّق اختيار المكاتب (قائمة المكاتب أعلى الصفحة)
+    window.__delAll = { v: globalVehicles, t: globalTrips, d: globalDues };
+    delegateApplyOfficeSelection(true);
+    try { renderDelegateOfficePicker(); } catch (e) {}
+}
+
+/** تطبيق اختيار المكاتب على بيانات المفوض (null/فارغ = كل المكاتب) */
+function delegateApplyOfficeSelection(skipRefresh) {
+    if (!window.__delAll) return;
+    let sel = window.__delSelSaps;
+    let valid = (sel && sel.size) ? Array.from(sel).filter(function(x) { return loggedInDelegateSaps.indexOf(x) >= 0; }) : [];
+    let set = valid.length ? new Set(valid) : null;
+    window.__delSelSaps = set;
+    let f = function(arr) { return set ? arr.filter(function(r) { return set.has(normalizeValue(r["رقم المورد"])); }) : arr.slice(); };
+    globalVehicles = f(window.__delAll.v);
+    globalTrips = f(window.__delAll.t);
+    globalDues = f(window.__delAll.d);
+    if (!skipRefresh && typeof applyGlobalFilter === "function") applyGlobalFilter();
+}
+
+function delegateOfficeLabel(sap) {
+    let m = (window.__delOfficeBySap || {})[sap];
+    return (m && String(m).trim()) ? String(m).trim() : ("ساب " + sap);
+}
+function delegateOfficeBtnLabel() {
+    let sel = window.__delSelSaps;
+    if (!sel || !sel.size || sel.size >= loggedInDelegateSaps.length) return "كل المكاتب";
+    if (sel.size === 1) return delegateOfficeLabel(Array.from(sel)[0]);
+    return sel.size + " مكاتب";
+}
+/** قائمة اختيار المكاتب مكان «المكتب» للمفوض المرتبط بأكثر من مورد */
+function renderDelegateOfficePicker() {
+    let el = document.getElementById("showOffice");
+    if (!el || !isDelegateUser || loggedInDelegateSaps.length < 2) return;
+    let sel = window.__delSelSaps;
+    let checks = loggedInDelegateSaps.map(function(sap) {
+        let on = (!sel || !sel.size) || sel.has(sap);
+        return '<label><input type="checkbox" class="office-cb" value="' + sanitizeHTML(sap) + '"' + (on ? " checked" : "") + ' onchange="onOfficeCheckboxChange()"> ' + sanitizeHTML(delegateOfficeLabel(sap)) + ' <span style="opacity:.7;font-size:10px;">(' + sanitizeHTML(sap) + ')</span></label>';
+    }).join("");
+    el.innerHTML = '<div class="branch-multi-wrap">'
+        + '<button type="button" class="branch-multi-btn" id="officeMultiBtn" onclick="toggleOfficeDropdown(event)">المكتب: ' + sanitizeHTML(delegateOfficeBtnLabel()) + ' ▾</button>'
+        + '<div class="branch-multi-drop" id="officeMultiDrop">' + checks
+        + '<div class="branch-multi-actions"><button type="button" onclick="selectAllOffices()">الكل</button></div></div></div>';
+}
+function toggleOfficeDropdown(ev) {
+    if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+    let drop = document.getElementById("officeMultiDrop");
+    let btn = document.getElementById("officeMultiBtn");
+    if (!drop) return;
+    let willOpen = !drop.classList.contains("open");
+    drop.classList.toggle("open");
+    if (willOpen && btn) {
+        drop.style.top = ""; drop.style.bottom = ""; drop.style.maxHeight = "";
+        let r = btn.getBoundingClientRect();
+        let below = window.innerHeight - r.bottom, above = r.top;
+        let pref = Math.min(280, Math.floor(window.innerHeight * 0.55));
+        if (below < 160 && above > below) {
+            drop.style.top = "auto"; drop.style.bottom = "calc(100% + 3px)";
+            drop.style.maxHeight = Math.max(120, Math.min(pref, above - 12)) + "px";
+        } else {
+            drop.style.top = "calc(100% + 3px)"; drop.style.bottom = "auto";
+            drop.style.maxHeight = Math.max(120, Math.min(pref, below - 12)) + "px";
+        }
+    }
+}
+function onOfficeCheckboxChange() {
+    let chosen = [];
+    document.querySelectorAll("#officeMultiDrop input.office-cb").forEach(function(cb) { if (cb.checked) chosen.push(cb.value); });
+    // لا يُسمح بترك القائمة فارغة: فارغ = الكل
+    window.__delSelSaps = (chosen.length && chosen.length < loggedInDelegateSaps.length) ? new Set(chosen) : null;
+    let btn = document.getElementById("officeMultiBtn");
+    if (btn) btn.textContent = "المكتب: " + delegateOfficeBtnLabel() + " ▾";
+    delegateApplyOfficeSelection(false);
+}
+function selectAllOffices() {
+    document.querySelectorAll("#officeMultiDrop input.office-cb").forEach(function(cb) { cb.checked = true; });
+    onOfficeCheckboxChange();
+}
+document.addEventListener("click", function(e) {
+    let drop = document.getElementById("officeMultiDrop");
+    if (!drop) return;
+    let wrap = drop.parentNode;
+    if (wrap && !wrap.contains(e.target)) drop.classList.remove("open");
+});
+
+/** هاتف مفوض موحّد: أرقام فقط، مع استرجاع صفر البداية الضائع في الإكسل (1012345678 → 01012345678) أو كود الدولة (20...) */
+function normalizeDelegatePhone(v) {
+    let d = normalizePhoneDigits(v);
+    if (/^201[0-9]{9}$/.test(d)) d = "0" + d.slice(2);
+    else if (/^1[0-9]{9}$/.test(d)) d = "0" + d;
+    return d;
+}
+/** صيغ محتملة لنفس الهاتف عند البحث (مع/بدون صفر البداية وكود الدولة) */
+function delegatePhoneVariants(phone) {
+    let d = normalizePhoneDigits(phone);
+    let core = d.replace(/^20/, "").replace(/^0+/, "");
+    let out = new Set([d]);
+    if (core) { out.add(core); out.add("0" + core); out.add("20" + core); }
+    return Array.from(out).filter(Boolean);
+}
+/** اسم مكتب المورد الأساسي من رقم الساب (لعرضه عند المفوض) */
+async function lookupOfficeNameForSap(sap) {
+    try {
+        let snap = await db.collection("suppliers").where("sapNumber", "==", normalizeValue(sap)).get();
+        let office = "";
+        snap.forEach(function(doc) {
+            let d = doc.data() || {};
+            if (d.isDelegate === true || d.role === "delegate") return;
+            if (!office && d.officeName) office = d.officeName;
+        });
+        return office;
+    } catch (e) { return ""; }
+}
+/** أرقام الساب المكتوب عندها هاتف هذا المفوض في ملف السيارات المرفوع */
+async function resolveDelegateSapsFromVehicles(phone) {
+    let cleans = delegatePhoneVariants(phone).map(function(x) { return sanitizeDocId(x); });
+    let out = [];
+    let snap = await db.collection("data_vehicles").where("delegatePhoneClean", "in", cleans.slice(0, 10)).get();
+    snap.forEach(function(doc) {
+        let sp = normalizeValue((doc.data() || {}).sapNumber);
+        if (sp && out.indexOf(sp) < 0) out.push(sp);
+    });
+    return out;
+}
+/** قائمة السابات الخاصة بالمستخدم الحالي: المورد = ساب واحد، المفوض = كل السابات المرتبط بها */
+function mySapList() {
+    if (isDelegateUser && loggedInDelegateSaps && loggedInDelegateSaps.length) return loggedInDelegateSaps.slice();
+    let one = normalizeValue(loggedInSupplierSapGlobal || "");
+    return one ? [one] : [];
+}
+function isMySapValue(x) {
+    let v = normalizeValue(x);
+    return !!v && mySapList().indexOf(v) >= 0;
+}
+/** استعلام مجمّع بالساب لكل سابات المستخدم (استعلام لكل ساب ثم دمج) — يرجع كائناً فيه forEach مثل QuerySnapshot */
+async function getByMySaps(collectionName, field, limitN) {
+    let docs = [];
+    for (const sp of mySapList()) {
+        let q = db.collection(collectionName).where(field, "==", sp);
+        if (limitN) q = q.limit(limitN);
+        let sn = await q.get();
+        sn.forEach(function(d) { docs.push(d); });
+    }
+    return { forEach: function(fn) { docs.forEach(fn); }, docs: docs };
+}
+
+/** كتابة ربط المفوض: الساب الأساسي + كل الأرقام + اسم مكتب كل ساب */
+async function writeDelegateLink(docRef, saps, existing) {
+    let officeBySap = {};
+    for (const sp of saps) officeBySap[sp] = (await lookupOfficeNameForSap(sp)) || ((existing && existing.officeBySap && existing.officeBySap[sp]) || "");
+    await docRef.update({
+        sapNumber: saps[0],
+        sapNumbers: saps,
+        officeName: officeBySap[saps[0]] || "",
+        officeBySap: officeBySap,
+        delegateLinkedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+}
+function _sameList(a, b) {
+    a = (a || []).slice().sort(); b = (b || []).slice().sort();
+    return a.length === b.length && a.every(function(x, i) { return x === b[i]; });
+}
+/** ربط حساب مفوض جديد بالمورّدين من ملفات السيارات (إن كان هاتفه مكتوباً فيها مسبقاً) */
+async function autoLinkNewDelegate(uid, phone) {
+    let saps = [];
+    try { saps = await resolveDelegateSapsFromVehicles(phone); } catch (e) { console.warn("resolveDelegateSaps", e); }
+    if (!saps.length) {
+        return { linked: false, note: "لم يُوجد هاتفه بعد في عمود «المفوض» بملف السيارات — سيُربط تلقائياً بمجرد رفع الملف." };
+    }
+    try {
+        await writeDelegateLink(db.collection("suppliers").doc(uid), saps, null);
+    } catch (e) {
+        console.warn("autoLinkNewDelegate", e);
+        return { linked: false, note: "تعذر الربط التلقائي الآن — سيُربط عند رفع ملف السيارات." };
+    }
+    return { linked: true, sap: saps[0], note: "تم ربطه تلقائياً بـ " + saps.length + " مورد (ساب: " + saps.join("، ") + ")." };
+}
+/** ربط حسابات المفوضين الموجودة بناءً على عمود «المفوض» في ملف السيارات؛ المرجع كل ملفات السيارات المرفوعة (وليس الملف الحالي فقط) */
+async function linkDelegatesFromVehicleRows(rows) {
+    let map = new Map();
+    (rows || []).forEach(function(r) {
+        let ph = getRowDelegatePhone(r), sp = getRowSap(r);
+        if (!ph || !sp) return;
+        if (!map.has(ph)) map.set(ph, []);
+        if (map.get(ph).indexOf(sp) < 0) map.get(ph).push(sp);
+    });
+    let res = { total: map.size, linked: 0, noAccount: [], multi: [] };
+    for (const [ph, fileSaps] of map) {
+        let saps = [];
+        try { saps = await resolveDelegateSapsFromVehicles(ph); } catch (e) { console.warn("resolve saps", e); }
+        if (!saps.length) saps = fileSaps;
+        if (saps.length > 1) res.multi.push(ph);
+        let snap;
+        try { snap = await db.collection("suppliers").where("phone", "in", delegatePhoneVariants(ph).slice(0, 10)).get(); }
+        catch (e) { console.warn("link delegate query", e); res.noAccount.push(ph); continue; }
+        let found = 0;
+        for (const doc of snap.docs) {
+            let d = doc.data() || {};
+            if (!(d.isDelegate === true || d.role === "delegate")) continue;
+            found++;
+            let cur = Array.isArray(d.sapNumbers) ? d.sapNumbers.map(normalizeValue) : (d.sapNumber ? [normalizeValue(d.sapNumber)] : []);
+            if (_sameList(cur, saps) && normalizeValue(d.sapNumber) === saps[0]) { res.linked++; continue; }
+            try { await writeDelegateLink(doc.ref, saps, d); res.linked++; }
+            catch (e) { console.warn("link delegate update", e); }
+        }
+        if (!found) res.noAccount.push(ph);
+    }
+    return res;
+}
+
+function applyDelegateIdentityUI(d) {
+    if (!d) return;
+    isDelegateUser = !!(d.isDelegate === true || d.role === "delegate");
+    loggedInDelegatePhone = isDelegateUser ? normalizeDelegatePhone(d.phone || d.delegatePhone || "") : "";
+    loggedInDelegateSaps = [];
+    window.__delOfficeBySap = {};
+    if (isDelegateUser) {
+        let _list = Array.isArray(d.sapNumbers) ? d.sapNumbers.map(function(x) { return normalizeValue(x); }) : [];
+        let _prim = normalizeValue(d.sapNumber);
+        if (_prim && _list.indexOf(_prim) < 0) _list.unshift(_prim);
+        loggedInDelegateSaps = _list.filter(Boolean);
+        window.__delOfficeBySap = (d.officeBySap && typeof d.officeBySap === "object") ? d.officeBySap : {};
+        if (_prim && d.officeName && !window.__delOfficeBySap[_prim]) window.__delOfficeBySap[_prim] = d.officeName;
+    }
+    if (isDelegateUser) {
+        let ownerLabel = d.ownerName || d.delegateName || "مفوض";
+        let officeLabel = d.officeName || d.supplierOffice || "";
+        document.getElementById("showOwner").innerHTML = "المفوض: " + ownerLabel;
+        document.getElementById("showOffice").innerHTML = normalizeValue(d.sapNumber)
+            ? ("تابع لمورد ساب: " + normalizeValue(d.sapNumber) + (officeLabel ? " — " + officeLabel : ""))
+            : "⏳ لم يُربط حسابك بسيارات بعد";
+        if (loggedInDelegateSaps.length > 1) { try { renderDelegateOfficePicker(); } catch (eOP) {} }
+        let roleEl = document.getElementById("showRole");
+        if (roleEl) roleEl.innerHTML = "الصلاحية: مفوض (رحلات فاشلة / جدولة / مستحقات)";
+    }
+}
+
 
 async function updateSystemVersion() {
     try {
@@ -4087,7 +4550,7 @@ async function safeUploadTest(inputId, label) {
                     k.includes("لوحة") || k.includes("كود") || k === "كود الحافلة"
                 );
                 if (!hasSapOrName || !hasPlateOrCode) {
-                    resultDiv.innerHTML = `❌ الملف غير مطابق لقالب السيارات. تأكد من وجود أعمدة مثل: رقم المورد / اسم المورد، ورقم اللوحة أو كود الحافلة.`;
+                    resultDiv.innerHTML = `❌ الملف غير مطابق لقالب السيارات. تأكد من وجود أعمدة مثل: رقم المورد / اسم المورد، ورقم اللوحة أو كود الحافلة. عمود اختياري: المفوض (رقم هاتف حساب المفوض).`;
                     window.__uploadInProgress = false;
                     return;
                 }
@@ -4127,6 +4590,11 @@ async function safeUploadTest(inputId, label) {
                 let sap = getRowSap(row);
                 if (!sap) { rowsNoSap++; return; }
                 row["رقم المورد"] = sap;
+                // تطبيع رقم المفوض إن وُجد (أرقام فقط) لتسهيل المطابقة عند الدخول
+                try {
+                    let _delPh = getRowDelegatePhone(row);
+                    if (_delPh) row["المفوض"] = _delPh;
+                } catch (eDel) {}
                 if (collectionName === "dues") {
                     if (!row["الفترة"] && (row["الفتره"] || row["فترة"])) row["الفترة"] = row["الفتره"] || row["فترة"];
                     if (!row["الفرع"] && row["فرع"]) row["الفرع"] = row["فرع"];
@@ -4264,6 +4732,12 @@ async function safeUploadTest(inputId, label) {
 
             // 1) إضافة وثائق الملف الجديد (لا يُحذف أي شيء قبل نجاح الكتابة)
             setAdminProgress(30, "جاري تجهيز البيانات للرفع...");
+            // رحلات/مستحقات: وسم المفوض من السيارات قبل التقسيم (ساب+هاتف) حتى لا تُخلط مع باقي المورد
+            if (collectionName === "trips" || collectionName === "dues") {
+                let vehSrc = (globalVehicles || []).slice();
+                // إن وُجدت سيارات في الذاكرة من رفع سابق لنفس الجلسة
+                try { stampDelegatePhoneOnRowsFromVehicles(data, vehSrc); } catch (eSt) { console.warn(eSt); }
+            }
             await writeFileDocs(collectionName, fileId, data);
 
             await db.collection("systemFiles").doc(fileId).set({
@@ -4291,6 +4765,16 @@ async function safeUploadTest(inputId, label) {
 
             let matchNote = `<br><span style="color:#155724;font-size:12px;">✓ ${data.length} صف مرتبط بـ ${fileSaps.size} مورد (برقم ساب).</span>`;
             matchNote += scopeNote;
+            if (collectionName === "vehicles") {
+                try {
+                    const lr = await linkDelegatesFromVehicleRows(data);
+                    if (lr.total) {
+                        matchNote += `<br><span style="color:#155724;font-size:12px;">🔗 المفوضون: تم ربط ${lr.linked} حساب مفوض بأرقام الساب من عمود «المفوض» (من أصل ${lr.total} رقم).</span>`;
+                        if (lr.noAccount.length) matchNote += `<br><span style="color:#856404;font-size:12px;">⚠️ ${lr.noAccount.length} رقم مفوض في الملف ليس له حساب (أنشئ حسابه وسيُربط تلقائياً): ${lr.noAccount.slice(0, 5).join("، ")}${lr.noAccount.length > 5 ? " ..." : ""}</span>`;
+                        if (lr.multi.length) matchNote += `<br><span style="color:#0f6674;font-size:12px;">ℹ️ ${lr.multi.length} مفوض مرتبط بأكثر من مورد — تظهر له قائمة اختيار المكاتب.</span>`;
+                    }
+                } catch (eLk) { console.warn("delegate link", eLk); }
+            }
             if (rowsNoSap > 0) {
                 matchNote += `<br><span style="color:#856404;font-size:12px;">⚠️ ${rowsNoSap} صف بدون رقم مورد لم يُرفع.</span>`;
             }
@@ -5287,6 +5771,7 @@ async function exportAdminDataToExcel() {
 }
 
 function applyAdminPermissionsUI() {
+    if (typeof syncAdminComplaintBtn === "function") syncAdminComplaintBtn();
     if(currentRole === "super_admin") {
         ["btn-tab-admins","btn-tab-data","btn-tab-suppliers","btn-tab-msgs","btn-tab-reports","btn-tab-complaints","btn-tab-settings","btn-tab-audit"].forEach(id => {
             let el = document.getElementById(id); if (el) el.classList.remove("hide");
@@ -5378,6 +5863,7 @@ function listenAdminComps() {
             snap.forEach(doc => globalComplaints.push(doc.data()));
             
             let unreadAdmin = globalComplaints.filter(c => c.status === 'open').length;
+            if (typeof syncAdminCompOuterBadge === "function") syncAdminCompOuterBadge(unreadAdmin);
             let adminBadge = document.getElementById("adminCompBadge");
             if(adminBadge) {
                 let prev = parseInt(adminBadge.innerText || "0", 10) || 0;
@@ -5500,10 +5986,15 @@ if(data.exists){
 
     if(currentRole === "supplier"){
         loggedInSupplierSapGlobal = normalizeValue(d.sapNumber);
-        document.getElementById("showOwner").innerHTML="المورد: "+ (d.ownerName || "غير مسجل");
-        document.getElementById("showOffice").innerHTML="المكتب: "+ (d.officeName || "غير مسجل");
+        if (typeof applyDelegateIdentityUI === "function") applyDelegateIdentityUI(d);
+        if (!isDelegateUser) {
+            document.getElementById("showOwner").innerHTML="المورد: "+ (d.ownerName || "غير مسجل");
+            document.getElementById("showOffice").innerHTML="المكتب: "+ (d.officeName || "غير مسجل");
+        }
     } else {
         loggedInSupplierSapGlobal = "";
+        loggedInDelegatePhone = "";
+        isDelegateUser = false;
         currentUserName = d.ownerName || (currentRole==="super_admin"?"مدير النظام":"مشرف");
         document.getElementById("showOwner").innerHTML = (currentRole==="super_admin"?"👑 مدير النظام: ":"🛡️ مشرف: ") + currentUserName;
         document.getElementById("showOffice").innerHTML="المكتب: الإدارة";
@@ -5511,6 +6002,8 @@ if(data.exists){
 } else {
     if(currentRole === "supplier"){
         loggedInSupplierSapGlobal = "";
+        loggedInDelegatePhone = "";
+        isDelegateUser = false;
         document.getElementById("showOwner").innerHTML="المورد: غير مسجل";
         document.getElementById("showOffice").innerHTML="المكتب: غير مسجل";
     } else {
@@ -5531,6 +6024,7 @@ if(currentRole==="admin" || currentRole==="super_admin"){
  if (_exLblA) _exLblA.textContent = "تصدير";
  document.getElementById("supplierExportBtn").title = "تصدير البيانات (حافلات ورحلات ومستحقات) حسب الفلاتر";
  document.getElementById("complaintBtn").classList.add("hide");
+  if (typeof syncAdminComplaintBtn === "function") syncAdminComplaintBtn();
  document.getElementById("changePassBtn").classList.remove("hide"); 
  document.getElementById("licenseNotificationBtn").classList.remove("hide");
  document.getElementById("analysisBtn").classList.remove("hide");
@@ -5553,12 +6047,13 @@ if(currentRole==="admin" || currentRole==="super_admin"){
 }else{
  document.getElementById("adminBtn").classList.add("hide");
  document.getElementById("adminDashFilter").classList.add("hide");
- document.getElementById("showRole").innerHTML="الصلاحية: Supplier";
+ document.getElementById("showRole").innerHTML= isDelegateUser ? "الصلاحية: مفوض" : "الصلاحية: Supplier";
  document.getElementById("supplierExportBtn").classList.remove("hide");
  let _exLblB = document.getElementById("exportBtnLabel");
  if (_exLblB) _exLblB.textContent = "تصدير";
  document.getElementById("supplierExportBtn").title = "تحميل كشف حسابي";
  document.getElementById("complaintBtn").classList.remove("hide");
+  if (typeof syncAdminComplaintBtn === "function") syncAdminComplaintBtn();
  document.getElementById("adminNotificationBtn").classList.add("hide");
  document.getElementById("msgIconWrap").classList.remove("hide");
  document.getElementById("changePassBtn").classList.remove("hide"); 
@@ -5720,6 +6215,37 @@ function openAdmin(){
 }
 
 function closeAdmin(){ history.back(); }
+
+/** إظهار/إخفاء أيقونة «تواصل» الخارجية للأدمن حسب الصلاحية */
+function syncAdminComplaintBtn() {
+    const b = document.getElementById("adminComplaintBtn");
+    if (!b) return;
+    const ok = (currentRole === "super_admin") || (currentRole === "admin" && typeof adminPermissions !== "undefined" && adminPermissions && adminPermissions.complaints);
+    if (ok) b.classList.remove("hide"); else b.classList.add("hide");
+}
+
+/** تحديث عداد الشكاوى المفتوحة على الأيقونة الخارجية */
+function syncAdminCompOuterBadge(n) {
+    const el = document.getElementById("adminCompBadgeOuter");
+    if (!el) return;
+    if (n > 0) { el.style.display = "block"; el.innerText = n; el.classList.add("pulse-badge-anim"); }
+    else { el.style.display = "none"; el.innerText = "0"; el.classList.remove("pulse-badge-anim"); }
+}
+
+/** فتح لوحة الإدارة مباشرة على قسم الشكاوى والمقترحات */
+function openAdminComplaints() {
+    if (currentRole !== "super_admin" && !(currentRole === "admin" && adminPermissions && adminPermissions.complaints)) return;
+    const panel = document.getElementById("adminPanel");
+    if (panel.style.display !== "block") {
+        panel.style.display = "block";
+        history.pushState(null, null, "#admin");
+    }
+    if (typeof applyAdminPermissionsUI === "function") applyAdminPermissionsUI();
+    document.querySelectorAll("#adminPanel .tab-content").forEach(el => el.classList.remove("active"));
+    document.querySelectorAll("#adminPanel .tab-btn").forEach(el => el.classList.remove("active"));
+    if (typeof renderAdminComplaints === "function") renderAdminComplaints();
+    switchAdminTab("tab-complaints", document.getElementById("btn-tab-complaints"));
+}
 
 function filterDashSuppliers() {
     let inputStr = document.getElementById("dashSupplierSearch").value;
@@ -6086,6 +6612,53 @@ function selectMsgSupplier(sap, name) {
                         <button type="button" class="btn-sm" onclick="exportSuppliersToExcel()" style="margin:0; width:auto !important; background:#17a2b8;">📥 تحميل الكشف</button>
                     </div>
                     <div id="supplierSearchResult" style="font-size:12px; color:#333; max-height:250px; overflow-y:auto;"></div>
+                </div>
+            </div>
+
+            <div class="upload-accordion" data-color="teal" id="acc_del_create" style="margin-bottom:10px;">
+                <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_del_create')">
+                    <span class="upload-acc-plus">+</span>
+                    <p class="upload-acc-title">👤 إنشاء مفوض (يدوي)</p>
+                </div>
+                <div class="upload-acc-body">
+                    <p style="font-size:11px; color:#666; margin-top:0; line-height:1.6;">أدخل <b>اسم المفوض</b> و<b>رقم هاتفه</b> (للدخول) و<b>كلمة المرور</b> فقط. لا يُدخل رقم الساب هنا: يُربط المفوض بالموردين تلقائياً من عمود <b>المفوض</b> داخل ملف السيارات (رقم هاتفه أمام سياراته)، وقد يكون أمام أكثر من مورد وفرع؛ فيرى فقط تلك السيارات مع رحلاتها ومستحقاتها، ويختار المكتب من قائمة المكاتب.</p>
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px;">
+                        <input type="text" id="manualDelName" placeholder="اسم المفوض" style="margin:0; font-size:12px; padding:8px;">
+                        <input type="text" id="manualDelPhone" placeholder="رقم هاتف المفوض (للدخول)" style="margin:0; font-size:12px; padding:8px;">
+                        <input type="text" id="manualDelPass" placeholder="كلمة المرور الافتراضية" style="margin:0; font-size:12px; padding:8px; grid-column: 1 / -1;">
+                    </div>
+                    <div class="upload-acc-actions" style="margin-top:8px;">
+                        <button type="button" class="btn-sm" onclick="createManualDelegate()" style="background:#17a2b8; width:auto !important;">إضافة المفوض</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="upload-accordion" data-color="teal" id="acc_del_bulk" style="margin-bottom:10px;">
+                <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_del_bulk')">
+                    <span class="upload-acc-plus">+</span>
+                    <p class="upload-acc-title">📁 إنشاء مفوضين مجمّع (إكسيل)</p>
+                </div>
+                <div class="upload-acc-body">
+                    <p style="font-size:11px; color:#666; margin-top:0;">أعمدة الملف: اسم المفوض، رقم الهاتف، كلمة المرور. (الربط بالمورد يتم من عمود «المفوض» في ملف السيارات).</p>
+                    <div class="upload-acc-actions" style="flex-wrap:wrap; gap:8px;">
+                        <button type="button" class="btn-sm" onclick="downloadExcelTemplate('delegates')" style="background:#17a2b8; width:auto !important;">📄 تحميل قالب</button>
+                        <button type="button" class="btn-sm" onclick="bulkUploadDelegates('delegatesFile')" style="background:#6c757d; width:auto !important;">📥 رفع وإنشاء</button>
+                    </div>
+                    <input type="file" id="delegatesFile" accept=".xlsx,.xls" style="margin-top:8px;">
+                </div>
+            </div>
+
+            <div class="upload-accordion" data-color="teal" id="acc_del_manage" style="margin-bottom:10px;">
+                <div class="upload-acc-header" onclick="toggleUploadAccordion('acc_del_manage')">
+                    <span class="upload-acc-plus">+</span>
+                    <p class="upload-acc-title">🔑 إدارة المفوضين</p>
+                </div>
+                <div class="upload-acc-body">
+                    <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px;">
+                        <input type="text" id="adminDelegateSearchInput" placeholder="ابحث بهاتف المفوض أو ساب المورد أو الاسم..." onkeyup="searchDelegatesForManage()" style="margin:0; padding:8px; font-size:12px; flex:1; min-width:160px;">
+                        <button type="button" class="btn-sm" onclick="exportDelegatesToExcel()" style="margin:0; width:auto !important; background:#17a2b8;">📥 كشف المفوضين</button>
+                    </div>
+                    <div id="delegateSearchResult" style="font-size:12px; color:#333; max-height:250px; overflow-y:auto;"></div>
                 </div>
             </div>
         </div>
@@ -6764,6 +7337,190 @@ async function createManualSupplier() {
             searchSupplierForPasswordReset();
         }
     } catch(err) { console.error(err); document.getElementById("adminResult").innerHTML = "❌ خطأ في الاتصال."; }
+}
+
+
+async function createManualDelegate() {
+    if (!canAdminWrite()) { showAlert("🚫 حساب مشاهدة فقط."); return; }
+    let name = (document.getElementById("manualDelName") || {}).value || "";
+    name = name.trim();
+    let phone = normalizeDelegatePhone(((document.getElementById("manualDelPhone") || {}).value || "").trim());
+    let pass = ((document.getElementById("manualDelPass") || {}).value || "").trim();
+    if (!name || !phone || !pass) { showAlert("يرجى ملء اسم المفوض ورقم هاتفه (للدخول) وكلمة المرور."); return; }
+    if (phone.length < 10) { showAlert("رقم هاتف المفوض غير صالح."); return; }
+    document.getElementById("adminResult").innerHTML = "⏳ جاري إنشاء حساب المفوض...";
+    let authEmail = phone + "@elaraby.local";
+    try {
+        const oldSnap = await db.collection("suppliers").where("phone", "==", phone).get();
+        let batch = db.batch();
+        oldSnap.docs.forEach(doc => batch.delete(doc.ref));
+        if (!oldSnap.empty) await batch.commit();
+    } catch (e) {}
+    try {
+        const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${firebaseConfig.apiKey}`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: authEmail, password: pass, returnSecureToken: false })
+        });
+        const data = await res.json();
+        if (data.error) {
+            document.getElementById("adminResult").innerHTML = "❌ خطأ: الحساب موجود مسبقاً في Authentication. احذفه من Firebase أولاً أو غيّر رقم الهاتف.";
+        } else {
+            let uid = data.localId;
+            await db.collection("suppliers").doc(uid).set({
+                ownerName: name,
+                officeName: "",
+                sapNumber: "",
+                phone: phone,
+                authEmail: authEmail,
+                isDelegate: true,
+                role: "delegate",
+                readMessages: [],
+                isActive: true,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            try { await saveCredential(uid, "supplier", pass); } catch (e) { console.warn("cred", e); }
+            let _lk = await autoLinkNewDelegate(uid, phone);
+            if (typeof logAudit === "function") logAudit("إنشاء مفوض", name + " | هاتف " + phone + (_lk.linked ? " | ساب " + _lk.sap : " | بدون ربط بعد"));
+            document.getElementById("adminResult").innerHTML = "✅ تم إضافة المفوض بنجاح. " + _lk.note;
+            ["manualDelName","manualDelPhone","manualDelPass"].forEach(id => { let el = document.getElementById(id); if (el) el.value = ""; });
+            if (typeof searchDelegatesForManage === "function") searchDelegatesForManage();
+        }
+    } catch (err) {
+        console.error(err);
+        document.getElementById("adminResult").innerHTML = "❌ خطأ في الاتصال.";
+    }
+}
+
+async function bulkUploadDelegates(inputId) {
+    if (!canAdminWrite()) { showAlert("🚫 حساب مشاهدة فقط."); return; }
+    const f = document.getElementById(inputId).files[0];
+    if (!f) { document.getElementById("adminResult").innerHTML = "❌ لم يتم اختيار ملف المفوضين."; return; }
+    document.getElementById("adminResult").innerHTML = "⏳ جاري قراءة ملف المفوضين وإنشاء الحسابات...";
+    try {
+        const rows = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = e => {
+                const wb = XLSX.read(e.target.result, { type: "array" });
+                const ws = wb.Sheets[wb.SheetNames[0]];
+                resolve(XLSX.utils.sheet_to_json(ws, { defval: "" }));
+            };
+            reader.onerror = reject; reader.readAsArrayBuffer(f);
+        });
+        if (!rows.length) { document.getElementById("adminResult").innerHTML = "الملف فارغ."; return; }
+        let successCount = 0, errorCount = 0, linkedCount = 0;
+        for (let i = 0; i < rows.length; i++) {
+            let row = rows[i];
+            let phone = normalizeDelegatePhone(String(row["رقم الهاتف"] || row["هاتف المفوض"] || "").trim());
+            let name = String(row["اسم المفوض"] || row["اسم المورد"] || "").trim();
+            let pass = String(row["كلمة المرور"] || "").trim();
+            if (!phone || !pass || phone.length < 10 || !name) { errorCount++; continue; }
+            let authEmail = phone + "@elaraby.local";
+            try {
+                const oldSnap = await db.collection("suppliers").where("phone", "==", phone).get();
+                let batch = db.batch();
+                oldSnap.docs.forEach(doc => batch.delete(doc.ref));
+                if (!oldSnap.empty) await batch.commit();
+            } catch (e) {}
+            try {
+                const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${firebaseConfig.apiKey}`, {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email: authEmail, password: pass, returnSecureToken: false })
+                });
+                const data = await res.json();
+                if (data.error) { errorCount++; }
+                else {
+                    let uid = data.localId;
+                    await db.collection("suppliers").doc(uid).set({
+                        ownerName: name,
+                        officeName: "",
+                        sapNumber: "",
+                        phone: phone,
+                        authEmail: authEmail,
+                        isDelegate: true,
+                        role: "delegate",
+                        readMessages: [],
+                        isActive: true,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    try { await saveCredential(uid, "supplier", pass); } catch (e) {}
+                    try { let _lk = await autoLinkNewDelegate(uid, phone); if (_lk.linked) linkedCount++; } catch (e) {}
+                    successCount++;
+                }
+            } catch (e) { errorCount++; }
+        }
+        if (typeof logAudit === "function") logAudit("رفع مفوضين مجمّع", "نجاح " + successCount + " / أخطاء " + errorCount);
+        document.getElementById("adminResult").innerHTML = "✅ تم إنشاء " + successCount + " مفوض" + (successCount ? " (رُبط منهم تلقائياً بملف السيارات: " + linkedCount + "؛ والباقي يُربط عند رفع ملف السيارات)" : "") + (errorCount ? " — فشل " + errorCount : "");
+        if (typeof searchDelegatesForManage === "function") searchDelegatesForManage();
+    } catch (e) {
+        console.error(e);
+        document.getElementById("adminResult").innerHTML = "❌ فشل قراءة الملف: " + (e.message || e);
+    }
+}
+
+async function searchDelegatesForManage() {
+    let q = robustNormalize((document.getElementById("adminDelegateSearchInput") || {}).value || "");
+    let box = document.getElementById("delegateSearchResult");
+    if (!box) return;
+    box.innerHTML = "⏳ جاري التحميل...";
+    try {
+        let snap = await db.collection("suppliers").get();
+        let list = [];
+        snap.forEach(doc => {
+            let d = doc.data() || {};
+            if (!(d.isDelegate === true || d.role === "delegate")) return;
+            list.push({ id: doc.id, ...d });
+        });
+        if (q) {
+            list = list.filter(d => robustNormalize([d.ownerName, d.officeName, d.phone, d.sapNumber].join(" ")).includes(q));
+        }
+        if (!list.length) {
+            box.innerHTML = "<span style='color:#666;'>لا مفوضين مطابقين.</span>";
+            return;
+        }
+        let html = "";
+        list.slice(0, 80).forEach(d => {
+            let st = d.isActive === false ? "موقوف" : "نشط";
+            let stColor = d.isActive === false ? "#dc3545" : "#28a745";
+            html += `<div style="background:#f3f6fb;border:1px solid #dde6f0;border-radius:8px;padding:8px 10px;margin-bottom:6px;">
+                <div style="font-weight:bold;color:#0f6674;">${sanitizeHTML(d.ownerName || "—")} <span style="font-size:10px;color:${stColor};">(${st})</span></div>
+                <div style="font-size:11px;color:#555;">هاتف: <b dir="ltr">${sanitizeHTML(d.phone || "")}</b> · ساب المورد: <b>${d.sapNumber ? sanitizeHTML((Array.isArray(d.sapNumbers) && d.sapNumbers.length ? d.sapNumbers : [d.sapNumber]).join("، ")) : "<span style='color:#b8860b;'>لم يُربط بعد (يُربط من ملف السيارات)</span>"}</b></div>
+                <div style="font-size:11px;color:#888;">${sanitizeHTML(d.officeName || "")}</div>
+                <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
+                    <button type="button" class="btn-sm" style="width:auto !important;background:#6c757d;padding:5px 10px;font-size:11px;" onclick="toggleSupplierStatus('${d.id}', ${d.isActive === false ? "true" : "false"})">${d.isActive === false ? "تفعيل" : "إيقاف"}</button>
+                </div>
+            </div>`;
+        });
+        box.innerHTML = html;
+    } catch (e) {
+        box.innerHTML = "❌ " + (e.message || e);
+    }
+}
+
+async function exportDelegatesToExcel() {
+    try {
+        let snap = await db.collection("suppliers").get();
+        let rows = [];
+        snap.forEach(doc => {
+            let d = doc.data() || {};
+            if (!(d.isDelegate === true || d.role === "delegate")) return;
+            rows.push({
+                "اسم المفوض": d.ownerName || "",
+                "رقم الهاتف": d.phone || "",
+                "رقم ساب المورد": (Array.isArray(d.sapNumbers) && d.sapNumbers.length ? d.sapNumbers.join("، ") : (d.sapNumber || "غير مربوط بعد")),
+                "اسم المكتب": d.officeName || "",
+                "الحالة": d.isActive === false ? "موقوف" : "نشط"
+            });
+        });
+        if (!rows.length) { showAlert("لا مفوضين للتصدير."); return; }
+        const ws = XLSX.utils.json_to_sheet(rows);
+        if (typeof styleExcelSheet === "function") styleExcelSheet(ws, rows);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "المفوضين");
+        XLSX.writeFile(wb, "كشف_المفوضين.xlsx");
+        showAlert("✅ تم تصدير " + rows.length + " مفوض.");
+    } catch (e) {
+        showAlert("❌ " + (e.message || e));
+    }
 }
 
 async function bulkUploadSuppliers(inputId) {
@@ -7832,16 +8589,27 @@ async function _loadSupplierDataImpl(){
    let loggedInSap = "";
    if(supplierDoc.exists && (currentRole !== "admin" && currentRole !== "super_admin")) {
        loggedInSap = normalizeValue(supplierDoc.data().sapNumber);
-       loggedInSupplierSapGlobal = loggedInSap; 
-       document.getElementById("showOwner").innerHTML="المورد: " + (supplierDoc.data().ownerName || "غير مسجل");
-       document.getElementById("showOffice").innerHTML="المكتب: " + (supplierDoc.data().officeName || "غير مسجل");
+       loggedInSupplierSapGlobal = loggedInSap;
+       if (typeof applyDelegateIdentityUI === "function") applyDelegateIdentityUI(supplierDoc.data());
+       if (isDelegateUser && !loggedInSap && !window.__delUnlinkedShown) {
+           window.__delUnlinkedShown = true;
+           try { showAlert("⏳ لم يُربط حسابك بأي سيارات حتى الآن. يتم الربط تلقائياً من عمود «المفوض» في ملف السيارات الذي ترفعه الإدارة. يرجى المراجعة مع الإدارة."); } catch (eUl) {}
+       }
+       if (!isDelegateUser) {
+           document.getElementById("showOwner").innerHTML="المورد: " + (supplierDoc.data().ownerName || "غير مسجل");
+           document.getElementById("showOffice").innerHTML="المكتب: " + (supplierDoc.data().officeName || "غير مسجل");
+       }
    } else if (currentRole === "admin" || currentRole === "super_admin") {
        loggedInSupplierSapGlobal = "";
+       loggedInDelegatePhone = "";
+       isDelegateUser = false;
        currentUserName = supplierDoc.data()?.ownerName || (currentRole==="super_admin"?"محمد فوزي":"مشرف");
        document.getElementById("showOwner").innerHTML = (currentRole==="super_admin"?"👑 مدير النظام: ":"🛡️ مشرف: ") + currentUserName;
        document.getElementById("showOffice").innerHTML="المكتب: الإدارة";
    } else {
        loggedInSupplierSapGlobal = "";
+       loggedInDelegatePhone = "";
+       isDelegateUser = false;
        document.getElementById("showOwner").innerHTML="المورد: غير مسجل";
        document.getElementById("showOffice").innerHTML="المكتب: غير مسجل";
    }
@@ -7850,7 +8618,7 @@ async function _loadSupplierDataImpl(){
        showLoadingOverlay("جاري التحقق من التحديثات...");
        
        let isAdmin = (currentRole === "admin" || currentRole === "super_admin");
-       let cachePrefix = isAdmin ? "elaraby_admin_v6_" : "elaraby_supplier_v6_" + loggedInSupplierSapGlobal + "_";
+       let cachePrefix = isAdmin ? "elaraby_admin_v6_" : "elaraby_supplier_v6_" + loggedInSupplierSapGlobal + (isDelegateUser && loggedInDelegatePhone ? ("_d_" + loggedInDelegatePhone + "_s" + loggedInDelegateSaps.join("-")) : "") + "_";
 
        clearOldLocalStorage();
 
@@ -7876,6 +8644,7 @@ async function _loadSupplierDataImpl(){
            globalVehicles = bundle.vehicles;
            globalTrips = bundle.trips;
            globalDues = bundle.dues;
+           if (typeof applyDelegateDataFilter === "function") applyDelegateDataFilter();
        } else {
            setLoadProgress(20, "جاري تحميل البيانات من السيرفر...");
            let vData = [], tData = [], dData = [];
@@ -7885,6 +8654,13 @@ async function _loadSupplierDataImpl(){
                if (isAdmin) {
                    [vData, tData, dData] = await Promise.all([
                        tick(downloadAllData("vehicles")), tick(downloadAllData("trips")), tick(downloadAllData("dues"))
+                   ]);
+               } else if (loggedInSupplierSapGlobal && isDelegateUser && loggedInDelegatePhone) {
+                   // المفوض: جلب كل الأقسام المسجّلة على هاتفه (قد تكون عند أكثر من مورد/فرع) بدون باقي بيانات الموردين
+                   [vData, tData, dData] = await Promise.all([
+                       tick(downloadDelegateDataByPhone("vehicles", loggedInDelegatePhone)),
+                       tick(downloadDelegateDataByPhone("trips", loggedInDelegatePhone)),
+                       tick(downloadDelegateDataByPhone("dues", loggedInDelegatePhone))
                    ]);
                } else if (loggedInSupplierSapGlobal) {
                    [vData, tData, dData] = await Promise.all([
@@ -7903,6 +8679,7 @@ async function _loadSupplierDataImpl(){
            globalVehicles = vData || [];
            globalTrips = tData || [];
            globalDues = dData || [];
+           if (typeof applyDelegateDataFilter === "function") applyDelegateDataFilter();
            setLoadProgress(88, "جاري حفظ نسخة على الجهاز...");
 
            try {
@@ -7938,7 +8715,7 @@ async function _loadSupplierDataImpl(){
            const notesSnap = isAdmin
                ? await db.collection("notes").get()
                : (loggedInSupplierSapGlobal
-                   ? await db.collection("notes").where("supplierSap", "==", loggedInSupplierSapGlobal).get()
+                   ? await getByMySaps("notes", "supplierSap")
                    : { forEach: function(){} });
            notesSnap.forEach(doc => { notesMap[doc.id] = doc.data().note; });
            globalTrips.forEach(t => { if(notesMap[t.id]) t.note = notesMap[t.id]; });
@@ -8351,8 +9128,11 @@ firebase.auth().onAuthStateChanged(async function(user){
                  document.getElementById("showOffice").innerHTML = "المكتب: الإدارة";
              } else {
                  loggedInSupplierSapGlobal = normalizeValue(sup.data().sapNumber);
-                 document.getElementById("showOwner").innerHTML = "المورد: " + (sup.data().ownerName || "غير مسجل");
-                 document.getElementById("showOffice").innerHTML = "المكتب: " + (sup.data().officeName || "غير مسجل");
+                 if (typeof applyDelegateIdentityUI === "function") applyDelegateIdentityUI(sup.data());
+                 if (!isDelegateUser) {
+                     document.getElementById("showOwner").innerHTML = "المورد: " + (sup.data().ownerName || "غير مسجل");
+                     document.getElementById("showOffice").innerHTML = "المكتب: " + (sup.data().officeName || "غير مسجل");
+                 }
              }
          } else {
              if(currentRole === "admin" || currentRole === "super_admin"){
@@ -8361,6 +9141,8 @@ firebase.auth().onAuthStateChanged(async function(user){
                  document.getElementById("showOffice").innerHTML = "المكتب: الإدارة";
              } else {
                  loggedInSupplierSapGlobal = "";
+                 loggedInDelegatePhone = "";
+                 isDelegateUser = false;
                  document.getElementById("showOwner").innerHTML = "المورد: غير مسجل";
                  document.getElementById("showOffice").innerHTML = "المكتب: غير مسجل";
              }
@@ -8375,6 +9157,7 @@ firebase.auth().onAuthStateChanged(async function(user){
              if (_exLbl) _exLbl.textContent = "تصدير";
              document.getElementById("supplierExportBtn").title = "تصدير البيانات (حافلات ورحلات ومستحقات) حسب الفلاتر";
              document.getElementById("complaintBtn").classList.add("hide");
+  if (typeof syncAdminComplaintBtn === "function") syncAdminComplaintBtn();
              document.getElementById("changePassBtn").classList.remove("hide"); 
              document.getElementById("licenseNotificationBtn").classList.remove("hide");
  document.getElementById("analysisBtn").classList.remove("hide");
@@ -8435,12 +9218,13 @@ firebase.auth().onAuthStateChanged(async function(user){
          } else {
              document.getElementById("adminBtn").classList.add("hide");
              document.getElementById("adminDashFilter").classList.add("hide");
-             document.getElementById("showRole").innerHTML="الصلاحية: Supplier";
+             document.getElementById("showRole").innerHTML= isDelegateUser ? "الصلاحية: مفوض" : "الصلاحية: Supplier";
              document.getElementById("supplierExportBtn").classList.remove("hide");
              let _exLbl2 = document.getElementById("exportBtnLabel");
              if (_exLbl2) _exLbl2.textContent = "تنزيل";
              document.getElementById("supplierExportBtn").title = "تحميل كشف حسابي";
              document.getElementById("complaintBtn").classList.remove("hide");
+  if (typeof syncAdminComplaintBtn === "function") syncAdminComplaintBtn();
              document.getElementById("adminNotificationBtn").classList.add("hide");
              document.getElementById("msgIconWrap").classList.remove("hide");
              document.getElementById("changePassBtn").classList.remove("hide"); 
@@ -8449,15 +9233,23 @@ firebase.auth().onAuthStateChanged(async function(user){
              if(document.getElementById("scheduleBtn")) document.getElementById("scheduleBtn").classList.add("hide");
 
              if (unsubAdminLicenses) unsubAdminLicenses();
-             unsubAdminLicenses = db.collection("licenseUpdates")
-                 .where("supplierSap", "==", normalizeValue(loggedInSupplierSapGlobal || ""))
-                 .onSnapshot(snap => {
-                     globalAdminLicenseUpdates = snap.docs.map(d => d.data());
+             {
+                 const _by = {}, _uns = [];
+                 const _mergeLic = function() {
+                     globalAdminLicenseUpdates = [].concat.apply([], Object.keys(_by).map(function(k) { return _by[k]; }));
                      _licRegister(globalAdminLicenseUpdates);
                      if (activePanel === "الرخص" && document.getElementById("popupBox").style.display === "flex") {
                          renderLicenseNotificationsContent();
                      }
+                 };
+                 mySapList().forEach(function(sp) {
+                     _uns.push(db.collection("licenseUpdates").where("supplierSap", "==", sp).onSnapshot(function(snap) {
+                         _by[sp] = snap.docs.map(function(d) { return d.data(); });
+                         _mergeLic();
+                     }));
                  });
+                 unsubAdminLicenses = function() { _uns.forEach(function(f) { try { f(); } catch (e) {} }); };
+             }
          }
          
          if (unsubMsgs) { try { unsubMsgs(); } catch (e) {} }
@@ -10289,8 +11081,8 @@ function downloadExcelTemplate(type) {
     let sample = [];
     let fileName = "Template.xlsx";
     if (type === "vehicles") {
-        headers = ["رقم المورد", "اسم المورد", "رقم اللوحة", "كود الحافلة", "الفرع", "نوع الخدمة", "تاريخ انتهاء رخصة السيارة", "وصف الحافلة"];
-        sample = ["12345", "اسم المورد مثال", "أ ب ج 1234", "BUS001", "القاهرة", "نقل موظفين", "2027-01-15", "أتوبيس 50 راكب"];
+        headers = ["الفرع", "وصف الحافلة", "وصف الخط", "كود الحافلة", "كود RFID", "رقم اللوحة", "الاجر اليومى", "نوع الخدمة", "تاريخ انتهاء رخصة السيارة", "اسم المورد", "رقم المورد", "اسم السائق", "مشرف التشغيل", "المنطة المركزية الخاصة بالحافلة", "تاريخ بداية التشغيل", "تاريخ نهاية التشغيل", "الحالة", "المفوض"];
+        sample = ["القاهرة", "أتوبيس 50 راكب", "المعادي - المقطم", "BUS001", "RFID0001", "أ ب ج 1234", "1500", "نقل موظفين", "2027-01-15", "اسم المورد مثال", "12345", "اسم السائق", "اسم مشرف التشغيل", "المنطقة المركزية", "2026-01-01", "2026-12-31", "يعمل", "01012345678"];
         fileName = "قالب_السيارات.xlsx";
     } else if (type === "trips") {
         headers = ["اسم المورد", "رقم اللوحة", "كود الحافلة", "التاريخ", "وقت الوردية", "الوردية", "حالة الرحلة", "وصف الخط", "الفرع", "نوع الخدمة"];
@@ -10304,6 +11096,10 @@ function downloadExcelTemplate(type) {
         headers = ["رقم ساب", "اسم المورد", "اسم المكتب", "رقم الهاتف", "كلمة المرور"];
         sample = ["12345", "اسم المورد", "اسم المكتب", "01012345678", "Pass123"];
         fileName = "قالب_الموردين.xlsx";
+    } else if (type === "delegates") {
+        headers = ["اسم المفوض", "رقم الهاتف", "كلمة المرور"];
+        sample = ["اسم المفوض", "01099998888", "Pass123"];
+        fileName = "قالب_المفوضين.xlsx";
     } else {
         showAlert("نوع القالب غير معروف.");
         return;
@@ -10421,6 +11217,15 @@ async function handleLicenseImagesUpload(event, plate, code, vId) {
     try {
         let imageBase64List = [];
         let sap = loggedInSupplierSapGlobal || "unknown";
+        // ساب السيارة نفسها (المفوض قد يكون أمام أكثر من مورد)
+        try {
+            let _pk = normalizeValue(plate || ""), _ck = normalizeValue(code || "");
+            let _v = (globalVehicles || []).find(function(v) {
+                return (_pk && normalizeValue(v["رقم اللوحة"]) === _pk) || (_ck && normalizeValue(v["كود الحافلة"] || v["كود"]) === _ck);
+            });
+            let _vs = _v ? normalizeValue(_v["رقم المورد"]) : "";
+            if (_vs && isMySapValue(_vs)) sap = _vs;
+        } catch (eVs) {}
 
         for (let i = 0; i < files.length; i++) {
             // ضغط أقوى جداً وتخزين Base64 مباشرة في Firestore (بدون Storage - النظام المجاني)
@@ -10698,7 +11503,7 @@ function scheduleGetMyIdentity() {
 function scheduleBelongsToSupplier(item, sap, myCodes, myPlates, officeKeys) {
     if (!item) return false;
     let isap = normalizeValue(item.supplierSap || "");
-    if (sap && isap && isap === sap) return true;
+    if (isap && ((sap && isap === sap) || isMySapValue(isap))) return true;
     let code = normalizeValue(item.code || "");
     let plate = normalizeValue(item.plate || "");
     if (code && myCodes && myCodes.has(code)) return true;
@@ -10750,7 +11555,7 @@ async function loadScheduleItems(force) {
         if (!_isAdm) {
             if (!_mySap) { globalScheduleItems = []; _scheduleLoadedAt = now; return globalScheduleItems; }
             // المورد: بنوده فقط (استعلام بالساب) بدل جلب جدولة الجميع
-            snap = await db.collection("schedulePlans").where("supplierSap", "==", _mySap).limit(300).get();
+            snap = await getByMySaps("schedulePlans", "supplierSap", 300);
         } else {
             snap = await db.collection("schedulePlans").orderBy("executionDate", "desc").limit(500).get();
         }
@@ -11638,7 +12443,7 @@ async function submitScheduleReply(id, type) {
                 type: type,
                 text: text,
                 at: new Date().toISOString(),
-                bySap: loggedInSupplierSapGlobal || "",
+                bySap: (function() { try { let x = (globalScheduleItems || []).find(function(i) { return String(i.id) === String(id); }); return normalizeValue(x && x.supplierSap) || ""; } catch (e) { return ""; } })() || loggedInSupplierSapGlobal || "",
                 byName: (document.getElementById("showOwner") || {}).innerText || ""
             }
         });
