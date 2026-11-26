@@ -4628,6 +4628,34 @@ async function safeUploadTest(inputId, label) {
                         let ded = row["خصومات"] || row["الخصم"] || row["خصم"] || row["deductions"] || row["Deduction"] || row["Deductions"] || "";
                         if (ded !== undefined && ded !== null && String(ded).trim() !== "") row["الخصومات"] = ded;
                     }
+                    // توحيد عمود نوع الخدمة (مثل السيارات) — عامل ربط مع فلتر الخدمة
+                    if (!row["نوع الخدمة"] || String(row["نوع الخدمة"]).trim() === "") {
+                        let stRaw = row["الخدمة"] || row["serviceType"] || row["Service Type"] || row["نوع الخدمه"] || "";
+                        if (stRaw !== undefined && stRaw !== null && String(stRaw).trim() !== "") row["نوع الخدمة"] = String(stRaw).trim();
+                    } else {
+                        row["نوع الخدمة"] = String(row["نوع الخدمة"]).trim();
+                    }
+                    // إن فُقد النوع: استنتاج من الأسطول (لوحة/كود) كما في السيارات
+                    if (!row["نوع الخدمة"] || String(row["نوع الخدمة"]).trim() === "") {
+                        try {
+                            let plateN = normalizeValue(row["رقم اللوحة"] || row["رقم اللوحات"] || "");
+                            let codeN = normalizeValue(row["كود الحافلة"] || row["كود"] || "");
+                            let fromMap = "";
+                            if (typeof globalVehicleToServiceType !== "undefined" && globalVehicleToServiceType) {
+                                if (plateN) fromMap = globalVehicleToServiceType.get(plateN) || "";
+                                if (!fromMap && codeN) fromMap = globalVehicleToServiceType.get(codeN) || "";
+                            }
+                            if (!fromMap && (globalVehicles || []).length) {
+                                let hit = (globalVehicles || []).find(function(v) {
+                                    let vp = normalizeValue(v["رقم اللوحة"] || "");
+                                    let vc = normalizeValue(v["كود الحافلة"] || v["كود"] || "");
+                                    return (plateN && vp && plateN === vp) || (codeN && vc && codeN === vc);
+                                });
+                                if (hit) fromMap = String(hit["نوع الخدمة"] || hit["الخدمة"] || "").trim();
+                            }
+                            if (fromMap) row["نوع الخدمة"] = fromMap;
+                        } catch (eSt) {}
+                    }
                 }
                 rowsWithSap.push(row);
             });
@@ -5599,10 +5627,11 @@ async function exportSupplierDataToExcel() {
             "نوع الخدمة": ["الخدمة"]
         };
 
-        const DUES_COLS = ["كود الحافلة","رقم اللوحة","وصف الخط","الفترة","الفرع","مبلغ الرحلات","عدد الرحلات","الخصومات","السبب (ملاحظات)","وصف الحافلة"];
+        const DUES_COLS = ["كود الحافلة","رقم اللوحة","وصف الخط","الفترة","الفرع","نوع الخدمة","مبلغ الرحلات","عدد الرحلات","الخصومات","السبب (ملاحظات)","وصف الحافلة"];
         const DUES_ALIASES = {
             "كود الحافلة": ["كود","Bus Trip Code","كود الرحلة"],
             "الفترة": ["الفتره","فترة"],
+            "نوع الخدمة": ["الخدمة","serviceType","Service Type","نوع الخدمه"],
             "مبلغ الرحلات": ["المبلغ"],
             "عدد الرحلات": ["عدد الأيام","عدد الايام"],
             "الخصومات": ["خصومات","الخصم","خصم"],
@@ -5737,12 +5766,15 @@ async function exportAdminDataToExcel() {
                 "اجر الرحلة": ["الأجر","الاجر","أجر الرحلة"],
                 "نوع الخدمة": ["الخدمة"]
             };
-            const DUES_COLS = ["كود الحافلة","رقم اللوحة","وصف الخط","الفترة","الفرع","مبلغ الرحلات","عدد الرحلات","الخصومات","السبب (ملاحظات)","وصف الحافلة","اسم المورد","رقم المورد"];
+            const DUES_COLS = ["كود الحافلة","رقم اللوحة","وصف الخط","الفترة","الفرع","نوع الخدمة","مبلغ الرحلات","عدد الرحلات","الخصومات","السبب (ملاحظات)","وصف الحافلة","اسم المورد","رقم المورد"];
             const DUES_ALIASES = {
                 "كود الحافلة": ["كود","Bus Trip Code","كود الرحلة"],
                 "الفترة": ["الفتره","فترة","period"],
+                "نوع الخدمة": ["الخدمة","serviceType","Service Type","نوع الخدمه"],
                 "مبلغ الرحلات": ["المبلغ"],
+                "عدد الرحلات": ["عدد الأيام","عدد الايام"],
                 "الخصومات": ["خصومات","الخصم","خصم"],
+                "السبب (ملاحظات)": ["ملاحظات","ملاحظة","السبب","سبب"],
                 "الفرع": ["فرع","branch"]
             };
 
@@ -6522,7 +6554,8 @@ function selectMsgSupplier(sap, name) {
                 <div class="upload-acc-body">
                     <div class="upload-cols-hint" style="color:#155724; border-color:#8fd19e; background:#e8f5e9;">
                         📌 <b>الأعمدة المطلوبة:</b>
-                        <code>اسم المورد</code> | <code>رقم المورد</code> | <code>الفترة</code> | <code>الفرع</code> | <code>مبلغ الرحلات</code> | <code>الخصومات</code> | <code>كود الحافلة</code> | <code>رقم اللوحة</code> | <code>وصف الخط</code> | <code>وصف الحافلة</code> | <code>عدد الرحلات</code> | <code>السبب (ملاحظات)</code>
+                        <code>اسم المورد</code> | <code>رقم المورد</code> | <code>الفترة</code> | <code>الفرع</code> | <code>نوع الخدمة</code> | <code>مبلغ الرحلات</code> | <code>الخصومات</code> | <code>كود الحافلة</code> | <code>رقم اللوحة</code> | <code>وصف الخط</code> | <code>وصف الحافلة</code> | <code>عدد الرحلات</code> | <code>السبب (ملاحظات)</code>
+                        <br><span style="font-size:11px;color:#0f6674;">🔗 عمود <b>نوع الخدمة</b> بنفس قيم السيارات (مثل: خطوط فرعية / إيجار). إن تُرك فارغاً يُستنتج تلقائياً من كود/لوحة السيارة في ملف الأسطول.</span>
                     </div>
                     <div class="upload-acc-actions">
                         <button type="button" class="btn-sm" onclick="downloadExcelTemplate('dues')" style="background:#1e7e34;">📄 قالب</button>
@@ -9536,7 +9569,7 @@ function getDuesBranch(d) {
 /** نوع الخدمة لصف المستحقات: من العمود أو من خريطة السيارة (لوحة/كود) */
 function getDuesServiceType(d) {
     if (!d) return "";
-    let sType = String(d["نوع الخدمة"] || d["الخدمة"] || d["serviceType"] || d["Service Type"] || "").trim();
+    let sType = String(d["نوع الخدمة"] || d["الخدمة"] || d["نوع الخدمه"] || d["serviceType"] || d["Service Type"] || "").trim();
     if (sType) return sType;
     try {
         let plate = normalizeValue(d["رقم اللوحة"] || d["رقم اللوحات"] || "");
@@ -11252,8 +11285,8 @@ function downloadExcelTemplate(type) {
         sample = ["اسم المورد مثال", "أ ب ج 1234", "BUS001", "2026-09-01", "2026-09-01 07:00", "صباحي", "رحلة ناجحة", "خط المعادي", "القاهرة", "نقل موظفين"];
         fileName = "قالب_الرحلات.xlsx";
     } else if (type === "dues") {
-        headers = ["اسم المورد", "رقم المورد", "الفترة", "الفرع", "مبلغ الرحلات", "الخصومات", "كود الحافلة", "رقم اللوحة", "وصف الخط", "وصف الحافلة", "عدد الرحلات", "السبب (ملاحظات)"];
-        sample = ["اسم المورد مثال", "12345", "2026-09", "قويسنا", "1500", "200", "TRIP001", "أ ب ج 1234", "قويسنا - بركة السبع", "أتوبيس 50 راكب", "30", "تلف الملصق"];
+        headers = ["اسم المورد", "رقم المورد", "الفترة", "الفرع", "نوع الخدمة", "مبلغ الرحلات", "الخصومات", "كود الحافلة", "رقم اللوحة", "وصف الخط", "وصف الحافلة", "عدد الرحلات", "السبب (ملاحظات)"];
+        sample = ["اسم المورد مثال", "12345", "2026-09", "قويسنا", "خطوط فرعية", "1500", "200", "TRIP001", "أ ب ج 1234", "قويسنا - بركة السبع", "أتوبيس 50 راكب", "30", "تلف الملصق"];
         fileName = "قالب_المستحقات.xlsx";
     } else if (type === "suppliers") {
         headers = ["رقم ساب", "اسم المورد", "اسم المكتب", "رقم الهاتف", "كلمة المرور"];
