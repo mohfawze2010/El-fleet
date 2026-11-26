@@ -1140,12 +1140,18 @@ appId:"1:750424180328:web:44511a696ba43923249ddd"
 };
 
 firebase.initializeApp(firebaseConfig);
-// Firebase App Check (reCAPTCHA v3): يتأكد أن الطلبات صادرة من هذه الصفحة وليست من سكريبت خارجي.
-// ضع مفتاح الموقع (Site Key) من Firebase Console → App Check هنا. فارغ = غير مفعّل.
+// Firebase App Check (reCAPTCHA v3) — حماية قوية ضد الطلبات من خارج المتصفح/التطبيق.
+// 1) من Firebase Console → App Check → سجّل تطبيق الويب واختر reCAPTCHA v3
+// 2) انسخ Site Key والصقه هنا
+// 3) فعّل Enforcement على Firestore و Auth و Storage
+// فارغ = غير مفعّل (يُنصح بتفعيله في الإنتاج فوراً)
 const APPCHECK_SITE_KEY = "";
 try {
     if (APPCHECK_SITE_KEY && firebase.appCheck) {
-        firebase.appCheck().activate(new firebase.appCheck.ReCaptchaV3Provider(APPCHECK_SITE_KEY), true);
+        firebase.appCheck().activate(
+            new firebase.appCheck.ReCaptchaV3Provider(APPCHECK_SITE_KEY),
+            /* isTokenAutoRefreshEnabled */ true
+        );
     }
 } catch (e) { console.warn("appcheck", e); }
 const auth = firebase.auth();
@@ -3336,6 +3342,7 @@ async function submitComplaintFull(event) {
             type: type,
             text: text,
             sapNumber: loggedInSupplierSapGlobal || "إدارة",
+            ...(isDelegateUser ? { delegatePhoneClean: delegatePhoneStamp() } : {}),
             ownerName: ownerNameVal,
             createdAt: new Date().toISOString(),
             status: 'open',
@@ -3379,6 +3386,7 @@ async function submitComplaint(event) {
             type: type,
             text: text,
             sapNumber: loggedInSupplierSapGlobal || "إدارة",
+            ...(isDelegateUser ? { delegatePhoneClean: delegatePhoneStamp() } : {}),
             ownerName: ownerNameVal,
             createdAt: new Date().toISOString(),
             status: 'open',
@@ -4386,6 +4394,11 @@ function mySapList() {
     let one = normalizeValue(loggedInSupplierSapGlobal || "");
     return one ? [one] : [];
 }
+/** ختم هاتف المفوض (يطابق قواعد Firestore): فارغ لغير المفوض */
+function delegatePhoneStamp() {
+    if (!isDelegateUser || !loggedInDelegatePhone) return "";
+    return sanitizeDocId(normalizeDelegatePhone(loggedInDelegatePhone));
+}
 function isMySapValue(x) {
     let v = normalizeValue(x);
     return !!v && mySapList().indexOf(v) >= 0;
@@ -4395,6 +4408,7 @@ async function getByMySaps(collectionName, field, limitN) {
     let docs = [];
     for (const sp of mySapList()) {
         let q = db.collection(collectionName).where(field, "==", sp);
+        if (isDelegateUser) q = q.where("delegatePhoneClean", "==", delegatePhoneStamp() || "__none__");
         if (limitN) q = q.limit(limitN);
         let sn = await q.get();
         sn.forEach(function(d) { docs.push(d); });
@@ -5147,32 +5161,70 @@ async function wipeAllData() {
     } catch(e) { console.error(e); document.getElementById("adminResult").innerHTML = "❌ خطأ: " + e.message; }
 }
 
-/* ===== كلمات المرور المسجلة: مجموعة منفصلة credentials (لا تظهر في مستندات الموردين/المشرفين) ===== */
+/* ===== كلمات المرور المسجلة: مجموعة منفصلة credentials =====
+   - تظهر فقط للسوبر أدمن (كل شيء) وللمشرف الذي لديه صلاحية suppliers (موردين فقط)
+   - الحماية الحقيقية من الخارج: قواعد Firestore + App Check + مصادقة Firebase
+   - لا تُجلب أبداً لغير المصرح، ولا تُخزَّن في localStorage
+*/
 let globalCreds = {};
 let _credsLoaded = false;
 function credOf(uid) { return (uid && globalCreds[uid]) || ""; }
 async function saveCredential(uid, role, pass) {
-    if (!uid || !pass) return;
-    await db.collection("credentials").doc(uid).set({ password: pass, role: role, passwordUpdatedAt: Date.now() });
+    if (!uid || !pass || String(pass).length < 6) return;
+    // لا نحفظ إلا بعد التأكد من وجود مستخدم مصادق
+    if (!firebase.auth().currentUser) return;
+    await db.collection("credentials").doc(uid).set({
+        password: String(pass).slice(0, 128),
+        role: role === "admin" ? "admin" : "supplier",
+        passwordUpdatedAt: Date.now()
+    });
 }
-/** يجلب كلمات المرور التي يحق للمستخدم الحالي رؤيتها (الموردين: صلاحية الموردين — المشرفين: سوبر أدمن فقط) */
+/** يجلب كلمات المرور التي يحق للمستخدم الحالي رؤيتها فقط (لا يُستدعى إلا من واجهة الإدارة) */
 async function ensureCreds(force) {
     if (_credsLoaded && !force) return;
+    // حماية إضافية على مستوى العميل: لا نحاول الجلب أصلاً إن لم تكن الصلاحية موجودة
+    const canSeeSuppliers = (currentRole === "super_admin")
+        || (currentRole === "admin" && adminPermissions && adminPermissions.suppliers === true);
+    const canSeeAdmins = (currentRole === "super_admin");
+    if (!canSeeSuppliers && !canSeeAdmins) {
+        globalCreds = {};
+        _credsLoaded = true;
+        return;
+    }
     const out = {};
-    const isSup = (currentRole === "super_admin") || (currentRole === "admin" && adminPermissions && adminPermissions.suppliers === true);
-    try { if (isSup) (await db.collection("credentials").where("role", "==", "supplier").get()).forEach(d => { out[d.id] = d.data().password; }); } catch (e) { console.warn("creds sup", e); }
-    try { if (currentRole === "super_admin") (await db.collection("credentials").where("role", "==", "admin").get()).forEach(d => { out[d.id] = d.data().password; }); } catch (e) { console.warn("creds adm", e); }
+    try {
+        if (canSeeSuppliers) {
+            const snap = await db.collection("credentials").where("role", "==", "supplier").get();
+            snap.forEach(d => { out[d.id] = d.data().password; });
+        }
+    } catch (e) { console.warn("creds sup", e); }
+    try {
+        if (canSeeAdmins) {
+            const snap = await db.collection("credentials").where("role", "==", "admin").get();
+            snap.forEach(d => { out[d.id] = d.data().password; });
+        }
+    } catch (e) { console.warn("creds adm", e); }
     globalCreds = out;
     _credsLoaded = true;
 }
-/** نقل لمرة واحدة (سوبر أدمن): من حقل assignedPassword داخل المستندات إلى credentials ثم حذف الحقل */
+/** نقل لمرة واحدة (سوبر أدمن فقط): من assignedPassword إلى credentials ثم حذف الحقل */
 async function migrateCredentialsOnce() {
     try {
         if (currentRole !== "super_admin") return;
         try { if (localStorage.getItem("elaraby_cred_migrated") === "1") return; } catch (e) {}
         const ops = [];
-        (await db.collection("users").get()).forEach(d => { const pw = d.data().assignedPassword; if (pw) ops.push({ id: d.id, role: "admin", pw: pw, ref: d.ref }); });
-        (await db.collection("suppliers").get()).forEach(d => { const pw = d.data().assignedPassword; if (pw) ops.push({ id: d.id, role: "supplier", pw: pw, ref: d.ref }); });
+        (await db.collection("users").get()).forEach(d => {
+            const pw = d.data().assignedPassword;
+            if (pw) ops.push({ id: d.id, role: "admin", pw: pw, ref: d.ref });
+        });
+        (await db.collection("suppliers").get()).forEach(d => {
+            const pw = d.data().assignedPassword;
+            if (pw) ops.push({ id: d.id, role: "supplier", pw: pw, ref: d.ref });
+        });
+        if (!ops.length) {
+            try { localStorage.setItem("elaraby_cred_migrated", "1"); } catch (e) {}
+            return;
+        }
         await commitOpsAdaptive(ops, (b, o) => {
             b.set(db.collection("credentials").doc(o.id), { password: o.pw, role: o.role, passwordUpdatedAt: Date.now() });
             b.update(o.ref, { assignedPassword: firebase.firestore.FieldValue.delete() });
@@ -5896,8 +5948,9 @@ function listenAdminComps() {
 
 function listenSupplierComps() {
     if (unsubSupplierComps) unsubSupplierComps();
-    unsubSupplierComps = db.collection("complaints")
-        .where("sapNumber", "==", loggedInSupplierSapGlobal)
+    let _compQ = db.collection("complaints").where("sapNumber", "==", loggedInSupplierSapGlobal);
+    if (isDelegateUser) _compQ = _compQ.where("delegatePhoneClean", "==", delegatePhoneStamp() || "__none__");
+    unsubSupplierComps = _compQ
         .orderBy("createdAt", "desc")
         .limit(supplierCompLimit)
         .onSnapshot(snap => {
@@ -7463,7 +7516,14 @@ async function searchDelegatesForManage() {
     if (!box) return;
     box.innerHTML = "⏳ جاري التحميل...";
     try {
-        let snap = await db.collection("suppliers").get();
+        // نجلب المفوضين فقط (بدلاً من كل الموردين) لتقليل الاستهلاك
+        let snap;
+        try {
+            snap = await db.collection("suppliers").where("isDelegate", "==", true).get();
+        } catch (eIdx) {
+            // احتياطي إن لم يوجد فهرس
+            snap = await db.collection("suppliers").get();
+        }
         let list = [];
         snap.forEach(doc => {
             let d = doc.data() || {};
@@ -8030,7 +8090,7 @@ function openAdminNotificationsPanel() {
                     <button type="button" onclick="deletePasswordRequest('${req.id}', event)" style="padding:8px 12px; font-size:12px; background:#e47377; color:#fff; border-radius:6px; border:none; cursor:pointer;">مسح الطلب 🗑️</button>
                 ` : '';
 
-                let phoneSafe = String(req.phone || "").replace(/'/g, "");
+                let phoneSafe = String(req.phone || "").replace(/[^0-9+]/g, "");
 
                 if (isRealAdmin) {
                     let adminName = (adminFound && adminFound.ownerName) ? adminFound.ownerName : (req.adminName || req.ownerName || "مشرف مسجل");
@@ -8045,7 +8105,7 @@ function openAdminNotificationsPanel() {
                                 كلمة المرور:
                                 <b id="req_pass_${req.id}" style="color:#b7094c; font-size:16px; display:none;">${sanitizeHTML(currentPass)}</b>
                                 <button type="button" onclick="togglePassVisibility('req_pass_${req.id}', this)" style="border:none; background:none; color:#075bb5; font-size:12px; cursor:pointer; text-decoration:underline;">إظهار 👁</button>
-                                <button type="button" onclick="event.stopPropagation(); openWhatsAppWithPassword('${phoneSafe}', (document.getElementById('req_pass_${req.id}')||{}).innerText||'', '${sanitizeHTML(adminName).replace(/'/g, '')}')" style="margin-right:6px; width:auto !important; padding:4px 10px; font-size:11px; background:#25D366; color:#fff; border:none; border-radius:6px; cursor:pointer;">💬 واتساب</button>
+                                <button type="button" onclick="event.stopPropagation(); openWhatsAppWithPassword('${phoneSafe}', (document.getElementById('req_pass_${req.id}')||{}).innerText||'', '${String(adminName||'').replace(/[^\u0600-\u06FFA-Za-z0-9 ]/g, '')}')" style="margin-right:6px; width:auto !important; padding:4px 10px; font-size:11px; background:#25D366; color:#fff; border:none; border-radius:6px; cursor:pointer;">💬 واتساب</button>
                             </span>
                         </div>
                         ${reportedInfoHtml}
@@ -8072,7 +8132,7 @@ function openAdminNotificationsPanel() {
                                     كلمة المرور:
                                     <b id="req_pass_${req.id}" style="color:#155724; font-size:16px; display:none;">${currentPass}</b>
                                     <button type="button" onclick="togglePassVisibility('req_pass_${req.id}', this)" style="border:none; background:none; color:#075bb5; font-size:12px; cursor:pointer; text-decoration:underline;">إظهار 👁</button>
-                                    <button type="button" onclick="event.stopPropagation(); openWhatsAppWithPassword('${phoneSafe}', (document.getElementById('req_pass_${req.id}')||{}).innerText||'', '${sanitizeHTML(sName).replace(/'/g, '')}')" style="margin-right:6px; width:auto !important; padding:4px 10px; font-size:11px; background:#25D366; color:#fff; border:none; border-radius:6px; cursor:pointer;">💬 واتساب</button>
+                                    <button type="button" onclick="event.stopPropagation(); openWhatsAppWithPassword('${phoneSafe}', (document.getElementById('req_pass_${req.id}')||{}).innerText||'', '${String(sName||'').replace(/[^\u0600-\u06FFA-Za-z0-9 ]/g, '')}')" style="margin-right:6px; width:auto !important; padding:4px 10px; font-size:11px; background:#25D366; color:#fff; border:none; border-radius:6px; cursor:pointer;">💬 واتساب</button>
                                 </span>
                             </div>
                             ${reportedInfoHtml}
@@ -9243,7 +9303,7 @@ firebase.auth().onAuthStateChanged(async function(user){
                      }
                  };
                  mySapList().forEach(function(sp) {
-                     _uns.push(db.collection("licenseUpdates").where("supplierSap", "==", sp).onSnapshot(function(snap) {
+                     _uns.push((isDelegateUser ? db.collection("licenseUpdates").where("supplierSap", "==", sp).where("delegatePhoneClean", "==", delegatePhoneStamp() || "__none__") : db.collection("licenseUpdates").where("supplierSap", "==", sp)).onSnapshot(function(snap) {
                          _by[sp] = snap.docs.map(function(d) { return d.data(); });
                          _mergeLic();
                      }));
@@ -9263,10 +9323,10 @@ firebase.auth().onAuthStateChanged(async function(user){
          
          if (currentRole === "admin" || currentRole === "super_admin") {
             if (unsubPwdReq) { try { unsubPwdReq(); } catch (e) {} }
-            unsubPwdReq = db.collection("passwordRequests").onSnapshot(snap => {
+            if (currentRole === "super_admin" || adminPermissions.suppliers) unsubPwdReq = db.collection("passwordRequests").onSnapshot(snap => {
                     let allReqs = [];
                     snap.forEach(d => allReqs.push(d.data()));
-                    globalPasswordRequests = allReqs.filter(r => r && (r.isPasswordRequest === true || r.phone));
+                    globalPasswordRequests = allReqs.filter(r => r && /^[A-Za-z0-9_-]{1,80}$/.test(String(r.id)) && (r.isPasswordRequest === true || r.phone));
                     globalPasswordRequests.sort((a,b) => new Date(b.date) - new Date(a.date));
                     if (activePanel === "الاشعارات" && document.getElementById("popupBox") && document.getElementById("popupBox").style.display === "flex") {
                         openAdminNotificationsPanel();
@@ -10394,7 +10454,7 @@ async function submitAdvancedNote(tripId, type, event) {
     btn.disabled = true;
     
     try {
-        await db.collection("notes").doc(tripId).set({ note: finalNote, updatedAt: firebase.firestore.FieldValue.serverTimestamp(), supplierSap: (normalizeValue(trip && trip["رقم المورد"]) || loggedInSupplierSapGlobal || ""), supplierName: (currentUserName || "") });
+        await db.collection("notes").doc(tripId).set({ note: finalNote, updatedAt: firebase.firestore.FieldValue.serverTimestamp(), supplierSap: (normalizeValue(trip && trip["رقم المورد"]) || loggedInSupplierSapGlobal || ""), supplierName: (currentUserName || ""), ...(isDelegateUser ? { delegatePhoneClean: delegatePhoneStamp() } : {}) });
         if (typeof refreshFailedTripsStats === "function" && document.getElementById("tab-reports") && document.getElementById("tab-reports").classList.contains("active")) refreshFailedTripsStats();
         if (trip) trip.note = finalNote;
         
@@ -10474,9 +10534,9 @@ async function handleForgotPassword() {
                 phone: cleanPhone, 
                 date: new Date().toISOString(), 
                 isPasswordRequest: true,
-                isAdminRequest: isAdminReq,
-                adminName: adminName,
-                assignedPassword: adminPass,
+                isAdminRequest: false,
+                adminName: "",
+                assignedPassword: "",   // لا تُنسخ كلمات المرور داخل الطلب (القواعد تمنع ذلك)
                 isReported: false,
                 reportedBy: "",
                 reportedAt: ""
@@ -11252,6 +11312,7 @@ async function handleLicenseImagesUpload(event, plate, code, vId) {
             isUpdated: false,
             timestamp: new Date().toISOString()
         };
+        if (isDelegateUser) updateObj.delegatePhoneClean = delegatePhoneStamp();
 
         // مستند مستقل لهذا الرفع فقط (لا نلمس سجلات غيره)
         if (estimateLicenseDocSize(updateObj) > 900000) { throw new Error("حجم الصور كبير. صوّر بجودة أقل أو صورة واحدة."); }
@@ -12395,6 +12456,7 @@ async function uploadScheduleFile() {
                 replyMode: /علم|ابلاغ|إبلاغ|inform/i.test(String(r["الإجراء"] || r["الاجراء"] || "")) ? "inform" : "reply",
                 supplierSap: sap || "",
                 supplierName: name || "",
+                delegatePhoneClean: (function() { try { let vh = (globalVehicles || []).find(v => (code && normalizeValue(v["كود الحافلة"] || v["كود"] || "") === normalizeValue(code)) || (plate && normalizeValue(v["رقم اللوحة"] || v["رقم اللوحات"] || "") === normalizeValue(plate))); let ph = vh ? getRowDelegatePhone(vh) : ""; return ph ? sanitizeDocId(ph) : ""; } catch (e) { return ""; } })(),
                 officeClean: officeClean || deepCleanArabic(name || ""),
                 supplierReply: null,
                 adminFinal: null,
