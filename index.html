@@ -21,7 +21,7 @@ function logoutUser(){
  activeBranch = "";
  activeBranches = [];
  myBranchScope = { all: true, keys: new Set(), names: [], restricted: false }; branchRegistry = []; _branchRegLoaded = false; window.__scopeVehKeys = null;
- activeServiceType = "";
+ activeServiceType = ""; window.__serviceTypePreferAll = false; window.__serviceTypeUserSet = false;
  loggedInSupplierSapGlobal = "";
  loggedInDelegatePhone = ""; loggedInDelegateSaps = []; window.__delSelSaps = null; window.__delAll = null;
  isDelegateUser = false;
@@ -2332,7 +2332,17 @@ function changeBranch(val) {
     try { if (typeof applyAppBranding === "function") applyAppBranding(); } catch(e){}
     applyGlobalFilter();
 }
-function changeServiceType(val) { activeServiceType = val; applyGlobalFilter(); }
+function changeServiceType(val) {
+    activeServiceType = (val || "").trim();
+    window.__serviceTypeUserSet = true;
+    // اختيار «كل الخدمات» (قيمة فارغة) = مجموع كل الأنواع في الكروت
+    window.__serviceTypePreferAll = !activeServiceType;
+    activeBranches = [];
+    activeBranch = "";
+    try { globalDuesPeriodsCache = []; } catch (e) {}
+    try { selectedDuesPeriod = ""; } catch (e) {}
+    applyGlobalFilter();
+}
 
 /** هل الصف يطابق الفروع المختارة؟ (فارغ = كل الفروع) */
 function matchesActiveBranches(rowBranch) {
@@ -5618,6 +5628,7 @@ async function exportSupplierDataToExcel() {
         (globalDues || []).forEach(d => {
             if (!matchSup(d)) return;
             if (!matchesActiveBranches(getDuesBranch(d))) return;
+            if (typeof duesMatchesActiveService === "function" && !duesMatchesActiveService(d)) return;
             dData.push(pickExportRow(d, DUES_COLS, DUES_ALIASES));
         });
 
@@ -5772,10 +5783,7 @@ async function exportAdminDataToExcel() {
                 if (!matchSup(d)) return;
                 let b = getDuesBranch(d);
                 if (!matchesActiveBranches(b)) return;
-                if (activeServiceType) {
-                    let sType = String(d["نوع الخدمة"] || d["الخدمة"] || "").trim();
-                    if (sType && sType !== activeServiceType) return;
-                }
+                if (typeof duesMatchesActiveService === "function" && !duesMatchesActiveService(d)) return;
                 dData.push(pickExportRow(d, DUES_COLS, DUES_ALIASES));
             });
 
@@ -8873,10 +8881,11 @@ async function _loadSupplierDataImpl(){
    else window.globalVehicleToBranch = new Map();
    let branchSet = new Set();
    let serviceTypeSet = new Set();
+   let branchesByService = new Map();
    
+   // 1) خرائط + أنواع الخدمة من السيارات
    globalVehicles.forEach(d => { 
        if(showAll || normalizeValue(d["رقم المورد"])===activeSap || rowMatchesActiveSupplier(d, activeSap, activeOfficeKeys)){ 
-           if(d["الفرع"]) branchSet.add(String(d["الفرع"]).trim()); 
            let plate = normalizeValue(d["رقم اللوحة"]);
            let code = normalizeValue(d["كود الحافلة"] || d["كود"]);
            let vBranch = String(d["الفرع"] || "").trim();
@@ -8889,18 +8898,68 @@ async function _loadSupplierDataImpl(){
                serviceTypeSet.add(sType);
                if(plate) globalVehicleToServiceType.set(plate, sType);
                if(code) globalVehicleToServiceType.set(code, sType);
+               if (vBranch) {
+                   if (!branchesByService.has(sType)) branchesByService.set(sType, new Set());
+                   branchesByService.get(sType).add(vBranch);
+               }
            }
        } 
    });
-   
+
+   // 2) افتراضي إيجار مرة واحدة فقط — لا يُفرض بعد اختيار «كل الخدمات»
+   if (!activeServiceType && serviceTypeSet.size > 1 && !window.__serviceTypePreferAll && !window.__serviceTypeUserSet) {
+       let rentalHit = Array.from(serviceTypeSet).find(function(s) {
+           return /إيجار|ايجار|ايجأر|تأجير|تاجير|rental/i.test(String(s || ""));
+       });
+       if (rentalHit) {
+           activeServiceType = rentalHit;
+           window.__serviceTypeUserSet = true;
+       }
+   }
+
+   // 3) فروع حسب النوع (فارغ = كل الأنواع → كل الفروع)
+   function serviceAllows(sType) {
+       if (!activeServiceType) return true; // كل الخدمات
+       if (!sType) return false;
+       return sType === activeServiceType;
+   }
+   globalVehicles.forEach(d => { 
+       if(showAll || normalizeValue(d["رقم المورد"])===activeSap || rowMatchesActiveSupplier(d, activeSap, activeOfficeKeys)){ 
+           let sType = String(d["نوع الخدمة"] || d["الخدمة"] || "").trim();
+           if (!serviceAllows(sType)) return;
+           if (d["الفرع"]) branchSet.add(String(d["الفرع"]).trim()); 
+       } 
+   });
    globalTrips.forEach(d => { 
        if(showAll || rowMatchesActiveSupplier(d, activeSap, activeOfficeKeys)){ 
+           let sType = String(d["نوع الخدمة"] || d["الخدمة"] || "").trim();
+           if (!sType) {
+               let tripPlate = normalizeValue(d["رقم اللوحة"]);
+               let tripCode = normalizeValue(d["كود الحافلة"] || d["كود"]);
+               sType = globalVehicleToServiceType.get(tripPlate) || globalVehicleToServiceType.get(tripCode) || "";
+           }
+           if (!serviceAllows(sType)) return;
            if(d["الفرع"]) branchSet.add(String(d["الفرع"]).trim()); 
        } 
    });
-   // فروع من المستحقات أيضاً (مورد قد يكون له أكثر من فرع في شيت المستحقات)
+
+   window.__branchesForActiveService = new Set();
+   if (activeServiceType && branchesByService.has(activeServiceType)) {
+       branchesByService.get(activeServiceType).forEach(function(br) {
+           window.__branchesForActiveService.add(br);
+           if (typeof normalizeBranchName === "function") {
+               let n = normalizeBranchName(br);
+               if (n) window.__branchesForActiveService.add(n);
+           }
+       });
+   } else {
+       window.__branchesForActiveService = null; // كل الخدمات
+   }
+
+   // فروع المستحقات المطابقة (أو الكل عند عدم اختيار نوع)
    globalDues.forEach(d => {
        if (showAll || rowMatchesActiveSupplier(d, activeSap, activeOfficeKeys)) {
+           if (typeof duesMatchesActiveService === "function" && !duesMatchesActiveService(d)) return;
            let b = getDuesBranch(d);
            if (b) branchSet.add(b);
        }
@@ -9031,6 +9090,8 @@ async function _loadSupplierDataImpl(){
        // فلتر الفرع الخارجي (من رأس الصفحة)
        let dBranch = getDuesBranch(d);
        if (!matchesActiveBranches(dBranch)) return;
+       // فلتر نوع الخدمة (فارغ = مجموع كل الخدمات)
+       if (typeof duesMatchesActiveService === "function" && !duesMatchesActiveService(d)) return;
 
        let rawPeriod = getRawDuesPeriod(d);
        let periodLabel = formatDuesPeriodLabel(rawPeriod);
@@ -9431,6 +9492,7 @@ function renderDuesByPeriod(showAll, activeSap) {
             if (!(showAll || rowMatchesActiveSupplier(d, activeSap, officeKeysForDues))) return;
             let dBranch = getDuesBranch(d);
             if (!matchesActiveBranches(dBranch)) return;
+            if (typeof duesMatchesActiveService === "function" && !duesMatchesActiveService(d)) return;
 
             let rawPeriod = getRawDuesPeriod(d);
             let periodLabel = formatDuesPeriodLabel(rawPeriod);
@@ -9470,6 +9532,44 @@ function getDuesBranch(d) {
     let v = d["الفرع"] || d["فرع"] || d["branch"] || d["Branch"] || "";
     if (v === undefined || v === null) return "";
     return String(v).trim();
+}
+/** نوع الخدمة لصف المستحقات: من العمود أو من خريطة السيارة (لوحة/كود) */
+function getDuesServiceType(d) {
+    if (!d) return "";
+    let sType = String(d["نوع الخدمة"] || d["الخدمة"] || d["serviceType"] || d["Service Type"] || "").trim();
+    if (sType) return sType;
+    try {
+        let plate = normalizeValue(d["رقم اللوحة"] || d["رقم اللوحات"] || "");
+        let code = normalizeValue(d["كود الحافلة"] || d["كود"] || d["Bus Trip Code"] || d["كود الرحلة"] || "");
+        if (typeof globalVehicleToServiceType !== "undefined" && globalVehicleToServiceType) {
+            if (plate) { let t = globalVehicleToServiceType.get(plate); if (t) return t; }
+            if (code) { let t = globalVehicleToServiceType.get(code); if (t) return t; }
+        }
+    } catch (e) {}
+    return "";
+}
+/**
+ * مطابقة نوع الخدمة للمستحقات.
+ * activeServiceType فارغ = كل الخدمات → true (المجموع الكلي).
+ */
+function duesMatchesActiveService(d) {
+    if (!activeServiceType) return true;
+    let sType = getDuesServiceType(d);
+    if (sType) return sType === activeServiceType;
+    let b = getDuesBranch(d);
+    if (!b) return false;
+    let allowed = window.__branchesForActiveService;
+    if (allowed && allowed.size) {
+        let nb = (typeof normalizeBranchName === "function") ? normalizeBranchName(b) : String(b).trim();
+        if (allowed.has(nb) || allowed.has(b)) return true;
+        if (typeof branchesMatch === "function") {
+            for (let ab of allowed) {
+                if (branchesMatch(b, ab) || branchesMatch(ab, b)) return true;
+            }
+        }
+        return false;
+    }
+    return false;
 }
 /** تحويل قيمة مالية نصية إلى رقم */
 function parseDuesMoney(val) {
@@ -9638,10 +9738,11 @@ function buildDuesPeriodUI(selectedPeriod, selectedBranch) {
     }
     window.__duesInternalBranch = selectedBranch || "";
 
-    // جمع الفروع المتاحة لهذا المورد من المستحقات
+    // جمع الفروع المتاحة لهذا المورد من المستحقات (مع فلتر نوع الخدمة / الكل)
     let branchSet = new Set();
     (globalDues || []).forEach(d => {
         if (!(showAll || rowMatchesActiveSupplier(d, activeSap, officeKeysDetail))) return;
+        if (typeof duesMatchesActiveService === "function" && !duesMatchesActiveService(d)) return;
         let b = getDuesBranch(d);
         if (b) branchSet.add(b);
     });
@@ -9654,6 +9755,7 @@ function buildDuesPeriodUI(selectedPeriod, selectedBranch) {
         let b = getDuesBranch(d);
         if (selectedBranch && !branchesMatch(b, selectedBranch)) return;
         if (!matchesActiveBranches(b)) return;
+        if (typeof duesMatchesActiveService === "function" && !duesMatchesActiveService(d)) return;
 
         let periodLabel = getDuesPeriodLabel(d);
         let periodSortKey = parseDuesPeriodSortKey(getRawDuesPeriod(d) || periodLabel);
@@ -9737,6 +9839,7 @@ function buildDuesPeriodUI(selectedPeriod, selectedBranch) {
         let b = getDuesBranch(d);
         if (selectedBranch && !branchesMatch(b, selectedBranch)) return;
         if (!matchesActiveBranches(b)) return;
+        if (typeof duesMatchesActiveService === "function" && !duesMatchesActiveService(d)) return;
 
         let periodLabel = getDuesPeriodLabel(d);
         if (selectedPeriod && periodLabel !== selectedPeriod) return;
